@@ -1,4 +1,4 @@
-// Diction Desktop — Frontend
+// Jarvis Desktop — Frontend
 // Audio capture via AudioWorklet, IPC to Rust backend via Tauri
 
 const { invoke } = window.__TAURI__.core;
@@ -494,3 +494,4 @@ setStatus("Ready", "idle");
 setInterval(() => {
   reportUsage();
 }, USAGE_REPORT_INTERVAL_MS);
+

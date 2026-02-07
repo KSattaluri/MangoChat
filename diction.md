@@ -1,4 +1,4 @@
-# Diction App Notes
+# Jarvis App Notes
 
 ## Goal
 Windows-native dictation app (system tray) with two modes:
@@ -103,7 +103,7 @@ Windows-native dictation app (system tray) with two modes:
 
 ### Project Structure (POC Web App)
 ```
-diction/
+jarvis/
 |-- app.py                   # FastAPI server, WebSocket proxy, /revise endpoint
 |-- main.py                  # Placeholder (unused)
 |-- openai_realtime_check.py # Standalone connectivity diagnostic
@@ -266,5 +266,6 @@ User Speech
 - Raw/Edited toggle.
 - Contextual hints after extended pure dictation:
   "Say 'replace X with Y' or 'delete last sentence' to edit" (dismissible).
+
 
 

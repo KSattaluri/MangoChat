@@ -1051,29 +1051,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diction"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "enigo",
- "futures-util",
- "image",
- "log",
- "rdev",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-store",
- "tokio",
- "tokio-tungstenite",
- "xcap",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2437,6 +2414,29 @@ name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
+
+[[package]]
+name = "jarvis"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "enigo",
+ "futures-util",
+ "image",
+ "log",
+ "rdev",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-store",
+ "tokio",
+ "tokio-tungstenite",
+ "xcap",
+]
 
 [[package]]
 name = "javascriptcore-rs"

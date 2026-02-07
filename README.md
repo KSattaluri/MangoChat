@@ -1,4 +1,4 @@
-# Diction (Strict Dictation)
+# Jarvis (Strict Dictation)
 
 ## What it is
 Minimal local web UI that streams microphone audio to OpenAI Realtime and renders a live transcript.
@@ -21,7 +21,7 @@ OPENAI_API_KEY=...
 
 3) Run the app:
 ```bash
-uv run python diction/app.py
+uv run python jarvis/app.py
 ```
 
 4) Open:
@@ -33,3 +33,4 @@ http://127.0.0.1:8000
 - Audio is captured in the browser and streamed as 24kHz mono PCM.
 - Final transcripts are appended; interim text appears in gray.
 - Say `command ... end command` to mark edits, then click **Revise** to apply.
+

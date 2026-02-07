@@ -250,7 +250,7 @@ pub async fn open_task_manager() -> Result<(), String> {
         let _ = enigo.key(Key::Shift, enigo::Direction::Release);
 
         // Typing replaces the selection.
-        let _ = enigo.text("Diction");
+        let _ = enigo.text("Jarvis");
         Ok::<(), String>(())
     })
     .await
@@ -296,3 +296,4 @@ pub async fn report_usage(
     }
     Ok(())
 }
+

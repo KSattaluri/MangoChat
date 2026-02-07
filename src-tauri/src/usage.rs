@@ -15,20 +15,20 @@ pub struct UsageDelta {
 
 pub fn usage_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Diction").join("usage.jsonl"));
+        return Ok(dir.join("Jarvis").join("usage.jsonl"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".diction").join("usage.jsonl"));
+        return Ok(home.join(".jarvis").join("usage.jsonl"));
     }
     Err("Failed to resolve data directory for usage logs".into())
 }
 
 pub fn session_usage_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Diction").join("usage-session.jsonl"));
+        return Ok(dir.join("Jarvis").join("usage-session.jsonl"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".diction").join("usage-session.jsonl"));
+        return Ok(home.join(".jarvis").join("usage-session.jsonl"));
     }
     Err("Failed to resolve data directory for usage logs".into())
 }
@@ -76,3 +76,4 @@ pub fn append_usage_line<T: Serialize>(path: &PathBuf, usage: &T) -> Result<(), 
         .map_err(|e| format!("Failed to append usage log: {}", e))?;
     Ok(())
 }
+

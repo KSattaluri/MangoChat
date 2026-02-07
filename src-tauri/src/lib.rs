@@ -75,7 +75,7 @@ pub fn run() {
             let icon = Image::new(&ICON_RGBA, 1, 1);
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(icon)
-                .tooltip("Diction - Disarmed")
+                .tooltip("Jarvis - Disarmed")
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     let id = event.id().as_ref();
@@ -92,9 +92,9 @@ pub fn run() {
                                 let icon = Image::new(&ICON_RGBA, 1, 1);
                                 let _ = tray.set_icon(Some(icon));
                                 let tooltip = if is_armed {
-                                    "Diction - Armed"
+                                    "Jarvis - Armed"
                                 } else {
-                                    "Diction - Disarmed"
+                                    "Jarvis - Disarmed"
                                 };
                                 let _ = tray.set_tooltip(Some(tooltip));
                             }
@@ -140,11 +140,11 @@ pub fn run() {
                 let state = handle.state::<Arc<AppState>>();
                 *state.armed.lock().unwrap() = true;
                 if let Some(tray) = handle.tray_by_id("main") {
-                    let _ = tray.set_tooltip(Some("Diction - Armed"));
+                    let _ = tray.set_tooltip(Some("Jarvis - Armed"));
                 }
                 let _ = toggle_armed_setup.set_text("Disarm Dictation");
                 hotkey::start_listener(handle.clone());
-                println!("[diction] auto-armed, hold Right Ctrl to dictate");
+                println!("[jarvis] auto-armed, hold Right Ctrl to dictate");
             }
 
             // Snip trigger listener
@@ -238,3 +238,4 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

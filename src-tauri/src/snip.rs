@@ -211,10 +211,10 @@ pub fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
 
 pub(crate) fn snip_dir() -> Result<PathBuf, String> {
     if let Some(pictures) = dirs::picture_dir() {
-        return Ok(pictures.join("Diction"));
+        return Ok(pictures.join("Jarvis"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join("Pictures").join("Diction"));
+        return Ok(home.join("Pictures").join("Jarvis"));
     }
     Err("Failed to resolve Pictures directory".into())
 }
@@ -251,3 +251,4 @@ fn prune_old_snips(dir: &Path, keep: usize) -> Result<(), String> {
     }
     Ok(())
 }
+
