@@ -27,6 +27,7 @@ const COMMANDS: &[(&str, fn())] = &[
     ("enter",          cmd_new_line as fn()),
     ("center",         cmd_new_line as fn()),
     ("centre",         cmd_new_line as fn()),
+    ("yes",            cmd_new_line as fn()),
     ("paragraph",      cmd_new_paragraph as fn()),
     ("newline",        cmd_new_line as fn()),
     ("back",           cmd_delete_word as fn()),
