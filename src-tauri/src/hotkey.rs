@@ -15,8 +15,6 @@ pub fn start_listener(app: AppHandle) {
 
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        let recording = Arc::new(AtomicBool::new(false));
-        let recording_clone = recording.clone();
         let key_held = Arc::new(AtomicBool::new(false));
         let key_held_clone = key_held.clone();
         let app_inner = app_clone.clone();
@@ -35,14 +33,14 @@ pub fn start_listener(app: AppHandle) {
                     }
                     key_held_clone.store(true, Ordering::SeqCst);
 
-                    // Toggle recording on each press
-                    let was_recording = recording_clone.load(Ordering::SeqCst);
+                    // Toggle recording — uses shared state so stop_session can reset it.
+                    let was_recording = state.hotkey_recording.load(Ordering::SeqCst);
                     if was_recording {
-                        recording_clone.store(false, Ordering::SeqCst);
+                        state.hotkey_recording.store(false, Ordering::SeqCst);
                         println!("[hotkey] Right Ctrl → stop recording");
                         let _ = app_inner.emit("hotkey-release", ());
                     } else {
-                        recording_clone.store(true, Ordering::SeqCst);
+                        state.hotkey_recording.store(true, Ordering::SeqCst);
                         println!("[hotkey] Right Ctrl → start recording");
                         let _ = app_inner.emit("hotkey-push", ());
                     }

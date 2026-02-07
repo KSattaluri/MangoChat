@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
@@ -171,16 +172,26 @@ pub fn crop_and_save(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Result<
 
     let now = Local::now();
     let base = now.format("snip-%Y-%m-%d-%H%M%S").to_string();
-    let mut path = dir.join(format!("{}.png", base));
+    let mut path = dir.join(format!("{}.jpg", base));
     if path.exists() {
         let suffix = now.timestamp_millis() % 1000;
-        path = dir.join(format!("{}-{:03}.png", base, suffix));
+        path = dir.join(format!("{}-{:03}.jpg", base, suffix));
     }
 
-    let dyn_img = DynamicImage::ImageRgba8(cropped);
-    dyn_img
-        .save(&path)
-        .map_err(|e| format!("Failed to save snip: {}", e))?;
+    let (w, h) = cropped.dimensions();
+    let rgb_data: Vec<u8> = cropped
+        .as_raw()
+        .chunks_exact(4)
+        .flat_map(|px| &px[..3])
+        .copied()
+        .collect();
+    let mut jpeg_bytes = Vec::new();
+    JpegEncoder::new_with_quality(&mut jpeg_bytes, 90)
+        .write_image(&rgb_data, w, h, image::ExtendedColorType::Rgb8)
+        .map_err(|e| format!("JPEG encode error: {}", e))?;
+    fs::write(&path, jpeg_bytes).map_err(|e| format!("Failed to save snip: {}", e))?;
+
+    let _ = prune_old_snips(&dir, 5);
 
     Ok(path)
 }
@@ -206,4 +217,37 @@ pub(crate) fn snip_dir() -> Result<PathBuf, String> {
         return Ok(home.join("Pictures").join("Diction"));
     }
     Err("Failed to resolve Pictures directory".into())
+}
+
+fn prune_old_snips(dir: &Path, keep: usize) -> Result<(), String> {
+    let mut files = Vec::new();
+    let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read snip dir: {}", e))?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext != "jpg" && ext != "jpeg" {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        files.push((path, modified));
+    }
+
+    files.sort_by(|a, b| b.1.cmp(&a.1));
+    for (idx, (path, _)) in files.into_iter().enumerate() {
+        if idx >= keep {
+            let _ = fs::remove_file(path);
+        }
+    }
+    Ok(())
 }

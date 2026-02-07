@@ -12,6 +12,7 @@ const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const openFolderBtn = document.getElementById("openFolderBtn");
+const closeBtn = document.getElementById("closeBtn");
 const settingsPanel = document.getElementById("settingsPanel");
 const saveSettings = document.getElementById("saveSettings");
 const statusDot = document.getElementById("statusDot");
@@ -50,12 +51,24 @@ const PREROLL_MS = 100;
 
 // --- Status ---
 
+let errorTimeout = null;
+
 function setStatus(text, state) {
   statusText.textContent = text;
   statusDot.className = `dot ${state}`;
   // Show text, hide visualizer for non-live states
   if (state !== "live") {
     stopVisualizer();
+  }
+  // Auto-recover from error after 4 seconds
+  if (errorTimeout) {
+    clearTimeout(errorTimeout);
+    errorTimeout = null;
+  }
+  if (state === "error") {
+    errorTimeout = setTimeout(() => {
+      setStatus("Ready", "idle");
+    }, 4000);
   }
 }
 
@@ -401,6 +414,12 @@ listen("hotkey-release", async () => {
 
 listen("snip-complete", (event) => {
   console.log("[snip] saved:", event.payload);
+});
+
+// --- Close to tray ---
+
+closeBtn.addEventListener("click", () => {
+  appWindow.hide();
 });
 
 // --- Init ---

@@ -1,8 +1,8 @@
 use crate::openai;
 use crate::snip;
 use crate::state::AppState;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_store::StoreExt;
 use tokio::sync::mpsc;
@@ -91,16 +91,24 @@ pub async fn start_session(
         *active = true;
     }
 
+    // Bump generation so any prior session's cleanup becomes a no-op.
+    let gen = state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
+
     // Spawn WebSocket task
     let app_clone = app.clone();
     let state_clone = app.state::<Arc<AppState>>().inner().clone();
     tokio::spawn(async move {
         openai::run_session(app_clone, api_key, model, transcription_model, language, rx).await;
-        // Mark session inactive when done
-        let mut active = state_clone.session_active.lock().unwrap();
-        *active = false;
-        let mut audio_tx = state_clone.audio_tx.lock().unwrap();
-        *audio_tx = None;
+        // Only clean up if no newer session has started since ours.
+        if state_clone.session_gen.load(Ordering::SeqCst) == gen {
+            let mut active = state_clone.session_active.lock().unwrap();
+            *active = false;
+            let mut audio_tx = state_clone.audio_tx.lock().unwrap();
+            *audio_tx = None;
+            state_clone
+                .hotkey_recording
+                .store(false, Ordering::SeqCst);
+        }
     });
 
     Ok(())
@@ -114,6 +122,9 @@ pub async fn stop_session(state: State<'_, Arc<AppState>>) -> Result<(), String>
 
     let mut active = state.session_active.lock().map_err(|e| e.to_string())?;
     *active = false;
+
+    // Reset hotkey recording state so next press starts fresh.
+    state.hotkey_recording.store(false, Ordering::SeqCst);
 
     Ok(())
 }
