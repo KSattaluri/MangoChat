@@ -8,6 +8,10 @@
     "core:event:default",
     "core:event:allow-emit",
     "core:event:allow-listen",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-scale-factor",
     "store:default"
   ]
 }

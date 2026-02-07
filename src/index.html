@@ -8,27 +8,29 @@
   </head>
   <body>
     <main class="app">
-      <header class="header">
-        <h1>Diction</h1>
-        <div class="status">
+      <header class="header" data-tauri-drag-region>
+        <span class="title" data-tauri-drag-region>Diction</span>
+        <div class="status" data-tauri-drag-region>
           <span id="statusDot" class="dot idle"></span>
           <span id="statusText">Ready</span>
+          <canvas id="visualizer" class="visualizer hidden" width="80" height="20"></canvas>
         </div>
       </header>
 
-      <section class="controls">
-        <button id="startBtn" class="primary">Start</button>
-        <button id="stopBtn" class="ghost" disabled>Stop</button>
-        <button id="settingsBtn" class="ghost">Settings</button>
-      </section>
+      <div class="controls">
+        <button id="startBtn" class="btn primary">Start</button>
+        <button id="stopBtn" class="btn" disabled>Stop</button>
+        <button id="settingsBtn" class="btn icon" title="Settings">&#9881;</button>
+        <button id="openFolderBtn" class="btn icon" title="Open Snips Folder">&#128193;</button>
+      </div>
 
       <section id="settingsPanel" class="settings hidden">
         <div class="field">
-          <label for="apiKey">OpenAI API Key</label>
+          <label for="apiKey">API Key</label>
           <input type="password" id="apiKey" placeholder="sk-..." />
         </div>
         <div class="field">
-          <label for="model">Realtime Model</label>
+          <label for="model">Model</label>
           <input type="text" id="model" value="gpt-realtime" />
         </div>
         <div class="field">
@@ -39,17 +41,8 @@
           <label for="micSelect">Microphone</label>
           <select id="micSelect"></select>
         </div>
-        <button id="saveSettings" class="primary">Save</button>
+        <button id="saveSettings" class="btn primary full">Save</button>
       </section>
-
-      <section class="transcript">
-        <div id="transcriptText" class="final"></div>
-        <div id="partialText" class="partial"></div>
-      </section>
-
-      <footer class="footer">
-        <span class="hint">Hold Right Ctrl to dictate (when armed via tray).</span>
-      </footer>
     </main>
 
     <script src="app.js"></script>

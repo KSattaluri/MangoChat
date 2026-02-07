@@ -13,14 +13,16 @@
     "windows": [
       {
         "title": "Diction",
-        "width": 480,
-        "height": 600,
-        "resizable": true,
-        "center": true
+        "width": 260,
+        "height": 72,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     }
   },
   "bundle": {

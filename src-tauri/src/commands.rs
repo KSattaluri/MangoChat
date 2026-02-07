@@ -1,7 +1,9 @@
 use crate::openai;
+use crate::snip;
 use crate::state::AppState;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_store::StoreExt;
 use tokio::sync::mpsc;
 
@@ -140,5 +142,69 @@ pub async fn set_setting(
         .save()
         .map_err(|e| format!("Failed to save store: {}", e))?;
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn finish_snip(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let img = {
+        let mut guard = state.snip_image.lock().map_err(|e| e.to_string())?;
+        guard.take()
+    };
+
+    let Some(img) = img else {
+        state.snip_active.store(false, Ordering::SeqCst);
+        snip::hide_overlay(&app);
+        return Err("No snip image available".into());
+    };
+
+    let task = tokio::task::spawn_blocking(move || {
+        let path = snip::crop_and_save(&img, x, y, width, height)?;
+        snip::copy_path_to_clipboard(&path)?;
+        Ok(path)
+    });
+
+    let result = match task.await {
+        Ok(Ok(path)) => {
+            let path_str = path.to_string_lossy().to_string();
+            let _ = app.emit("snip-complete", path_str.clone());
+            log::info!("[snip] saved to {}", path_str);
+            Ok(())
+        }
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(format!("Snip task failed: {}", err)),
+    };
+
+    state.snip_active.store(false, Ordering::SeqCst);
+    snip::hide_overlay(&app);
+    result
+}
+
+#[tauri::command]
+pub async fn open_snip_folder() -> Result<(), String> {
+    let dir = snip::snip_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {}", e))?;
+    std::process::Command::new("explorer")
+        .arg(dir.as_os_str())
+        .spawn()
+        .map_err(|e| format!("Failed to open folder: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_snip(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    if let Ok(mut guard) = state.snip_image.lock() {
+        *guard = None;
+    }
+    state.snip_active.store(false, Ordering::SeqCst);
+    snip::hide_overlay(&app);
+    log::info!("[snip] cancelled");
     Ok(())
 }

@@ -23,13 +23,12 @@ pub fn start_listener(app: AppHandle) {
 
         let callback = move |event: Event| {
             let state = app_inner.state::<Arc<AppState>>();
-            let armed = state.armed.lock().map(|v| *v).unwrap_or(false);
-            if !armed {
-                return;
-            }
-
             match event.event_type {
                 EventType::KeyPress(Key::ControlRight) => {
+                    let armed = state.armed.lock().map(|v| *v).unwrap_or(false);
+                    if !armed {
+                        return;
+                    }
                     // Ignore auto-repeat (key already held)
                     if key_held_clone.load(Ordering::SeqCst) {
                         return;
@@ -50,6 +49,24 @@ pub fn start_listener(app: AppHandle) {
                 }
                 EventType::KeyRelease(Key::ControlRight) => {
                     key_held_clone.store(false, Ordering::SeqCst);
+                }
+                EventType::KeyPress(Key::AltGr) => {
+                    let armed = state.armed.lock().map(|v| *v).unwrap_or(false);
+                    if !armed {
+                        println!("[hotkey] AltGr pressed but not armed, ignoring");
+                        return;
+                    }
+                    if state.snip_active.swap(true, Ordering::SeqCst) {
+                        println!("[hotkey] AltGr pressed but snip already active, ignoring");
+                        return;
+                    }
+                    println!("[hotkey] Right Alt → snip");
+                    let _ = app_inner.emit("snip-trigger", ());
+                }
+                EventType::MouseMove { x, y } => {
+                    if let Ok(mut pos) = state.cursor_pos.lock() {
+                        *pos = Some((x as i32, y as i32));
+                    }
                 }
                 _ => {}
             }

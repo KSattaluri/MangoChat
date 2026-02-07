@@ -3,20 +3,30 @@
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const { getCurrentWindow } = window.__TAURI__.window;
+const { LogicalSize } = window.__TAURI__.dpi;
+
+const appWindow = getCurrentWindow();
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const settingsBtn = document.getElementById("settingsBtn");
+const openFolderBtn = document.getElementById("openFolderBtn");
 const settingsPanel = document.getElementById("settingsPanel");
 const saveSettings = document.getElementById("saveSettings");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
-const transcriptText = document.getElementById("transcriptText");
-const partialText = document.getElementById("partialText");
+const visualizerCanvas = document.getElementById("visualizer");
 const micSelect = document.getElementById("micSelect");
+
+const WIN_W = 260;
+const WIN_H_COMPACT = 72;
+const WIN_H_SETTINGS = 330;
 
 let audioContext = null;
 let workletNode = null;
+let analyserNode = null;
+let visualizerAnimId = null;
 let mediaStream = null;
 let isRecording = false;
 let lastVoiceTs = 0;
@@ -43,6 +53,61 @@ const PREROLL_MS = 100;
 function setStatus(text, state) {
   statusText.textContent = text;
   statusDot.className = `dot ${state}`;
+  // Show text, hide visualizer for non-live states
+  if (state !== "live") {
+    stopVisualizer();
+  }
+}
+
+// --- Visualizer ---
+
+function startVisualizer(analyser) {
+  const ctx = visualizerCanvas.getContext("2d");
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  const barCount = 8;
+  const gap = 2;
+  const barWidth = (visualizerCanvas.width - gap * (barCount - 1)) / barCount;
+
+  statusText.classList.add("hidden");
+  visualizerCanvas.classList.remove("hidden");
+
+  function draw() {
+    if (!isRecording) {
+      ctx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+      return;
+    }
+    visualizerAnimId = requestAnimationFrame(draw);
+
+    analyser.getByteFrequencyData(dataArray);
+    ctx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+
+    for (let i = 0; i < barCount; i++) {
+      // Sample from lower frequencies (more visually active)
+      const idx = Math.floor((i * bufferLength * 0.5) / barCount);
+      const value = dataArray[idx] / 255;
+      const barHeight = Math.max(2, value * visualizerCanvas.height);
+      const x = i * (barWidth + gap);
+      const y = visualizerCanvas.height - barHeight;
+
+      ctx.fillStyle = "#36d399";
+      ctx.shadowColor = "#36d399";
+      ctx.shadowBlur = 4;
+      ctx.fillRect(x, y, barWidth, barHeight);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  draw();
+}
+
+function stopVisualizer() {
+  if (visualizerAnimId) {
+    cancelAnimationFrame(visualizerAnimId);
+    visualizerAnimId = null;
+  }
+  visualizerCanvas.classList.add("hidden");
+  statusText.classList.remove("hidden");
 }
 
 // --- Audio ---
@@ -103,6 +168,12 @@ async function startRecording() {
     workletNode = new AudioWorkletNode(audioContext, "pcm-processor");
     source.connect(workletNode).connect(audioContext.destination);
 
+    // Branch analyser off source for visualizer (doesn't affect audio chain)
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 64;
+    analyserNode.smoothingTimeConstant = 0.8;
+    source.connect(analyserNode);
+
     workletNode.port.onmessage = (event) => {
       if (!isRecording) return;
       const float32 = event.data;
@@ -133,7 +204,7 @@ async function startRecording() {
         gateSuppressed++;
         if (isSending) enqueueSend(null); // commit
         isSending = false;
-        // Log gate stats every ~5s (50 chunks × 100ms)
+        // Log gate stats every ~5s (50 chunks * 100ms)
         if ((gateSent + gateSuppressed) % 50 === 0) {
           const total = gateSent + gateSuppressed;
           const pct = total > 0 ? ((gateSuppressed / total) * 100).toFixed(0) : 0;
@@ -163,7 +234,7 @@ async function startRecording() {
     console.error("startRecording error:", err);
     const msg = typeof err === "string" ? err : "Failed to start";
     setStatus(msg, "error");
-    // Ensure mic and audio context are released on failure
+    analyserNode = null;
     if (workletNode) {
       workletNode.disconnect();
       workletNode = null;
@@ -194,6 +265,8 @@ async function stopRecording() {
     console.error("stop_session error:", err);
   }
 
+  stopVisualizer();
+  analyserNode = null;
   if (workletNode) {
     workletNode.disconnect();
     workletNode = null;
@@ -229,8 +302,20 @@ const apiKeyInput = document.getElementById("apiKey");
 const modelInput = document.getElementById("model");
 const languageInput = document.getElementById("language");
 
-settingsBtn.addEventListener("click", () => {
+settingsBtn.addEventListener("click", async () => {
   settingsPanel.classList.toggle("hidden");
+  const isOpen = !settingsPanel.classList.contains("hidden");
+  const newH = isOpen ? WIN_H_SETTINGS : WIN_H_COMPACT;
+  const delta = WIN_H_SETTINGS - WIN_H_COMPACT;
+  // Expand upward: shift Y so the bottom edge stays anchored
+  const pos = await appWindow.outerPosition();
+  const scale = await appWindow.scaleFactor();
+  const logicalY = pos.y / scale;
+  const newY = isOpen ? logicalY - delta : logicalY + delta;
+  await appWindow.setPosition(
+    new window.__TAURI__.dpi.LogicalPosition(pos.x / scale, newY),
+  );
+  await appWindow.setSize(new LogicalSize(WIN_W, newH));
 });
 
 saveSettings.addEventListener("click", async () => {
@@ -241,7 +326,7 @@ saveSettings.addEventListener("click", async () => {
     if (micSelect.value) {
       await invoke("set_setting", { key: "mic_device_id", value: micSelect.value });
     }
-    setStatus("Settings saved", "idle");
+    setStatus("Saved", "idle");
   } catch (err) {
     console.error("saveSettings error:", err);
     setStatus("Save failed", "error");
@@ -279,26 +364,31 @@ async function loadMicList() {
   }
 }
 
+// --- Open snip folder ---
+
+openFolderBtn.addEventListener("click", async () => {
+  try {
+    await invoke("open_snip_folder");
+  } catch (err) {
+    console.error("open_snip_folder error:", err);
+  }
+});
+
 // --- Events from Rust ---
 
 listen("transcript", (event) => {
-  const { text, is_final } = event.payload;
-  if (is_final) {
-    const spacer =
-      transcriptText.textContent.endsWith("\n") ||
-      transcriptText.textContent === ""
-        ? ""
-        : " ";
-    transcriptText.textContent += spacer + text;
-    partialText.textContent = "";
-  } else {
-    partialText.textContent = text;
-  }
+  const { text } = event.payload;
+  console.log("[transcript]", text);
 });
 
 listen("status-update", (event) => {
   const { status, message } = event.payload;
   setStatus(message, status);
+  // "Listening" from Rust means WebSocket is connected and session is configured.
+  // That's when we show the visualizer — not before.
+  if (status === "live" && message === "Listening" && analyserNode && isRecording) {
+    startVisualizer(analyserNode);
+  }
 });
 
 listen("hotkey-push", async () => {
@@ -307,6 +397,10 @@ listen("hotkey-push", async () => {
 
 listen("hotkey-release", async () => {
   await stopRecording();
+});
+
+listen("snip-complete", (event) => {
+  console.log("[snip] saved:", event.payload);
 });
 
 // --- Init ---

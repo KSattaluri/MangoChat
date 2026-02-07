@@ -1,16 +1,18 @@
 mod commands;
 mod hotkey;
 mod openai;
+mod snip;
 mod state;
 mod typing;
 
 use state::AppState;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Listener, Manager, WindowEvent,
 };
 
 // Minimal 1x1 transparent RGBA icon to avoid image decoding features.
@@ -29,9 +31,13 @@ pub fn run() {
             commands::stop_session,
             commands::get_setting,
             commands::set_setting,
+            commands::finish_snip,
+            commands::cancel_snip,
+            commands::open_snip_folder,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            let snip_state = handle.state::<Arc<AppState>>().inner().clone();
 
             // Build tray menu
             let toggle_armed =
@@ -104,25 +110,18 @@ pub fn run() {
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { .. } = event {
-                        let state = tray.app_handle().state::<Arc<AppState>>();
-                        let mut armed = state.armed.lock().unwrap();
-                        *armed = !*armed;
-                        let is_armed = *armed;
-                        drop(armed);
-
-                        if let Some(tray) = tray.app_handle().tray_by_id("main") {
-                            let icon = Image::new(&ICON_RGBA, 1, 1);
-                            let _ = tray.set_icon(Some(icon));
-                            let tooltip = if is_armed {
-                                "Diction - Armed"
-                            } else {
-                                "Diction - Disarmed"
-                            };
-                            let _ = tray.set_tooltip(Some(tooltip));
+                        if let Some(win) = tray.app_handle().get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
                         }
                     }
                 })
                 .build(app)?;
+
+            // Pre-create snip overlay (hidden) — avoids WebView2 init cost on each trigger
+            if let Err(e) = snip::init_overlay(&handle) {
+                log::error!("[snip] failed to pre-create overlay: {}", e);
+            }
 
             // Auto-arm and start hotkey listener
             {
@@ -136,8 +135,50 @@ pub fn run() {
                 println!("[diction] auto-armed, hold Right Ctrl to dictate");
             }
 
-            // Close to tray instead of quitting
+            // Snip trigger listener
+            {
+                let snip_handle = handle.clone();
+                app.listen("snip-trigger", move |_| {
+                    let app_handle = snip_handle.clone();
+                    let state = snip_state.clone();
+                    let cursor = state.cursor_pos.lock().ok().and_then(|v| *v);
+                    std::thread::spawn(move || match snip::capture_screen(cursor) {
+                        Ok((img, b64, bounds)) => {
+                            if let Ok(mut guard) = state.snip_image.lock() {
+                                *guard = Some(img);
+                            }
+                            if let Err(e) = snip::show_overlay(&app_handle, &b64, &bounds) {
+                                log::error!("[snip] overlay error: {}", e);
+                                state.snip_active.store(false, Ordering::SeqCst);
+                                if let Ok(mut guard) = state.snip_image.lock() {
+                                    *guard = None;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("[snip] capture error: {}", e);
+                            state.snip_active.store(false, Ordering::SeqCst);
+                        }
+                    });
+                });
+            }
+
+            // Close to tray instead of quitting + position bottom-right
             if let Some(window) = app.get_webview_window("main") {
+                // Anchor above the taskbar, bottom-right
+                if let Ok(Some(monitor)) = window.primary_monitor() {
+                    let scale = monitor.scale_factor();
+                    let screen_w = monitor.size().width as f64 / scale;
+                    let screen_h = monitor.size().height as f64 / scale;
+                    let win_w = 260.0;
+                    let win_h = 72.0;
+                    let taskbar_h = 48.0;
+                    let margin = 12.0;
+                    let x = screen_w - win_w - margin;
+                    let y = screen_h - win_h - taskbar_h - margin;
+                    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+                }
+
                 let handle_clone = handle.clone();
                 window.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
