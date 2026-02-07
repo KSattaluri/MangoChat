@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diction</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <h1>Diction</h1>
+        <div class="status">
+          <span id="statusDot" class="dot idle"></span>
+          <span id="statusText">Ready</span>
+        </div>
+      </header>
+
+      <section class="controls">
+        <button id="startBtn" class="primary">Start</button>
+        <button id="stopBtn" class="ghost" disabled>Stop</button>
+        <button id="settingsBtn" class="ghost">Settings</button>
+      </section>
+
+      <section id="settingsPanel" class="settings hidden">
+        <div class="field">
+          <label for="apiKey">OpenAI API Key</label>
+          <input type="password" id="apiKey" placeholder="sk-..." />
+        </div>
+        <div class="field">
+          <label for="model">Realtime Model</label>
+          <input type="text" id="model" value="gpt-realtime" />
+        </div>
+        <div class="field">
+          <label for="language">Language</label>
+          <input type="text" id="language" value="en" />
+        </div>
+        <div class="field">
+          <label for="micSelect">Microphone</label>
+          <select id="micSelect"></select>
+        </div>
+        <button id="saveSettings" class="primary">Save</button>
+      </section>
+
+      <section class="transcript">
+        <div id="transcriptText" class="final"></div>
+        <div id="partialText" class="partial"></div>
+      </section>
+
+      <footer class="footer">
+        <span class="hint">Hold Right Ctrl to dictate (when armed via tray).</span>
+      </footer>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

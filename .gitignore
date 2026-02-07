@@ -1,0 +1,45 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Virtual environments
+.venv
+
+# Local environment/config
+.env
+.env.*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+# Logs
+*.log
+
+# Local artifacts
+Screenshot 2026-02-05 195523.png
+
+# Tauri / Rust
+target/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/.cargo/
+src-tauri/.tauri/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
