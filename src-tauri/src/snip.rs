@@ -125,14 +125,21 @@ pub fn open_overlay(
         }
     });
 
-    // Wait for overlay JS to load, then send the screenshot and show.
+    // Show immediately — the HTML renders a dark "Capturing..." screen
+    // while WebView2 initializes, before the screenshot data arrives.
+    window
+        .show()
+        .map_err(|e| format!("Failed to show overlay: {}", e))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus overlay: {}", e))?;
+
+    // When JS finishes loading it emits snip-ready; then we send the screenshot.
     let b64 = b64_jpeg.to_string();
     let app_for_ready = app.clone();
     app.once("snip-ready", move |_| {
         if let Some(win) = app_for_ready.get_webview_window("snip-overlay") {
             let _ = win.emit("snip-screenshot", &b64);
-            let _ = win.show();
-            let _ = win.set_focus();
         }
     });
 

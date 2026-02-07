@@ -45,12 +45,10 @@ pub async fn start_session(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    // Check if already active
+    // If a prior session is still marked active (stale state), force-reset it.
     {
-        let active = state.session_active.lock().map_err(|e| e.to_string())?;
-        if *active {
-            return Ok(());
-        }
+        let mut audio_tx = state.audio_tx.lock().map_err(|e| e.to_string())?;
+        *audio_tx = None;
     }
 
     // Read settings from store
