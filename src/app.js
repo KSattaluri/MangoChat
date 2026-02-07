@@ -13,6 +13,7 @@ const stopBtn = document.getElementById("stopBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const openFolderBtn = document.getElementById("openFolderBtn");
 const closeBtn = document.getElementById("closeBtn");
+const taskMgrBtn = document.getElementById("taskMgrBtn");
 const settingsPanel = document.getElementById("settingsPanel");
 const saveSettings = document.getElementById("saveSettings");
 const statusDot = document.getElementById("statusDot");
@@ -42,6 +43,16 @@ let draining = false;
 // Gate stats — logged periodically to show send vs suppress ratio.
 let gateSent = 0;
 let gateSuppressed = 0;
+
+// Usage metrics (per-interval, reported to backend)
+const usage = {
+  bytesSent: 0,
+  msSent: 0,
+  msSuppressed: 0,
+  commits: 0,
+};
+
+const USAGE_REPORT_INTERVAL_MS = 60000;
 
 const SAMPLE_RATE = 24000;
 const THRESHOLD_16 = 150;
@@ -136,8 +147,45 @@ function floatTo16BitPCM(float32Array) {
   return new Uint8Array(buffer);
 }
 
+function msFromPcmBytes(byteLen) {
+  return Math.round((byteLen / 2 / SAMPLE_RATE) * 1000);
+}
+
+async function reportUsage() {
+  if (
+    usage.bytesSent === 0 &&
+    usage.msSent === 0 &&
+    usage.msSuppressed === 0 &&
+    usage.commits === 0
+  ) {
+    return;
+  }
+  try {
+    await invoke("report_usage", {
+      delta: {
+        bytes_sent: usage.bytesSent,
+        ms_sent: usage.msSent,
+        ms_suppressed: usage.msSuppressed,
+        commits: usage.commits,
+      },
+    });
+    usage.bytesSent = 0;
+    usage.msSent = 0;
+    usage.msSuppressed = 0;
+    usage.commits = 0;
+  } catch (err) {
+    console.error("report_usage error:", err);
+  }
+}
+
 // Enqueue audio (Uint8Array) or "commit" (null) and drain serially.
 function enqueueSend(pcm16OrNull) {
+  if (pcm16OrNull === null) {
+    usage.commits++;
+  } else {
+    usage.bytesSent += pcm16OrNull.length;
+    usage.msSent += msFromPcmBytes(pcm16OrNull.length);
+  }
   sendQueue.push(pcm16OrNull);
   drainSendQueue();
 }
@@ -211,10 +259,12 @@ async function startRecording() {
         if (!dropped) break;
         const droppedMs = (dropped.length / 2 / SAMPLE_RATE) * 1000;
         prerollMs -= droppedMs;
+        usage.msSuppressed += Math.round(droppedMs);
       }
 
       if (!hasVoice && !inHangover) {
         gateSuppressed++;
+        usage.msSuppressed += Math.round(chunkMs);
         if (isSending) enqueueSend(null); // commit
         isSending = false;
         // Log gate stats every ~5s (50 chunks * 100ms)
@@ -277,6 +327,8 @@ async function stopRecording() {
   } catch (err) {
     console.error("stop_session error:", err);
   }
+
+  await reportUsage();
 
   stopVisualizer();
   analyserNode = null;
@@ -416,6 +468,16 @@ listen("snip-complete", (event) => {
   console.log("[snip] saved:", event.payload);
 });
 
+// --- Task Manager ---
+
+taskMgrBtn.addEventListener("click", async () => {
+  try {
+    await invoke("open_task_manager");
+  } catch (err) {
+    console.error("open_task_manager error:", err);
+  }
+});
+
 // --- Close to tray ---
 
 closeBtn.addEventListener("click", () => {
@@ -428,3 +490,7 @@ startBtn.addEventListener("click", startRecording);
 stopBtn.addEventListener("click", stopRecording);
 loadMicList().then(loadSettings);
 setStatus("Ready", "idle");
+
+setInterval(() => {
+  reportUsage();
+}, USAGE_REPORT_INTERVAL_MS);

@@ -3,14 +3,14 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::Local;
 use image::codecs::jpeg::JpegEncoder;
-use image::{imageops, DynamicImage, ImageEncoder, RgbaImage};
+use image::{imageops, ImageEncoder, RgbaImage};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
 };
 
@@ -85,9 +85,17 @@ pub fn capture_screen(
     Ok((image, b64, bounds))
 }
 
-/// Create the overlay window once at startup (hidden).
-/// WebView2 initialization is expensive (~1-2s), so we pay that cost once.
-pub fn init_overlay(app: &AppHandle) -> Result<(), String> {
+/// Create overlay on-demand, position on the correct monitor, and show once JS is ready.
+pub fn open_overlay(
+    app: &AppHandle,
+    b64_jpeg: &str,
+    bounds: &MonitorBounds,
+) -> Result<(), String> {
+    // Clean up any leftover overlay from a previous snip.
+    if let Some(existing) = app.get_webview_window("snip-overlay") {
+        let _ = existing.destroy();
+    }
+
     let window = WebviewWindowBuilder::new(
         app,
         "snip-overlay",
@@ -103,14 +111,13 @@ pub fn init_overlay(app: &AppHandle) -> Result<(), String> {
     .build()
     .map_err(|e| format!("Failed to create overlay: {}", e))?;
 
-    let app_handle = app.clone();
+    let _ = window.set_position(PhysicalPosition::new(bounds.x, bounds.y));
+    let _ = window.set_size(PhysicalSize::new(bounds.width, bounds.height));
+
+    // Clean up state if the window is force-closed (Alt+F4).
     let overlay_state = app.state::<Arc<AppState>>().inner().clone();
     window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            if let Some(win) = app_handle.get_webview_window("snip-overlay") {
-                let _ = win.hide();
-            }
+        if let WindowEvent::CloseRequested { .. } = event {
             overlay_state.snip_active.store(false, Ordering::SeqCst);
             if let Ok(mut img) = overlay_state.snip_image.lock() {
                 *img = None;
@@ -118,38 +125,24 @@ pub fn init_overlay(app: &AppHandle) -> Result<(), String> {
         }
     });
 
+    // Wait for overlay JS to load, then send the screenshot and show.
+    let b64 = b64_jpeg.to_string();
+    let app_for_ready = app.clone();
+    app.once("snip-ready", move |_| {
+        if let Some(win) = app_for_ready.get_webview_window("snip-overlay") {
+            let _ = win.emit("snip-screenshot", &b64);
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    });
+
     Ok(())
 }
 
-/// Send screenshot data, position on the correct monitor, and show.
-pub fn show_overlay(
-    app: &AppHandle,
-    b64_jpeg: &str,
-    bounds: &MonitorBounds,
-) -> Result<(), String> {
-    let window = app
-        .get_webview_window("snip-overlay")
-        .ok_or("Overlay window not found — init_overlay may have failed")?;
-    // Position the overlay to cover the captured monitor exactly.
-    let _ = window.set_position(PhysicalPosition::new(bounds.x, bounds.y));
-    let _ = window.set_size(PhysicalSize::new(bounds.width, bounds.height));
-    window
-        .emit("snip-screenshot", b64_jpeg)
-        .map_err(|e| format!("Failed to emit screenshot: {}", e))?;
-    window
-        .show()
-        .map_err(|e| format!("Failed to show overlay: {}", e))?;
-    window
-        .set_focus()
-        .map_err(|e| format!("Failed to focus overlay: {}", e))?;
-    Ok(())
-}
-
-/// Hide the overlay without destroying it.
-pub fn hide_overlay(app: &AppHandle) {
+/// Destroy the overlay window and free its WebView2 process.
+pub fn close_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("snip-overlay") {
-        let _ = win.emit("snip-reset", ());
-        let _ = win.hide();
+        let _ = win.destroy();
     }
 }
 

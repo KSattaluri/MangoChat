@@ -1,8 +1,10 @@
 use crate::openai;
 use crate::snip;
-use crate::state::AppState;
+use crate::state::{AppState, SessionUsage};
+use crate::usage::UsageDelta;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_store::StoreExt;
 use tokio::sync::mpsc;
@@ -172,7 +174,7 @@ pub async fn finish_snip(
 
     let Some(img) = img else {
         state.snip_active.store(false, Ordering::SeqCst);
-        snip::hide_overlay(&app);
+        snip::close_overlay(&app);
         return Err("No snip image available".into());
     };
 
@@ -194,7 +196,7 @@ pub async fn finish_snip(
     };
 
     state.snip_active.store(false, Ordering::SeqCst);
-    snip::hide_overlay(&app);
+    snip::close_overlay(&app);
     result
 }
 
@@ -215,7 +217,84 @@ pub async fn cancel_snip(app: AppHandle, state: State<'_, Arc<AppState>>) -> Res
         *guard = None;
     }
     state.snip_active.store(false, Ordering::SeqCst);
-    snip::hide_overlay(&app);
+    snip::close_overlay(&app);
     log::info!("[snip] cancelled");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_task_manager() -> Result<(), String> {
+    tokio::task::spawn_blocking(|| {
+        use enigo::{Enigo, Key, Keyboard, Settings};
+        use std::thread::sleep;
+        use std::time::Duration;
+
+        // taskmgr brings existing window to front if already running.
+        std::process::Command::new("taskmgr")
+            .spawn()
+            .map_err(|e| format!("Failed to open Task Manager: {}", e))?;
+
+        sleep(Duration::from_millis(1500));
+
+        let mut enigo =
+            Enigo::new(&Settings::default()).map_err(|e| format!("enigo error: {}", e))?;
+
+        // Ctrl+F → focus search box.
+        let _ = enigo.key(Key::Control, enigo::Direction::Press);
+        let _ = enigo.key(Key::Unicode('f'), enigo::Direction::Click);
+        let _ = enigo.key(Key::Control, enigo::Direction::Release);
+        sleep(Duration::from_millis(200));
+
+        // Home + Shift+End → select all text within the input field.
+        let _ = enigo.key(Key::Home, enigo::Direction::Click);
+        let _ = enigo.key(Key::Shift, enigo::Direction::Press);
+        let _ = enigo.key(Key::End, enigo::Direction::Click);
+        let _ = enigo.key(Key::Shift, enigo::Direction::Release);
+
+        // Typing replaces the selection.
+        let _ = enigo.text("Diction");
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+#[tauri::command]
+pub async fn report_usage(
+    state: State<'_, Arc<AppState>>,
+    delta: UsageDelta,
+) -> Result<(), String> {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis() as u64;
+    {
+        let mut usage = state.usage.lock().map_err(|e| e.to_string())?;
+        usage.bytes_sent = usage.bytes_sent.saturating_add(delta.bytes_sent);
+        usage.ms_sent = usage.ms_sent.saturating_add(delta.ms_sent);
+        usage.ms_suppressed = usage.ms_suppressed.saturating_add(delta.ms_suppressed);
+        usage.commits = usage.commits.saturating_add(delta.commits);
+        usage.last_update_ms = now_ms;
+    }
+    {
+        let mut session = state.session_usage.lock().map_err(|e| e.to_string())?;
+        if session.started_ms == 0 {
+            let id = state.usage_session_counter.fetch_add(1, Ordering::SeqCst) + 1;
+            *session = SessionUsage {
+                session_id: id,
+                bytes_sent: 0,
+                ms_sent: 0,
+                ms_suppressed: 0,
+                commits: 0,
+                started_ms: now_ms,
+                updated_ms: now_ms,
+            };
+        }
+        session.bytes_sent = session.bytes_sent.saturating_add(delta.bytes_sent);
+        session.ms_sent = session.ms_sent.saturating_add(delta.ms_sent);
+        session.ms_suppressed = session.ms_suppressed.saturating_add(delta.ms_suppressed);
+        session.commits = session.commits.saturating_add(delta.commits);
+        session.updated_ms = now_ms;
+    }
     Ok(())
 }

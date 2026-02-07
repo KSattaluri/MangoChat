@@ -4,15 +4,21 @@ mod openai;
 mod snip;
 mod state;
 mod typing;
+mod usage;
 
 use state::AppState;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     Listener, Manager, WindowEvent,
+};
+use usage::{
+    append_usage_line, load_usage, save_usage, session_usage_path, usage_path,
+    USAGE_SAVE_INTERVAL_SECS,
 };
 
 // Minimal 1x1 transparent RGBA icon to avoid image decoding features.
@@ -34,10 +40,21 @@ pub fn run() {
             commands::finish_snip,
             commands::cancel_snip,
             commands::open_snip_folder,
+            commands::open_task_manager,
+            commands::report_usage,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
             let snip_state = handle.state::<Arc<AppState>>().inner().clone();
+            let usage_state = handle.state::<Arc<AppState>>().inner().clone();
+
+            // Load usage totals from disk
+            if let Ok(path) = usage_path() {
+                let usage = load_usage(&path);
+                if let Ok(mut guard) = usage_state.usage.lock() {
+                    *guard = usage;
+                }
+            }
 
             // Build tray menu
             let toggle_armed =
@@ -118,11 +135,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Pre-create snip overlay (hidden) — avoids WebView2 init cost on each trigger
-            if let Err(e) = snip::init_overlay(&handle) {
-                log::error!("[snip] failed to pre-create overlay: {}", e);
-            }
-
             // Auto-arm and start hotkey listener
             {
                 let state = handle.state::<Arc<AppState>>();
@@ -147,7 +159,7 @@ pub fn run() {
                             if let Ok(mut guard) = state.snip_image.lock() {
                                 *guard = Some(img);
                             }
-                            if let Err(e) = snip::show_overlay(&app_handle, &b64, &bounds) {
+                            if let Err(e) = snip::open_overlay(&app_handle, &b64, &bounds) {
                                 log::error!("[snip] overlay error: {}", e);
                                 state.snip_active.store(false, Ordering::SeqCst);
                                 if let Ok(mut guard) = state.snip_image.lock() {
@@ -160,6 +172,37 @@ pub fn run() {
                             state.snip_active.store(false, Ordering::SeqCst);
                         }
                     });
+                });
+            }
+
+            // Periodic usage logging and persistence
+            {
+                let usage_handle = handle.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(USAGE_SAVE_INTERVAL_SECS));
+                    let state = usage_handle.state::<Arc<AppState>>();
+                    let snapshot = match state.usage.lock() {
+                        Ok(v) => v.clone(),
+                        Err(_) => continue,
+                    };
+                    if let Ok(path) = usage_path() {
+                        let _ = save_usage(&path, &snapshot);
+                    }
+                    if let Ok(session_path) = session_usage_path() {
+                        if let Ok(session) = state.session_usage.lock() {
+                            if session.started_ms != 0 {
+                                let snapshot = session.clone();
+                                let _ = append_usage_line(&session_path, &snapshot);
+                            }
+                        }
+                    }
+                    let hours_sent = snapshot.ms_sent as f64 / 3_600_000.0;
+                    let hours_suppressed = snapshot.ms_suppressed as f64 / 3_600_000.0;
+                    let mb_sent = snapshot.bytes_sent as f64 / (1024.0 * 1024.0);
+                    println!(
+                        "[usage] sent={:.2}h suppressed={:.2}h bytes={:.1}MB commits={}",
+                        hours_sent, hours_suppressed, mb_sent, snapshot.commits
+                    );
                 });
             }
 

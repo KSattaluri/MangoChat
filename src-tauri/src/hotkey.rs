@@ -2,7 +2,10 @@ use crate::state::AppState;
 use rdev::{listen, Event, EventType, Key};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
+
+const SNIP_TIMEOUT_MS: u64 = 30_000;
 
 static LISTENER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -54,10 +57,24 @@ pub fn start_listener(app: AppHandle) {
                         println!("[hotkey] AltGr pressed but not armed, ignoring");
                         return;
                     }
+                    let now_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
                     if state.snip_active.swap(true, Ordering::SeqCst) {
-                        println!("[hotkey] AltGr pressed but snip already active, ignoring");
-                        return;
+                        // Already active — check if stale (>30s).
+                        let since = state.snip_started_ms.load(Ordering::SeqCst);
+                        if now_ms.saturating_sub(since) < SNIP_TIMEOUT_MS {
+                            println!("[hotkey] AltGr pressed but snip already active, ignoring");
+                            return;
+                        }
+                        println!("[hotkey] snip_active was stale ({}s), resetting", (now_ms - since) / 1000);
+                        // Clean up stale snip image.
+                        if let Ok(mut img) = state.snip_image.lock() {
+                            *img = None;
+                        }
                     }
+                    state.snip_started_ms.store(now_ms, Ordering::SeqCst);
                     println!("[hotkey] Right Alt → snip");
                     let _ = app_inner.emit("snip-trigger", ());
                 }

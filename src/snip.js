@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+const { listen, emit } = window.__TAURI__.event;
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -111,6 +111,7 @@ canvas.addEventListener("pointerup", async (evt) => {
 
   const { x, y, w, h } = clampRect(rect);
   if (w < MIN_SIZE || h < MIN_SIZE) {
+    await invoke("cancel_snip");
     return;
   }
 
@@ -145,10 +146,5 @@ listen("snip-screenshot", (event) => {
   img.src = `data:image/jpeg;base64,${b64}`;
 });
 
-listen("snip-reset", () => {
-  imgReady = false;
-  dragging = false;
-  start = null;
-  current = null;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-});
+// Signal to Rust that the overlay JS is loaded and ready for screenshot data.
+emit("snip-ready");
