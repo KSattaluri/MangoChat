@@ -1,17 +1,9 @@
 use crate::state::UsageTotals;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 
 pub const USAGE_SAVE_INTERVAL_SECS: u64 = 60;
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct UsageDelta {
-    pub bytes_sent: u64,
-    pub ms_sent: u64,
-    pub ms_suppressed: u64,
-    pub commits: u64,
-}
 
 pub fn usage_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {

@@ -1,32 +1,33 @@
-use crate::state::AppState;
+use crate::state::{AppEvent, AppState};
 use crate::typing;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
+use std::sync::mpsc::Sender as EventSender;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
-use tokio::time::sleep;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite};
 
-fn emit_status(app: &AppHandle, status: &str, message: &str) {
-    let _ = app.emit(
-        "status-update",
-        json!({ "status": status, "message": message }),
-    );
+fn emit_status(tx: &EventSender<AppEvent>, status: &str, message: &str) {
+    let _ = tx.send(AppEvent::StatusUpdate {
+        status: status.into(),
+        message: message.into(),
+    });
 }
 
-fn emit_transcript(app: &AppHandle, text: &str, is_final: bool) {
-    let _ = app.emit(
-        "transcript",
-        json!({ "text": text, "is_final": is_final }),
-    );
+fn emit_transcript(tx: &EventSender<AppEvent>, text: &str, is_final: bool) {
+    if is_final {
+        let _ = tx.send(AppEvent::TranscriptFinal(text.into()));
+    } else {
+        let _ = tx.send(AppEvent::TranscriptDelta(text.into()));
+    }
 }
 
 pub async fn run_session(
-    app: AppHandle,
+    event_tx: EventSender<AppEvent>,
+    state: Arc<AppState>,
     api_key: String,
     model: String,
     transcription_model: String,
@@ -53,12 +54,12 @@ pub async fn run_session(
         .body(())
         .unwrap();
 
-    emit_status(&app, "live", "Connecting...");
+    emit_status(&event_tx, "live", "Connecting...");
 
     let ws_stream = match connect_async(request).await {
         Ok((stream, _)) => stream,
         Err(e) => {
-            emit_status(&app, "error", &format!("Connection failed: {}", e));
+            emit_status(&event_tx, "error", &format!("Connection failed: {}", e));
             return;
         }
     };
@@ -66,7 +67,6 @@ pub async fn run_session(
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-    // Send session.update (GA API uses nested audio.input structure)
     let session_update = json!({
         "type": "session.update",
         "session": {
@@ -91,21 +91,25 @@ pub async fn run_session(
         },
     });
 
-    println!("[openai] sending session.update: {}", session_update);
+    println!("[openai] sending session.update");
     if let Err(e) = ws_tx
         .send(tungstenite::Message::Text(session_update.to_string().into()))
         .await
     {
-        emit_status(&app, "error", &format!("Failed to send session.update: {}", e));
+        emit_status(
+            &event_tx,
+            "error",
+            &format!("Failed to send session.update: {}", e),
+        );
         return;
     }
 
-    emit_status(&app, "live", "Listening");
+    emit_status(&event_tx, "live", "Listening");
 
-    let app_send = app.clone();
-    let app_recv = app.clone();
+    let tx_send = event_tx.clone();
+    let tx_recv = event_tx;
+    let state_recv = state.clone();
 
-    // Channel for the recv_task to request outgoing WS messages (e.g. item deletes).
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<serde_json::Value>(32);
 
     // Task: forward audio from channel to WebSocket
@@ -117,7 +121,7 @@ pub async fn run_session(
                 audio = audio_rx.recv() => {
                     let pcm_data = match audio {
                         Some(d) => d,
-                        None => break, // channel closed
+                        None => break,
                     };
                     if pcm_data.is_empty() {
                         let commit = json!({ "type": "input_audio_buffer.commit" });
@@ -170,15 +174,12 @@ pub async fn run_session(
                 }
             }
         }
-        // Channel closed — send commit for any trailing audio the VAD hasn't
-        // auto-committed yet.
         println!("[openai] audio channel closed; sending trailing commit");
         let commit = json!({ "type": "input_audio_buffer.commit" });
         let _ = ws_tx
             .send(tungstenite::Message::Text(commit.to_string().into()))
             .await;
-        // Give the server time to deliver final transcription events.
-        sleep(Duration::from_millis(2000)).await;
+        tokio::time::sleep(Duration::from_millis(2000)).await;
         println!("[openai] closing websocket");
         let _ = ws_tx.close().await;
     });
@@ -204,13 +205,13 @@ pub async fn run_session(
                             frame.code, frame.reason
                         );
                         emit_status(
-                            &app_recv,
+                            &tx_recv,
                             "error",
                             &format!("Disconnected: {} {}", frame.code, frame.reason),
                         );
                     } else {
                         eprintln!("[openai] websocket closed");
-                        emit_status(&app_recv, "error", "Disconnected");
+                        emit_status(&tx_recv, "error", "Disconnected");
                     }
                     break;
                 }
@@ -232,7 +233,7 @@ pub async fn run_session(
                 "conversation.item.input_audio_transcription.delta" => {
                     if let Some(delta) = event.get("delta").and_then(|d| d.as_str()) {
                         println!("[openai] [{:.1}s] transcript delta: {}", ts, delta);
-                        emit_transcript(&app_recv, delta, false);
+                        emit_transcript(&tx_recv, delta, false);
                     }
                 }
                 "conversation.item.input_audio_transcription.completed" => {
@@ -242,13 +243,11 @@ pub async fn run_session(
                         let trimmed = transcript.trim();
                         println!("[openai] [{:.1}s] transcript final: \"{}\"", ts, trimmed);
                         if !trimmed.is_empty() {
-                            emit_transcript(&app_recv, trimmed, true);
+                            emit_transcript(&tx_recv, trimmed, true);
 
-                            // Store last transcript
-                            let state = app_recv.state::<Arc<AppState>>();
-                            *state.last_transcript.lock().unwrap() = trimmed.to_string();
+                            *state_recv.last_transcript.lock().unwrap() =
+                                trimmed.to_string();
 
-                            // Process for text injection
                             let text = trimmed.to_string();
                             tokio::task::spawn_blocking(move || {
                                 typing::process_transcript(&text);
@@ -256,7 +255,6 @@ pub async fn run_session(
                         }
                     }
 
-                    // Delete the conversation item to prevent context buildup.
                     if let Some(item_id) = event.get("item_id").and_then(|v| v.as_str()) {
                         let delete = json!({
                             "type": "conversation.item.delete",
@@ -272,7 +270,6 @@ pub async fn run_session(
                         .and_then(|e| e.get("code"))
                         .and_then(|c| c.as_str())
                         .unwrap_or("");
-                    // Benign: trailing commit on an already-consumed VAD buffer.
                     if code == "input_audio_buffer_commit_empty" {
                         println!("[openai] [{:.1}s] ignoring empty-buffer commit", ts);
                         continue;
@@ -283,7 +280,7 @@ pub async fn run_session(
                         .and_then(|m| m.as_str())
                         .unwrap_or("OpenAI error");
                     eprintln!("[openai] [{:.1}s] error: {}", ts, message);
-                    emit_status(&app_recv, "error", message);
+                    emit_status(&tx_recv, "error", message);
                 }
                 "" => {
                     eprintln!("[openai] [{:.1}s] event missing type: {}", ts, event);
@@ -291,9 +288,14 @@ pub async fn run_session(
                 "rate_limits.updated" => {
                     if let Some(limits) = event.get("rate_limits").and_then(|v| v.as_array()) {
                         for limit in limits {
-                            let name = limit.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-                            let remaining = limit.get("remaining").and_then(|r| r.as_f64()).unwrap_or(0.0);
-                            let limit_val = limit.get("limit").and_then(|l| l.as_f64()).unwrap_or(0.0);
+                            let name =
+                                limit.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                            let remaining = limit
+                                .get("remaining")
+                                .and_then(|r| r.as_f64())
+                                .unwrap_or(0.0);
+                            let limit_val =
+                                limit.get("limit").and_then(|l| l.as_f64()).unwrap_or(0.0);
                             if name == "tokens" || name == "input_tokens" {
                                 println!(
                                     "[openai] [{:.1}s] rate_limit {}: {}/{} remaining",
@@ -309,11 +311,9 @@ pub async fn run_session(
             }
         }
 
-        emit_status(&app_recv, "idle", "Disconnected");
+        emit_status(&tx_recv, "idle", "Disconnected");
     });
 
     let _ = tokio::join!(send_task, recv_task);
-    emit_status(&app_send, "idle", "Ready");
+    emit_status(&tx_send, "idle", "Ready");
 }
-
-

@@ -1,18 +1,8 @@
-use crate::state::AppState;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use chrono::Local;
-use image::codecs::jpeg::JpegEncoder;
-use image::{imageops, ImageEncoder, RgbaImage};
+use image::{imageops, RgbaImage};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::time::SystemTime;
-use tauri::{
-    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
-    WebviewWindowBuilder, WindowEvent,
-};
 
 /// Monitor bounds in physical pixels.
 pub struct MonitorBounds {
@@ -24,7 +14,7 @@ pub struct MonitorBounds {
 
 pub fn capture_screen(
     cursor: Option<(i32, i32)>,
-) -> Result<(RgbaImage, String, MonitorBounds), String> {
+) -> Result<(RgbaImage, MonitorBounds), String> {
     let monitors = xcap::Monitor::all().map_err(|e| format!("xcap monitors error: {:?}", e))?;
     let mut cursor_monitor = None;
     if let Some((cx, cy)) = cursor {
@@ -68,89 +58,7 @@ pub fn capture_screen(
         .capture_image()
         .map_err(|e| format!("xcap capture error: {:?}", e))?;
 
-    // JPEG is ~50x faster to encode than PNG — fine for a preview overlay.
-    let (w, h) = image.dimensions();
-    let rgb_data: Vec<u8> = image
-        .as_raw()
-        .chunks_exact(4)
-        .flat_map(|px| &px[..3])
-        .copied()
-        .collect();
-    let mut jpeg_bytes = Vec::new();
-    JpegEncoder::new_with_quality(&mut jpeg_bytes, 80)
-        .write_image(&rgb_data, w, h, image::ExtendedColorType::Rgb8)
-        .map_err(|e| format!("JPEG encode error: {}", e))?;
-    let b64 = STANDARD.encode(&jpeg_bytes);
-
-    Ok((image, b64, bounds))
-}
-
-/// Create overlay on-demand, position on the correct monitor, and show once JS is ready.
-pub fn open_overlay(
-    app: &AppHandle,
-    b64_jpeg: &str,
-    bounds: &MonitorBounds,
-) -> Result<(), String> {
-    // Clean up any leftover overlay from a previous snip.
-    if let Some(existing) = app.get_webview_window("snip-overlay") {
-        let _ = existing.destroy();
-    }
-
-    let window = WebviewWindowBuilder::new(
-        app,
-        "snip-overlay",
-        WebviewUrl::App("snip.html".into()),
-    )
-    .title("Snip")
-    .decorations(false)
-    .resizable(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .visible(false)
-    .build()
-    .map_err(|e| format!("Failed to create overlay: {}", e))?;
-
-    let _ = window.set_position(PhysicalPosition::new(bounds.x, bounds.y));
-    let _ = window.set_size(PhysicalSize::new(bounds.width, bounds.height));
-
-    // Clean up state if the window is force-closed (Alt+F4).
-    let overlay_state = app.state::<Arc<AppState>>().inner().clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { .. } = event {
-            overlay_state.snip_active.store(false, Ordering::SeqCst);
-            if let Ok(mut img) = overlay_state.snip_image.lock() {
-                *img = None;
-            }
-        }
-    });
-
-    // Show immediately — the HTML renders a dark "Capturing..." screen
-    // while WebView2 initializes, before the screenshot data arrives.
-    window
-        .show()
-        .map_err(|e| format!("Failed to show overlay: {}", e))?;
-    window
-        .set_focus()
-        .map_err(|e| format!("Failed to focus overlay: {}", e))?;
-
-    // When JS finishes loading it emits snip-ready; then we send the screenshot.
-    let b64 = b64_jpeg.to_string();
-    let app_for_ready = app.clone();
-    app.once("snip-ready", move |_| {
-        if let Some(win) = app_for_ready.get_webview_window("snip-overlay") {
-            let _ = win.emit("snip-screenshot", &b64);
-        }
-    });
-
-    Ok(())
-}
-
-/// Destroy the overlay window and free its WebView2 process.
-pub fn close_overlay(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("snip-overlay") {
-        let _ = win.destroy();
-    }
+    Ok((image, bounds))
 }
 
 pub fn crop_and_save(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Result<PathBuf, String> {
@@ -185,6 +93,9 @@ pub fn crop_and_save(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Result<
         .flat_map(|px| &px[..3])
         .copied()
         .collect();
+
+    use image::codecs::jpeg::JpegEncoder;
+    use image::ImageEncoder;
     let mut jpeg_bytes = Vec::new();
     JpegEncoder::new_with_quality(&mut jpeg_bytes, 90)
         .write_image(&rgb_data, w, h, image::ExtendedColorType::Rgb8)
@@ -201,15 +112,15 @@ pub fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
         .to_str()
         .ok_or("Failed to convert path to string")?
         .to_string();
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|e| format!("Failed to init clipboard: {}", e))?;
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Failed to init clipboard: {}", e))?;
     clipboard
         .set_text(text)
         .map_err(|e| format!("Failed to copy path to clipboard: {}", e))?;
     Ok(())
 }
 
-pub(crate) fn snip_dir() -> Result<PathBuf, String> {
+pub fn snip_dir() -> Result<PathBuf, String> {
     if let Some(pictures) = dirs::picture_dir() {
         return Ok(pictures.join("Jarvis"));
     }
@@ -217,6 +128,16 @@ pub(crate) fn snip_dir() -> Result<PathBuf, String> {
         return Ok(home.join("Pictures").join("Jarvis"));
     }
     Err("Failed to resolve Pictures directory".into())
+}
+
+pub fn open_snip_folder() -> Result<(), String> {
+    let dir = snip_dir()?;
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {}", e))?;
+    std::process::Command::new("explorer")
+        .arg(dir.as_os_str())
+        .spawn()
+        .map_err(|e| format!("Failed to open folder: {}", e))?;
+    Ok(())
 }
 
 fn prune_old_snips(dir: &Path, keep: usize) -> Result<(), String> {
@@ -251,4 +172,3 @@ fn prune_old_snips(dir: &Path, keep: usize) -> Result<(), String> {
     }
     Ok(())
 }
-

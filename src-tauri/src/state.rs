@@ -3,6 +3,17 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Mutex;
 use tokio::sync::mpsc;
 
+/// Events sent from background threads to the UI.
+#[derive(Debug, Clone)]
+pub enum AppEvent {
+    HotkeyPush,
+    HotkeyRelease,
+    StatusUpdate { status: String, message: String },
+    TranscriptDelta(String),
+    TranscriptFinal(String),
+    SnipTrigger,
+}
+
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
 pub struct UsageTotals {
     pub bytes_sent: u64,
@@ -24,7 +35,7 @@ pub struct SessionUsage {
 }
 
 pub struct AppState {
-    pub armed: Mutex<bool>,
+    pub armed: AtomicBool,
     pub audio_tx: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     pub last_transcript: Mutex<String>,
     pub session_active: Mutex<bool>,
@@ -34,15 +45,18 @@ pub struct AppState {
     pub snip_active: AtomicBool,
     pub snip_started_ms: AtomicU64,
     pub cursor_pos: Mutex<Option<(i32, i32)>>,
+    /// 0 = strict, 1 = lenient, 2 = off
+    pub vad_mode: AtomicU64,
     pub usage: Mutex<UsageTotals>,
-    pub usage_session_counter: AtomicU64,
     pub session_usage: Mutex<SessionUsage>,
+    /// FFT magnitudes for the visualizer bars (0.0–1.0 range).
+    pub fft_data: Mutex<[f32; 50]>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            armed: Mutex::new(false),
+            armed: AtomicBool::new(false),
             audio_tx: Mutex::new(None),
             last_transcript: Mutex::new(String::new()),
             session_active: Mutex::new(false),
@@ -52,9 +66,10 @@ impl AppState {
             snip_active: AtomicBool::new(false),
             snip_started_ms: AtomicU64::new(0),
             cursor_pos: Mutex::new(None),
+            vad_mode: AtomicU64::new(0),
             usage: Mutex::new(UsageTotals::default()),
-            usage_session_counter: AtomicU64::new(0),
             session_usage: Mutex::new(SessionUsage::default()),
+            fft_data: Mutex::new([0.0; 50]),
         }
     }
 }

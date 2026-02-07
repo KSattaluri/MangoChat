@@ -42,6 +42,8 @@ const COMMANDS: &[(&str, fn())] = &[
     ("copy",           cmd_copy as fn()),
     ("paste",          cmd_paste as fn()),
     ("cut",            cmd_cut as fn()),
+    ("chrome",         cmd_focus_chrome as fn()),
+    ("open chrome",    cmd_focus_chrome as fn()),
 ];
 
 const WAKE_WORDS: &[&str] = &["jarvis", "jarvi", "jarbi", "jarbis", "jarviss"];
@@ -56,6 +58,37 @@ fn cmd_copy()           { press_ctrl_key(Key::Unicode('c')); }
 fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
+fn cmd_focus_chrome()   { focus_or_launch_chrome(); }
+
+fn focus_or_launch_chrome() {
+    #[cfg(windows)]
+    {
+        let script = r#"
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@;
+$p = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1;
+if ($p) {
+  [Win32]::ShowWindowAsync($p.MainWindowHandle, 9) | Out-Null;  # SW_RESTORE
+  [Win32]::SetForegroundWindow($p.MainWindowHandle) | Out-Null;
+} else {
+  Start-Process 'chrome';
+}
+"#;
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        println!("[typing] chrome command not supported on this OS");
+    }
+}
 
 fn match_command(phrase: &str) -> Option<(&'static str, fn())> {
     for (keyword, action) in COMMANDS {
