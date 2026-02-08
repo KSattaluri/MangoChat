@@ -32,10 +32,10 @@ Screenshot 2026-02-05 195523.png
 
 # Tauri / Rust
 target/
-src-tauri/target/
-src-tauri/gen/
-src-tauri/.cargo/
-src-tauri/.tauri/
+target/
+gen/
+.cargo/
+.tauri/
 
 # Node
 node_modules/
