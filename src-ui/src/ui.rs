@@ -57,11 +57,14 @@ pub struct JarvisApp {
     pub error_time: Option<std::time::Instant>,
 
     // Settings form fields
+    pub form_provider: String,
     pub form_api_key: String,
     pub form_model: String,
     pub form_language: String,
     pub form_mic: String,
     pub form_vad_mode: String,
+    pub key_check_inflight: bool,
+    pub key_check_result: Option<(bool, String)>,
 }
 
 impl JarvisApp {
@@ -73,7 +76,8 @@ impl JarvisApp {
         settings: Settings,
     ) -> Self {
         let mic_devices = audio::list_input_devices();
-        let form_api_key = settings.api_key.clone();
+        let form_provider = settings.provider.clone();
+        let form_api_key = settings.api_key_for(&settings.provider).to_string();
         let form_model = settings.model.clone();
         let form_language = settings.language.clone();
         let form_mic = settings.mic_device.clone();
@@ -105,11 +109,14 @@ impl JarvisApp {
             snip_drag_current: None,
             snip_bounds: None,
             error_time: None,
+            form_provider,
             form_api_key,
             form_model,
             form_language,
             form_mic,
             form_vad_mode,
+            key_check_inflight: false,
+            key_check_result: None,
         }
     }
 
@@ -145,13 +152,28 @@ impl JarvisApp {
             *active = true;
         }
 
+        let provider = crate::provider::create_provider(&self.settings.provider);
+        let current_key = self.settings.api_key_for(&self.settings.provider).to_string();
+        let provider_settings = crate::provider::ProviderSettings {
+            api_key: current_key.clone(),
+            model: self.settings.model.clone(),
+            transcription_model: self.settings.transcription_model.clone(),
+            language: self.settings.language.clone(),
+        };
+        let config = provider.connection_config(&provider_settings);
+
         // Always start audio capture (drives the visualizer FFT)
         let mic = if self.settings.mic_device.is_empty() {
             None
         } else {
             Some(self.settings.mic_device.as_str())
         };
-        match audio::AudioCapture::start(mic, audio_tx, self.state.clone()) {
+        match audio::AudioCapture::start(
+            mic,
+            audio_tx,
+            self.state.clone(),
+            config.sample_rate,
+        ) {
             Ok(capture) => {
                 println!("[ui] audio capture started");
                 self.audio_capture = Some(capture);
@@ -164,8 +186,8 @@ impl JarvisApp {
             }
         }
 
-        // Only connect to OpenAI if we have an API key
-        if self.settings.api_key.is_empty() {
+        // Only connect to provider if we have an API key
+        if current_key.is_empty() {
             self.set_status("Listening (no API key)", "live");
             return;
         }
@@ -174,19 +196,13 @@ impl JarvisApp {
 
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
-        let api_key = self.settings.api_key.clone();
-        let model = self.settings.model.clone();
-        let transcription_model = self.settings.transcription_model.clone();
-        let language = self.settings.language.clone();
 
         self.runtime.spawn(async move {
-            crate::openai::run_session(
+            crate::provider::session::run_session(
+                provider,
                 event_tx,
                 state_clone.clone(),
-                api_key,
-                model,
-                transcription_model,
-                language,
+                provider_settings,
                 audio_rx,
             )
             .await;
@@ -242,6 +258,10 @@ impl JarvisApp {
                     let _ = text;
                 }
                 AppEvent::SnipTrigger => self.trigger_snip(),
+                AppEvent::ApiKeyValidated { ok, message } => {
+                    self.key_check_inflight = false;
+                    self.key_check_result = Some((ok, message));
+                }
             }
         }
     }
@@ -405,8 +425,8 @@ impl JarvisApp {
                     }
                     if icon_btn(ui, "\u{2699}", "Settings").clicked() {
                         self.settings_open = !self.settings_open;
-                        let new_h = if self.settings_open { 340.0 } else { 80.0 };
-                        let old_h = if self.settings_open { 80.0 } else { 340.0 };
+                        let new_h = if self.settings_open { 420.0 } else { 80.0 };
+                        let old_h = if self.settings_open { 80.0 } else { 420.0 };
                         // Grow upward: shift window position so bottom edge stays put
                         if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
                             let new_y = outer.min.y - (new_h - old_h);
@@ -437,7 +457,50 @@ impl JarvisApp {
                         .inner_margin(10.0)
                         .show(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 4.0;
-                            field(ui, "API Key", &mut self.form_api_key, true);
+
+                            ui.label(
+                                egui::RichText::new("Provider")
+                                    .size(11.0)
+                                    .color(TEXT_MUTED),
+                            );
+                            let selected_label = crate::provider::PROVIDERS
+                                .iter()
+                                .find(|(id, _)| *id == self.form_provider)
+                                .map(|(_, name)| *name)
+                                .unwrap_or("OpenAI Realtime");
+                            let mut provider_changed = false;
+                            egui::ComboBox::from_id_salt("provider_select")
+                                .selected_text(selected_label)
+                                .width(ui.available_width())
+                                .show_ui(ui, |ui| {
+                                    for (id, name) in crate::provider::PROVIDERS {
+                                        let resp = ui.selectable_value(
+                                            &mut self.form_provider,
+                                            id.to_string(),
+                                            *name,
+                                        );
+                                        if resp.changed() {
+                                            provider_changed = true;
+                                        }
+                                    }
+                                });
+                            if provider_changed {
+                                // Save current key for old provider, load key for new provider.
+                                self.settings.set_api_key(
+                                    &self.settings.provider.clone(),
+                                    self.form_api_key.clone(),
+                                );
+                                self.form_api_key = self
+                                    .settings
+                                    .api_key_for(&self.form_provider)
+                                    .to_string();
+                                self.key_check_result = None;
+                            }
+
+                            let api_resp = field(ui, "API Key", &mut self.form_api_key, true);
+                            if api_resp.changed() {
+                                self.key_check_result = None;
+                            }
                             readonly_field(ui, "Model", &self.form_model);
                             readonly_field(ui, "Language", &self.form_language);
                             ui.add_space(2.0);
@@ -500,6 +563,61 @@ impl JarvisApp {
                                 });
 
                             ui.add_space(4.0);
+                            let validate_enabled = !self.form_api_key.trim().is_empty()
+                                && !self.key_check_inflight;
+                            let validate = ui.add_enabled(
+                                validate_enabled,
+                                egui::Button::new(
+                                    egui::RichText::new("Validate API Key")
+                                        .size(12.0)
+                                        .color(TEXT_COLOR),
+                                )
+                                .fill(BTN_BG)
+                                .stroke(Stroke::new(1.0, BTN_BORDER))
+                                .min_size(vec2(ui.available_width(), 24.0)),
+                            );
+                            if validate.clicked() {
+                                self.key_check_inflight = true;
+                                self.key_check_result = None;
+
+                                let provider =
+                                    crate::provider::create_provider(&self.form_provider);
+                                let provider_settings = crate::provider::ProviderSettings {
+                                    api_key: self.form_api_key.clone(),
+                                    model: self.form_model.clone(),
+                                    transcription_model: self.settings.transcription_model.clone(),
+                                    language: self.form_language.clone(),
+                                };
+                                let event_tx = self.event_tx.clone();
+
+                                self.runtime.spawn(async move {
+                                    let result = crate::provider::session::validate_key(
+                                        provider,
+                                        provider_settings,
+                                    )
+                                    .await;
+                                    let (ok, message) = match result {
+                                        Ok(()) => (true, "API key is valid".to_string()),
+                                        Err(e) => (false, e),
+                                    };
+                                    let _ = event_tx.send(AppEvent::ApiKeyValidated { ok, message });
+                                });
+                            }
+                            if self.key_check_inflight {
+                                ui.label(
+                                    egui::RichText::new("Validating...")
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                );
+                            } else if let Some((ok, message)) = &self.key_check_result {
+                                let color = if *ok { GREEN } else { RED };
+                                ui.label(
+                                    egui::RichText::new(message)
+                                        .size(11.0)
+                                        .color(color),
+                                );
+                            }
+
                             let save = ui.add_sized(
                                 [ui.available_width(), 24.0],
                                 egui::Button::new(
@@ -511,7 +629,11 @@ impl JarvisApp {
                                 .stroke(Stroke::new(1.0, BTN_PRIMARY_HOVER)),
                             );
                             if save.clicked() {
-                                self.settings.api_key = self.form_api_key.clone();
+                                self.settings.provider = self.form_provider.clone();
+                                self.settings.set_api_key(
+                                    &self.form_provider,
+                                    self.form_api_key.clone(),
+                                );
                                 self.settings.mic_device = self.form_mic.clone();
                                 self.settings.vad_mode = self.form_vad_mode.clone();
                                 match crate::settings::save(&self.settings) {
@@ -523,7 +645,7 @@ impl JarvisApp {
                                             ctx.input(|i| i.viewport().outer_rect)
                                         {
                                             let new_h = 80.0;
-                                            let old_h = 340.0;
+                                            let old_h = 420.0;
                                             let new_y = outer.min.y + (old_h - new_h);
                                             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(
                                                 pos2(outer.min.x, new_y),
@@ -821,7 +943,7 @@ fn icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
     ui.add(btn).on_hover_text(tooltip)
 }
 
-fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
+fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
     ui.label(egui::RichText::new(label).size(11.0).color(TEXT_MUTED));
     // Override text edit background to match dark theme
     ui.visuals_mut().extreme_bg_color = Color32::from_rgb(0x1a, 0x1d, 0x24);
@@ -832,7 +954,7 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) {
     if password {
         te = te.password(true);
     }
-    ui.add(te);
+    ui.add(te)
 }
 
 fn readonly_field(ui: &mut egui::Ui, label: &str, value: &str) {

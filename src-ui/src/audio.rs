@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-const SAMPLE_RATE: u32 = 24000;
+const DEFAULT_SAMPLE_RATE: u32 = 24000;
 const THRESHOLD_STRICT: f32 = 150.0 / 32768.0;
 const THRESHOLD_LENIENT: f32 = 100.0 / 32768.0;
 const HANGOVER_STRICT_MS: u128 = 300;
@@ -27,6 +27,7 @@ impl AudioCapture {
         device_name: Option<&str>,
         audio_tx: mpsc::Sender<Vec<u8>>,
         state: Arc<AppState>,
+        target_rate: u32,
     ) -> Result<Self, String> {
         let host = cpal::default_host();
 
@@ -43,13 +44,19 @@ impl AudioCapture {
         let device_name = device.name().unwrap_or_else(|_| "unknown".into());
         println!("[audio] using device: {}", device_name);
 
-        // Try 24kHz mono, fall back to 48kHz
-        let (config, decimate) = match try_config(&device, SAMPLE_RATE) {
+        // Try target sample rate mono, fall back to 48kHz
+        let (config, decimate) = match try_config(&device, target_rate) {
             Some(cfg) => (cfg, 1),
             None => match try_config(&device, 48000) {
                 Some(cfg) => {
-                    println!("[audio] 24kHz unavailable, using 48kHz with 2:1 decimation");
-                    (cfg, 2)
+                    let d = (cfg.sample_rate.0 / target_rate.max(1)).max(1);
+                    println!(
+                        "[audio] {}Hz unavailable, using {}Hz with {}:1 decimation",
+                        target_rate,
+                        cfg.sample_rate.0,
+                        d
+                    );
+                    (cfg, d)
                 }
                 None => {
                     // Last resort: use default config
@@ -62,7 +69,7 @@ impl AudioCapture {
                         default.channels()
                     );
                     let rate = default.sample_rate().0;
-                    let d = (rate / SAMPLE_RATE).max(1);
+                    let d = (rate / target_rate.max(1)).max(1);
                     (
                         StreamConfig {
                             channels: 1,
@@ -117,7 +124,12 @@ impl AudioCapture {
             .map_err(|e| format!("Failed to start stream: {}", e))?;
 
         let processor = std::thread::spawn(move || {
-            process_audio(raw_rx, audio_tx, state, effective_rate, SAMPLE_RATE);
+            let target = if target_rate == 0 {
+                DEFAULT_SAMPLE_RATE
+            } else {
+                target_rate
+            };
+            process_audio(raw_rx, audio_tx, state, effective_rate, target);
         });
 
         Ok(Self {
@@ -262,6 +274,10 @@ fn process_audio(
 
         if !has_voice && !in_hangover {
             if is_sending {
+                println!(
+                    "[audio] VAD stop: peak={:.5} threshold={:.5} hangover_ms={} preroll_ms={:.1}",
+                    peak, threshold, hangover_ms, preroll_ms
+                );
                 let _ = audio_tx.try_send(Vec::new());
             }
             is_sending = false;
@@ -269,6 +285,10 @@ fn process_audio(
         }
 
         if has_voice && !is_sending {
+            println!(
+                "[audio] VAD start: peak={:.5} threshold={:.5} preroll_ms={:.1}",
+                peak, threshold, preroll_ms
+            );
             is_sending = true;
             for buf in &preroll {
                 let _ = audio_tx.try_send(buf.clone());
