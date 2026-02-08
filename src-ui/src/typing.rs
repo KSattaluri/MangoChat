@@ -44,6 +44,8 @@ const COMMANDS: &[(&str, fn())] = &[
     ("cut",            cmd_cut as fn()),
     ("chrome",         cmd_focus_chrome as fn()),
     ("open chrome",    cmd_focus_chrome as fn()),
+    ("github",         cmd_open_github as fn()),
+    ("open github",    cmd_open_github as fn()),
 ];
 
 const WAKE_WORDS: &[&str] = &["jarvis", "jarvi", "jarbi", "jarbis", "jarviss"];
@@ -59,6 +61,30 @@ fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
 fn cmd_focus_chrome()   { focus_or_launch_chrome(); }
+fn cmd_open_github()    { open_github(); }
+
+fn open_github() {
+    focus_or_launch_chrome();
+    #[cfg(windows)]
+    {
+        use std::thread::sleep;
+        use std::time::Duration;
+        // Give Chrome time to come to foreground.
+        sleep(Duration::from_millis(400));
+        // New tab, then focus address bar and type URL.
+        press_ctrl_key(Key::Unicode('t'));
+        sleep(Duration::from_millis(120));
+        press_ctrl_key(Key::Unicode('l'));
+        sleep(Duration::from_millis(120));
+        type_text("github.com");
+        sleep(Duration::from_millis(80));
+        press_enter();
+    }
+    #[cfg(not(windows))]
+    {
+        println!("[typing] open github not supported on this OS");
+    }
+}
 
 fn focus_or_launch_chrome() {
     #[cfg(windows)]
@@ -223,6 +249,7 @@ fn press_key_combo(keys: &[Key], with_shift: bool) {
     }
 }
 
+#[allow(dead_code)]
 pub fn copy_to_clipboard(text: &str) {
     match arboard::Clipboard::new() {
         Ok(mut clipboard) => {
