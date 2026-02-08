@@ -10,6 +10,7 @@ pub struct MonitorBounds {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub scale_factor: f32,
 }
 
 pub fn capture_screen(
@@ -47,11 +48,13 @@ pub fn capture_screen(
         .or_else(|| monitors.first())
         .ok_or("No monitors found")?;
 
+    let scale_factor = monitor.scale_factor().unwrap_or(1.0);
     let bounds = MonitorBounds {
         x: monitor.x().unwrap_or(0),
         y: monitor.y().unwrap_or(0),
         width: monitor.width().unwrap_or(1920),
         height: monitor.height().unwrap_or(1080),
+        scale_factor,
     };
 
     let image = monitor

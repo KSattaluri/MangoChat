@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender as EventSender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite};
 
 fn build_ws_request(config: &ConnectionConfig) -> Result<tungstenite::http::Request<()>, String> {
@@ -83,8 +83,25 @@ pub async fn run_session(
     event_tx: EventSender<AppEvent>,
     state: Arc<AppState>,
     settings: ProviderSettings,
-    mut audio_rx: mpsc::Receiver<Vec<u8>>,
+    audio_rx: mpsc::Receiver<Vec<u8>>,
 ) {
+    let audio_rx = Arc::new(Mutex::new(audio_rx));
+    let mut attempts: u32 = 0;
+    loop {
+        attempts += 1;
+        if attempts > 1 {
+            println!(
+                "[{}] reconnecting (attempt {})",
+                provider.name(),
+                attempts
+            );
+        }
+
+        // If the audio channel is gone, stop.
+        if audio_rx.lock().await.is_closed() {
+            return;
+        }
+
     let config = provider.connection_config(&settings);
     let provider_name = provider.name();
     println!(
@@ -110,7 +127,8 @@ pub async fn run_session(
                 "error",
                 &format!("Connection failed: {}", e),
             );
-            return;
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            continue;
         }
     };
     println!("[{}] websocket connected", provider_name);
@@ -136,7 +154,7 @@ pub async fn run_session(
     emit_status(&event_tx, "live", "Listening");
 
     let tx_send = event_tx.clone();
-    let tx_recv = event_tx;
+    let tx_recv = event_tx.clone();
     let state_recv = state.clone();
     let provider_recv = provider.clone();
 
@@ -153,6 +171,7 @@ pub async fn run_session(
 
     // Task: forward audio from channel to WebSocket.
     let activity_id_send = activity_id.clone();
+    let audio_rx_send = audio_rx.clone();
     let send_task = tokio::spawn(async move {
         let mut frames: u64 = 0;
         let mut bytes: u64 = 0;
@@ -168,7 +187,10 @@ pub async fn run_session(
 
         loop {
             tokio::select! {
-                audio = audio_rx.recv() => {
+                audio = async {
+                    let mut rx = audio_rx_send.lock().await;
+                    rx.recv().await
+                } => {
                     let pcm_data = match audio {
                         Some(d) => d,
                         None => break,
@@ -235,12 +257,16 @@ pub async fn run_session(
                             type_field,
                             type_value,
                             audio_field,
+                            extra_fields,
                         } => {
                             let audio_b64 = BASE64.encode(&pcm_data);
-                            let msg = serde_json::json!({
-                                type_field: type_value,
-                                audio_field: audio_b64,
-                            });
+                            let mut map = serde_json::Map::new();
+                            map.insert(type_field.clone(), serde_json::Value::String(type_value.clone()));
+                            map.insert(audio_field.clone(), serde_json::Value::String(audio_b64));
+                            for (key, value) in extra_fields {
+                                map.insert(key.clone(), value.clone());
+                            }
+                            let msg = serde_json::Value::Object(map);
                             tungstenite::Message::Text(msg.to_string().into())
                         }
                         AudioEncoding::RawBinary => {
@@ -400,4 +426,10 @@ pub async fn run_session(
 
     let _ = tokio::join!(send_task, recv_task);
     emit_status(&tx_send, "idle", "Ready");
+    // Retry unless audio channel is closed.
+    if audio_rx.lock().await.is_closed() {
+        return;
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    }
 }

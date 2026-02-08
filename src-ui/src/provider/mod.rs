@@ -1,6 +1,7 @@
 pub mod assemblyai;
 pub mod deepgram;
 pub mod openai;
+pub mod elevenlabs;
 pub mod session;
 
 use serde_json::Value;
@@ -34,6 +35,8 @@ pub enum AudioEncoding {
         type_value: String,
         /// The JSON field name for the audio payload (e.g. "audio").
         audio_field: String,
+        /// Extra JSON fields to include with every audio chunk.
+        extra_fields: Vec<(String, Value)>,
     },
     /// Send raw PCM bytes as a binary WebSocket frame.
     RawBinary,
@@ -92,6 +95,7 @@ pub trait SttProvider: Send + Sync {
 pub const PROVIDERS: &[(&str, &str)] = &[
     ("openai", "OpenAI Realtime"),
     ("deepgram", "Deepgram"),
+    ("elevenlabs", "ElevenLabs Realtime"),
     ("assemblyai", "AssemblyAI"),
 ];
 
@@ -99,6 +103,7 @@ pub const PROVIDERS: &[(&str, &str)] = &[
 pub fn create_provider(id: &str) -> Arc<dyn SttProvider> {
     match id {
         "deepgram" => Arc::new(deepgram::DeepgramProvider::new()),
+        "elevenlabs" => Arc::new(elevenlabs::ElevenLabsProvider),
         "assemblyai" => Arc::new(assemblyai::AssemblyAiProvider),
         _ => Arc::new(openai::OpenAiProvider),
     }
