@@ -16,11 +16,7 @@ use state::{AppEvent, AppState};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-#[allow(unused_imports)]
-use usage::{
-    append_usage_line, load_usage, save_usage, session_usage_path, usage_path,
-    USAGE_SAVE_INTERVAL_SECS,
-};
+use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS};
 
 fn main() {
     env_logger::init();
@@ -56,14 +52,6 @@ fn main() {
             };
             if let Ok(path) = usage_path() {
                 let _ = save_usage(&path, &snapshot);
-            }
-            if let Ok(session_path) = session_usage_path() {
-                if let Ok(session) = usage_state.session_usage.lock() {
-                    if session.started_ms != 0 {
-                        let snapshot = session.clone();
-                        let _ = append_usage_line(&session_path, &snapshot);
-                    }
-                }
             }
             let hours_sent = snapshot.ms_sent as f64 / 3_600_000.0;
             let hours_suppressed = snapshot.ms_suppressed as f64 / 3_600_000.0;

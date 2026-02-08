@@ -1,6 +1,7 @@
 use crate::audio;
 use crate::settings::Settings;
 use crate::snip;
+use crate::usage::{append_usage_line, session_usage_path};
 use crate::state::{AppEvent, AppState};
 use eframe::egui;
 use egui::{
@@ -49,6 +50,9 @@ pub struct JarvisApp {
     pub snip_drag_start: Option<Pos2>,
     pub snip_drag_current: Option<Pos2>,
     pub snip_bounds: Option<snip::MonitorBounds>,
+    pub snip_copy_image: bool,
+    pub snip_edit_after: bool,
+    pub snip_focus_pending: bool,
 
     // Window positioning
     pub positioned: bool,
@@ -63,6 +67,7 @@ pub struct JarvisApp {
     pub form_language: String,
     pub form_mic: String,
     pub form_vad_mode: String,
+    pub form_snip_editor_path: String,
     pub key_check_inflight: bool,
     pub key_check_result: Option<(bool, String)>,
     pub last_armed: bool,
@@ -84,6 +89,7 @@ impl JarvisApp {
         let form_language = settings.language.clone();
         let form_mic = settings.mic_device.clone();
         let form_vad_mode = settings.vad_mode.clone();
+        let form_snip_editor_path = settings.snip_editor_path.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
         let (tray_icon, tray_toggle) =
@@ -111,6 +117,9 @@ impl JarvisApp {
             snip_drag_start: None,
             snip_drag_current: None,
             snip_bounds: None,
+            snip_copy_image: false,
+            snip_edit_after: false,
+            snip_focus_pending: false,
             error_time: None,
             form_provider,
             form_api_key,
@@ -118,6 +127,7 @@ impl JarvisApp {
             form_language,
             form_mic,
             form_vad_mode,
+            form_snip_editor_path,
             key_check_inflight: false,
             key_check_result: None,
             last_armed: false,
@@ -216,6 +226,20 @@ impl JarvisApp {
         }
 
         let gen = self.state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        // Initialize per-session usage.
+        let now = now_ms();
+        if let Ok(mut session) = self.state.session_usage.lock() {
+            *session = crate::state::SessionUsage {
+                session_id: now,
+                provider: self.settings.provider.clone(),
+                bytes_sent: 0,
+                ms_sent: 0,
+                ms_suppressed: 0,
+                commits: 0,
+                started_ms: now,
+                updated_ms: now,
+            };
+        }
 
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
@@ -266,6 +290,17 @@ impl JarvisApp {
         }
 
         self.set_status("Ready", "idle");
+
+        // Persist and reset per-session usage.
+        if let Ok(mut session) = self.state.session_usage.lock() {
+            if session.started_ms != 0 {
+                if let Ok(path) = session_usage_path() {
+                    let snapshot = session.clone();
+                    let _ = append_usage_line(&path, &snapshot);
+                }
+            }
+            *session = crate::state::SessionUsage::default();
+        }
     }
 
     fn process_events(&mut self) {
@@ -303,6 +338,7 @@ impl JarvisApp {
                 self.snip_texture = None;
                 self.snip_drag_start = None;
                 self.snip_drag_current = None;
+                self.snip_focus_pending = true;
             }
             Err(e) => {
                 eprintln!("[ui] capture error: {}", e);
@@ -318,8 +354,21 @@ impl JarvisApp {
         };
         if let Some(img) = img {
             match snip::crop_and_save(&img, x, y, w, h) {
-                Ok(path) => {
-                    let _ = snip::copy_path_to_clipboard(&path);
+                Ok((path, cropped)) => {
+                    if self.snip_copy_image {
+                        let _ = snip::copy_image_to_clipboard(&cropped);
+                    } else {
+                        let _ = snip::copy_path_to_clipboard(&path);
+                    }
+                    if self.snip_edit_after {
+                        if let Err(e) = snip::open_in_editor(
+                            &path,
+                            Some(self.settings.snip_editor_path.as_str()),
+                        ) {
+                            eprintln!("[snip] editor error: {}", e);
+                        }
+                        self.snip_edit_after = false;
+                    }
                     println!("[snip] saved to {}", path.to_string_lossy());
                 }
                 Err(e) => eprintln!("[snip] save error: {}", e),
@@ -433,7 +482,7 @@ impl JarvisApp {
                 ui.add_space(6.0);
 
                 // --- Button row ---
-                ui.horizontal(|ui| {
+                ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
                     if record_toggle(ui, self.is_recording).clicked() {
@@ -454,10 +503,52 @@ impl JarvisApp {
                                 pos2(outer.min.x, new_y),
                             ));
                         }
-                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(280.0, new_h)));
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(360.0, new_h)));
                     }
                     if icon_btn(ui, "\u{1F4C1}", "Open Snips Folder").clicked() {
                         let _ = snip::open_snip_folder();
+                    }
+                    let clip_label = if self.snip_copy_image {
+                        "Clip: Image"
+                    } else {
+                        "Clip: Path"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(clip_label)
+                                    .size(11.0)
+                                    .color(TEXT_COLOR),
+                            )
+                            .fill(BTN_BG)
+                            .stroke(Stroke::new(1.0, BTN_BORDER))
+                            .rounding(4.0)
+                            .min_size(vec2(62.0, 22.0)),
+                        )
+                        .clicked()
+                    {
+                        self.snip_copy_image = !self.snip_copy_image;
+                    }
+                    let edit_label = if self.snip_edit_after {
+                        "Edit: On"
+                    } else {
+                        "Edit: Off"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(edit_label)
+                                    .size(11.0)
+                                    .color(TEXT_COLOR),
+                            )
+                            .fill(BTN_BG)
+                            .stroke(Stroke::new(1.0, BTN_BORDER))
+                            .rounding(4.0)
+                            .min_size(vec2(62.0, 22.0)),
+                        )
+                        .clicked()
+                    {
+                        self.snip_edit_after = !self.snip_edit_after;
                     }
                     if icon_btn(ui, "\u{1F4CA}", "Task Manager").clicked() {
                         std::thread::spawn(open_task_manager);
@@ -582,6 +673,14 @@ impl JarvisApp {
                                     }
                                 });
 
+                            ui.add_space(2.0);
+                            field(
+                                ui,
+                                "Snip Editor Path (optional)",
+                                &mut self.form_snip_editor_path,
+                                false,
+                            );
+
                             ui.add_space(4.0);
                             let validate_enabled = !self.form_api_key.trim().is_empty()
                                 && !self.key_check_inflight;
@@ -656,6 +755,8 @@ impl JarvisApp {
                                 );
                                 self.settings.mic_device = self.form_mic.clone();
                                 self.settings.vad_mode = self.form_vad_mode.clone();
+                                self.settings.snip_editor_path =
+                                    self.form_snip_editor_path.clone();
                                 match crate::settings::save(&self.settings) {
                                     Ok(()) => {
                                         self.set_status("Saved", "idle");
@@ -672,7 +773,7 @@ impl JarvisApp {
                                             ));
                                         }
                                         ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(
-                                            280.0, 80.0,
+                                            360.0, 80.0,
                                         )));
                                     }
                                     Err(e) => {
@@ -686,6 +787,10 @@ impl JarvisApp {
     }
 
     fn render_snip_overlay(&mut self, ctx: &egui::Context) {
+        if self.snip_focus_pending {
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+            self.snip_focus_pending = false;
+        }
         // Load texture on first render
         if self.snip_texture.is_none() {
             if let Ok(guard) = self.state.snip_image.lock() {
@@ -834,7 +939,7 @@ impl eframe::App for JarvisApp {
         // Position bottom-right on first frame
         if !self.positioned {
             if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                let win = vec2(280.0, 80.0);
+                let win = vec2(360.0, 80.0);
                 let pos = pos2(
                     monitor.x - win.x - 16.0,
                     monitor.y - win.y - 56.0, // above taskbar
@@ -1096,4 +1201,12 @@ fn open_task_manager() {
         let _ = enigo.key(Key::Shift, enigo::Direction::Release);
         let _ = enigo.text("Jarvis");
     }
+}
+
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

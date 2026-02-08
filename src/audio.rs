@@ -273,6 +273,19 @@ fn process_audio(
         }
 
         if !has_voice && !in_hangover {
+            let suppressed_ms = chunk_ms.max(0.0) as u64;
+            if suppressed_ms > 0 {
+                if let Ok(mut usage) = state.usage.lock() {
+                    usage.ms_suppressed = usage.ms_suppressed.saturating_add(suppressed_ms);
+                    usage.last_update_ms = now_ms();
+                }
+                if let Ok(mut session) = state.session_usage.lock() {
+                    if session.started_ms != 0 {
+                        session.ms_suppressed = session.ms_suppressed.saturating_add(suppressed_ms);
+                        session.updated_ms = now_ms();
+                    }
+                }
+            }
             if is_sending {
                 println!(
                     "[audio] VAD stop: peak={:.5} threshold={:.5} hangover_ms={} preroll_ms={:.1}",
@@ -359,6 +372,14 @@ fn resample_linear(
         state.has_last = true;
     }
     out
+}
+
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// List available input devices (name strings).

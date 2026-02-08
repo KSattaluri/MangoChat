@@ -1,5 +1,6 @@
 use chrono::Local;
 use image::{imageops, RgbaImage};
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -64,7 +65,13 @@ pub fn capture_screen(
     Ok((image, bounds))
 }
 
-pub fn crop_and_save(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Result<PathBuf, String> {
+pub fn crop_and_save(
+    img: &RgbaImage,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> Result<(PathBuf, RgbaImage), String> {
     let max_w = img.width();
     let max_h = img.height();
     if max_w == 0 || max_h == 0 {
@@ -107,7 +114,7 @@ pub fn crop_and_save(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Result<
 
     let _ = prune_old_snips(&dir, 5);
 
-    Ok(path)
+    Ok((path, cropped))
 }
 
 pub fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
@@ -120,6 +127,22 @@ pub fn copy_path_to_clipboard(path: &Path) -> Result<(), String> {
     clipboard
         .set_text(text)
         .map_err(|e| format!("Failed to copy path to clipboard: {}", e))?;
+    Ok(())
+}
+
+pub fn copy_image_to_clipboard(img: &RgbaImage) -> Result<(), String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Failed to init clipboard: {}", e))?;
+    let (width, height) = img.dimensions();
+    let bytes = Cow::Owned(img.as_raw().clone());
+    let image = arboard::ImageData {
+        width: width as usize,
+        height: height as usize,
+        bytes,
+    };
+    clipboard
+        .set_image(image)
+        .map_err(|e| format!("Failed to copy image: {}", e))?;
     Ok(())
 }
 
@@ -141,6 +164,40 @@ pub fn open_snip_folder() -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("Failed to open folder: {}", e))?;
     Ok(())
+}
+
+pub fn open_in_editor(path: &Path, editor_path: Option<&str>) -> Result<(), String> {
+    let path_str = path
+        .to_str()
+        .ok_or("Failed to convert path to string")?;
+
+    if let Some(custom) = editor_path {
+        let custom = custom.trim();
+        if !custom.is_empty() {
+            let custom_path = Path::new(custom);
+            if !custom_path.is_absolute() || custom_path.exists() {
+                if std::process::Command::new(custom).arg(path_str).spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    let candidates = [r"C:\Windows\System32\mspaint.exe", "mspaint"];
+    for candidate in candidates.iter() {
+        let candidate_path = Path::new(candidate);
+        if candidate_path.is_absolute() && !candidate_path.exists() {
+            continue;
+        }
+        if std::process::Command::new(candidate)
+            .arg(path_str)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Err("Failed to launch editor (Paint)".into())
 }
 
 fn prune_old_snips(dir: &Path, keep: usize) -> Result<(), String> {

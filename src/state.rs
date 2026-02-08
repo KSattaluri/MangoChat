@@ -27,6 +27,7 @@ pub struct UsageTotals {
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
 pub struct SessionUsage {
     pub session_id: u64,
+    pub provider: String,
     pub bytes_sent: u64,
     pub ms_sent: u64,
     pub ms_suppressed: u64,
