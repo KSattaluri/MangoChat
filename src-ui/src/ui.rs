@@ -86,7 +86,8 @@ impl JarvisApp {
         let form_vad_mode = settings.vad_mode.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
-        let (tray_icon, tray_toggle) = setup_tray();
+        let (tray_icon, tray_toggle) =
+            setup_tray(state.armed.load(Ordering::SeqCst));
         println!("[tray] icon created: {}", tray_icon.is_some());
 
         let mut app = Self {
@@ -865,7 +866,12 @@ impl eframe::App for JarvisApp {
                 }
                 "toggle_armed" => {
                     let was = self.state.armed.load(Ordering::SeqCst);
-                    self.state.armed.store(!was, Ordering::SeqCst);
+                    let now_armed = !was;
+                    self.state.armed.store(now_armed, Ordering::SeqCst);
+                    if !now_armed {
+                        // Disarming should fully stop any active session.
+                        self.stop_recording();
+                    }
                     println!("[tray] armed = {}", !was);
                     self.update_tray_icon();
                 }
@@ -999,13 +1005,16 @@ fn readonly_field(ui: &mut egui::Ui, label: &str, value: &str) {
     );
 }
 
-fn setup_tray() -> (Option<tray_icon::TrayIcon>, Option<tray_icon::menu::MenuItem>) {
+fn setup_tray(
+    armed: bool,
+) -> (Option<tray_icon::TrayIcon>, Option<tray_icon::menu::MenuItem>) {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
     let open = MenuItem::with_id("open", "Open Jarvis", true, None);
-    let toggle_armed = MenuItem::with_id("toggle_armed", "Arm Jarvis", true, None);
+    let toggle_label = if armed { "Disarm Jarvis" } else { "Arm Jarvis" };
+    let toggle_armed = MenuItem::with_id("toggle_armed", toggle_label, true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
 
     let _ = menu.append(&open);
@@ -1016,7 +1025,7 @@ fn setup_tray() -> (Option<tray_icon::TrayIcon>, Option<tray_icon::menu::MenuIte
 
     let icon = match make_tray_icon(GRAY_DOT) {
         Some(i) => i,
-        None => return None,
+        None => return (None, None),
     };
 
     let tray = match TrayIconBuilder::new()
