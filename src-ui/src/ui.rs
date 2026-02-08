@@ -65,6 +65,8 @@ pub struct JarvisApp {
     pub form_vad_mode: String,
     pub key_check_inflight: bool,
     pub key_check_result: Option<(bool, String)>,
+    pub last_armed: bool,
+    pub tray_toggle: Option<tray_icon::menu::MenuItem>,
 }
 
 impl JarvisApp {
@@ -84,7 +86,7 @@ impl JarvisApp {
         let form_vad_mode = settings.vad_mode.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
-        let tray_icon = setup_tray();
+        let (tray_icon, tray_toggle) = setup_tray();
         println!("[tray] icon created: {}", tray_icon.is_some());
 
         let mut app = Self {
@@ -117,7 +119,10 @@ impl JarvisApp {
             form_vad_mode,
             key_check_inflight: false,
             key_check_result: None,
+            last_armed: false,
+            tray_toggle,
         };
+        app.last_armed = app.state.armed.load(Ordering::SeqCst);
         app.update_tray_icon();
         app
     }
@@ -130,6 +135,10 @@ impl JarvisApp {
                 let _ = tray.set_icon(Some(icon));
                 let _ = tray.set_tooltip(Some(if armed { "Jarvis - Armed" } else { "Jarvis - Disarmed" }));
             }
+        }
+        if let Some(ref item) = self.tray_toggle {
+            let label = if armed { "Disarm Jarvis" } else { "Arm Jarvis" };
+            let _ = item.set_text(label);
         }
     }
 
@@ -818,6 +827,12 @@ impl eframe::App for JarvisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_events();
 
+        let armed = self.state.armed.load(Ordering::SeqCst);
+        if armed != self.last_armed {
+            self.last_armed = armed;
+            self.update_tray_icon();
+        }
+
         // Position bottom-right on first frame
         if !self.positioned {
             if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
@@ -984,13 +999,13 @@ fn readonly_field(ui: &mut egui::Ui, label: &str, value: &str) {
     );
 }
 
-fn setup_tray() -> Option<tray_icon::TrayIcon> {
+fn setup_tray() -> (Option<tray_icon::TrayIcon>, Option<tray_icon::menu::MenuItem>) {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
     let open = MenuItem::with_id("open", "Open Jarvis", true, None);
-    let toggle_armed = MenuItem::with_id("toggle_armed", "Arm/Disarm Dictation", true, None);
+    let toggle_armed = MenuItem::with_id("toggle_armed", "Arm Jarvis", true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
 
     let _ = menu.append(&open);
@@ -1004,7 +1019,7 @@ fn setup_tray() -> Option<tray_icon::TrayIcon> {
         None => return None,
     };
 
-    match TrayIconBuilder::new()
+    let tray = match TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_tooltip("Jarvis")
         .with_icon(icon)
@@ -1018,7 +1033,9 @@ fn setup_tray() -> Option<tray_icon::TrayIcon> {
             eprintln!("[tray] build error: {}", e);
             None
         }
-    }
+    };
+
+    (tray, Some(toggle_armed))
 }
 
 fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
