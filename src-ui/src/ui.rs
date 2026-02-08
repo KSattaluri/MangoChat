@@ -436,15 +436,12 @@ impl JarvisApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
-                    if themed_btn(ui, "Start", true, !self.is_recording).clicked()
-                        && !self.is_recording
-                    {
-                        self.start_recording();
-                    }
-                    if themed_btn(ui, "Stop", false, self.is_recording).clicked()
-                        && self.is_recording
-                    {
-                        self.stop_recording();
+                    if record_toggle(ui, self.is_recording).clicked() {
+                        if self.is_recording {
+                            self.stop_recording();
+                        } else {
+                            self.start_recording();
+                        }
                     }
                     if icon_btn(ui, "\u{2699}", "Settings").clicked() {
                         self.settings_open = !self.settings_open;
@@ -949,30 +946,6 @@ impl eframe::App for JarvisApp {
 
 // --- Helpers ---
 
-fn themed_btn(
-    ui: &mut egui::Ui,
-    text: &str,
-    primary: bool,
-    enabled: bool,
-) -> egui::Response {
-    let (bg, border) = if primary {
-        (BTN_PRIMARY, BTN_PRIMARY_HOVER)
-    } else {
-        (BTN_BG, BTN_BORDER)
-    };
-    let alpha = if enabled { 1.0 } else { 0.35 };
-    let btn = egui::Button::new(
-        egui::RichText::new(text)
-            .size(12.0)
-            .color(TEXT_COLOR.linear_multiply(alpha)),
-    )
-    .fill(bg)
-    .stroke(Stroke::new(1.0, border))
-    .rounding(4.0)
-    .min_size(vec2(0.0, 22.0));
-    ui.add_enabled(enabled, btn)
-}
-
 fn icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
     let btn = egui::Button::new(egui::RichText::new(icon).size(13.0).color(TEXT_COLOR))
         .fill(BTN_BG)
@@ -980,6 +953,46 @@ fn icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
         .rounding(4.0)
         .min_size(vec2(24.0, 22.0));
     ui.add(btn).on_hover_text(tooltip)
+}
+
+fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
+    let size = 28.0;
+    let radius = size / 2.0;
+    let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let center = rect.center();
+        let hovered = response.hovered();
+
+        let (fill, ring) = if is_recording {
+            // Active: green with brighter hover
+            let green = Color32::from_rgb(0x22, 0xc5, 0x5e);
+            let green_hover = Color32::from_rgb(0x16, 0xa3, 0x4a);
+            if hovered { (green_hover, green) } else { (green, green_hover) }
+        } else {
+            // Idle: muted gray with subtle hover lift
+            let gray = Color32::from_rgb(0x3a, 0x3d, 0x45);
+            let gray_hover = Color32::from_rgb(0x4a, 0x4d, 0x55);
+            if hovered { (gray_hover, gray) } else { (gray, gray_hover) }
+        };
+
+        // Outer ring
+        ui.painter().circle_stroke(center, radius, Stroke::new(1.5, ring));
+        // Filled circle
+        ui.painter().circle_filled(center, radius - 2.5, fill);
+
+        // Inner icon: square (stop) when recording, circle (record) when idle
+        if is_recording {
+            let sq = 7.0;
+            let sq_rect = egui::Rect::from_center_size(center, vec2(sq, sq));
+            ui.painter().rect_filled(sq_rect, 1.5, Color32::WHITE);
+        } else {
+            ui.painter().circle_filled(center, 5.0, Color32::WHITE);
+        }
+    }
+
+    let tooltip = if is_recording { "Stop recording" } else { "Start recording" };
+    response.on_hover_text(tooltip)
 }
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
