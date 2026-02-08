@@ -23,6 +23,8 @@ pub struct Settings {
     pub mic_device: String,
     #[serde(default = "default_vad_mode")]
     pub vad_mode: String,
+    #[serde(default)]
+    pub snip_editor_path: String,
 }
 
 impl Settings {
@@ -52,6 +54,7 @@ impl Default for Settings {
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
+            snip_editor_path: String::new(),
         }
     }
 }

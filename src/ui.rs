@@ -50,6 +50,8 @@ pub struct JarvisApp {
     pub snip_drag_start: Option<Pos2>,
     pub snip_drag_current: Option<Pos2>,
     pub snip_bounds: Option<snip::MonitorBounds>,
+    pub snip_copy_image: bool,
+    pub snip_edit_after: bool,
 
     // Window positioning
     pub positioned: bool,
@@ -64,6 +66,7 @@ pub struct JarvisApp {
     pub form_language: String,
     pub form_mic: String,
     pub form_vad_mode: String,
+    pub form_snip_editor_path: String,
     pub key_check_inflight: bool,
     pub key_check_result: Option<(bool, String)>,
     pub last_armed: bool,
@@ -85,6 +88,7 @@ impl JarvisApp {
         let form_language = settings.language.clone();
         let form_mic = settings.mic_device.clone();
         let form_vad_mode = settings.vad_mode.clone();
+        let form_snip_editor_path = settings.snip_editor_path.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
         let (tray_icon, tray_toggle) =
@@ -112,6 +116,8 @@ impl JarvisApp {
             snip_drag_start: None,
             snip_drag_current: None,
             snip_bounds: None,
+            snip_copy_image: false,
+            snip_edit_after: false,
             error_time: None,
             form_provider,
             form_api_key,
@@ -119,6 +125,7 @@ impl JarvisApp {
             form_language,
             form_mic,
             form_vad_mode,
+            form_snip_editor_path,
             key_check_inflight: false,
             key_check_result: None,
             last_armed: false,
@@ -344,8 +351,21 @@ impl JarvisApp {
         };
         if let Some(img) = img {
             match snip::crop_and_save(&img, x, y, w, h) {
-                Ok(path) => {
-                    let _ = snip::copy_path_to_clipboard(&path);
+                Ok((path, cropped)) => {
+                    if self.snip_copy_image {
+                        let _ = snip::copy_image_to_clipboard(&cropped);
+                    } else {
+                        let _ = snip::copy_path_to_clipboard(&path);
+                    }
+                    if self.snip_edit_after {
+                        if let Err(e) = snip::open_in_editor(
+                            &path,
+                            Some(self.settings.snip_editor_path.as_str()),
+                        ) {
+                            eprintln!("[snip] editor error: {}", e);
+                        }
+                        self.snip_edit_after = false;
+                    }
                     println!("[snip] saved to {}", path.to_string_lossy());
                 }
                 Err(e) => eprintln!("[snip] save error: {}", e),
@@ -480,10 +500,52 @@ impl JarvisApp {
                                 pos2(outer.min.x, new_y),
                             ));
                         }
-                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(280.0, new_h)));
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(320.0, new_h)));
                     }
                     if icon_btn(ui, "\u{1F4C1}", "Open Snips Folder").clicked() {
                         let _ = snip::open_snip_folder();
+                    }
+                    let clip_label = if self.snip_copy_image {
+                        "Clip: Image"
+                    } else {
+                        "Clip: Path"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(clip_label)
+                                    .size(11.0)
+                                    .color(TEXT_COLOR),
+                            )
+                            .fill(BTN_BG)
+                            .stroke(Stroke::new(1.0, BTN_BORDER))
+                            .rounding(4.0)
+                            .min_size(vec2(62.0, 22.0)),
+                        )
+                        .clicked()
+                    {
+                        self.snip_copy_image = !self.snip_copy_image;
+                    }
+                    let edit_label = if self.snip_edit_after {
+                        "Edit: On"
+                    } else {
+                        "Edit: Off"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(edit_label)
+                                    .size(11.0)
+                                    .color(TEXT_COLOR),
+                            )
+                            .fill(BTN_BG)
+                            .stroke(Stroke::new(1.0, BTN_BORDER))
+                            .rounding(4.0)
+                            .min_size(vec2(62.0, 22.0)),
+                        )
+                        .clicked()
+                    {
+                        self.snip_edit_after = !self.snip_edit_after;
                     }
                     if icon_btn(ui, "\u{1F4CA}", "Task Manager").clicked() {
                         std::thread::spawn(open_task_manager);
@@ -608,6 +670,14 @@ impl JarvisApp {
                                     }
                                 });
 
+                            ui.add_space(2.0);
+                            field(
+                                ui,
+                                "Snip Editor Path (optional)",
+                                &mut self.form_snip_editor_path,
+                                false,
+                            );
+
                             ui.add_space(4.0);
                             let validate_enabled = !self.form_api_key.trim().is_empty()
                                 && !self.key_check_inflight;
@@ -682,6 +752,8 @@ impl JarvisApp {
                                 );
                                 self.settings.mic_device = self.form_mic.clone();
                                 self.settings.vad_mode = self.form_vad_mode.clone();
+                                self.settings.snip_editor_path =
+                                    self.form_snip_editor_path.clone();
                                 match crate::settings::save(&self.settings) {
                                     Ok(()) => {
                                         self.set_status("Saved", "idle");
@@ -698,7 +770,7 @@ impl JarvisApp {
                                             ));
                                         }
                                         ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(
-                                            280.0, 80.0,
+                                            320.0, 80.0,
                                         )));
                                     }
                                     Err(e) => {
@@ -860,7 +932,7 @@ impl eframe::App for JarvisApp {
         // Position bottom-right on first frame
         if !self.positioned {
             if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                let win = vec2(280.0, 80.0);
+                let win = vec2(320.0, 80.0);
                 let pos = pos2(
                     monitor.x - win.x - 16.0,
                     monitor.y - win.y - 56.0, // above taskbar
