@@ -87,7 +87,7 @@ impl JarvisApp {
         let tray_icon = setup_tray();
         println!("[tray] icon created: {}", tray_icon.is_some());
 
-        Self {
+        let mut app = Self {
             state,
             event_tx,
             event_rx,
@@ -117,6 +117,19 @@ impl JarvisApp {
             form_vad_mode,
             key_check_inflight: false,
             key_check_result: None,
+        };
+        app.update_tray_icon();
+        app
+    }
+
+    fn update_tray_icon(&self) {
+        let armed = self.state.armed.load(Ordering::SeqCst);
+        let color = if armed { GREEN } else { GRAY_DOT };
+        if let Some(ref tray) = self._tray_icon {
+            if let Some(icon) = make_tray_icon(color) {
+                let _ = tray.set_icon(Some(icon));
+                let _ = tray.set_tooltip(Some(if armed { "Jarvis - Armed" } else { "Jarvis - Disarmed" }));
+            }
         }
     }
 
@@ -830,16 +843,16 @@ impl eframe::App for JarvisApp {
             let id = event.id.0.as_str();
             println!("[tray] menu event: {}", id);
             match id {
+                "open" => {
+                    self.visible = true;
+                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(ViewportCommand::Focus);
+                }
                 "toggle_armed" => {
                     let was = self.state.armed.load(Ordering::SeqCst);
                     self.state.armed.store(!was, Ordering::SeqCst);
                     println!("[tray] armed = {}", !was);
-                }
-                "copy_last" => {
-                    let last = self.state.last_transcript.lock().unwrap().clone();
-                    if !last.is_empty() {
-                        crate::typing::copy_to_clipboard(&last);
-                    }
+                    self.update_tray_icon();
                 }
                 "quit" => {
                     self.should_quit = true;
@@ -973,38 +986,27 @@ fn readonly_field(ui: &mut egui::Ui, label: &str, value: &str) {
 
 fn setup_tray() -> Option<tray_icon::TrayIcon> {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
-    use tray_icon::{Icon, TrayIconBuilder};
+    use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
-    let toggle_armed = MenuItem::with_id("toggle_armed", "Disarm Dictation", true, None);
-    let copy_last = MenuItem::with_id("copy_last", "Copy Last Transcript", true, None);
+    let open = MenuItem::with_id("open", "Open Jarvis", true, None);
+    let toggle_armed = MenuItem::with_id("toggle_armed", "Arm/Disarm Dictation", true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
 
-    let _ = menu.append(&toggle_armed);
+    let _ = menu.append(&open);
     let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&copy_last);
+    let _ = menu.append(&toggle_armed);
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 
-    // 16x16 green icon
-    let mut icon_data = vec![0u8; 16 * 16 * 4];
-    for pixel in icon_data.chunks_exact_mut(4) {
-        pixel[0] = 0x36;
-        pixel[1] = 0xd3;
-        pixel[2] = 0x99;
-        pixel[3] = 0xFF;
-    }
-    let icon = match Icon::from_rgba(icon_data, 16, 16) {
-        Ok(i) => i,
-        Err(e) => {
-            eprintln!("[tray] icon error: {}", e);
-            return None;
-        }
+    let icon = match make_tray_icon(GRAY_DOT) {
+        Some(i) => i,
+        None => return None,
     };
 
     match TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("Jarvis - Armed")
+        .with_tooltip("Jarvis")
         .with_icon(icon)
         .build()
     {
@@ -1014,6 +1016,23 @@ fn setup_tray() -> Option<tray_icon::TrayIcon> {
         }
         Err(e) => {
             eprintln!("[tray] build error: {}", e);
+            None
+        }
+    }
+}
+
+fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
+    let mut icon_data = vec![0u8; 16 * 16 * 4];
+    for pixel in icon_data.chunks_exact_mut(4) {
+        pixel[0] = color.r();
+        pixel[1] = color.g();
+        pixel[2] = color.b();
+        pixel[3] = 0xFF;
+    }
+    match tray_icon::Icon::from_rgba(icon_data, 16, 16) {
+        Ok(i) => Some(i),
+        Err(e) => {
+            eprintln!("[tray] icon error: {}", e);
             None
         }
     }
