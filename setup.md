@@ -63,7 +63,7 @@ The app uses OpenAI's Realtime API for speech-to-text. You'll need an API key wi
 - **WSL2 users**: You MUST run `cargo tauri dev` from a native Windows terminal (PowerShell or cmd), not from the WSL shell. Tauri needs direct access to Windows APIs.
 - **Microphone access**: Windows will prompt for microphone permission on first use. Grant access when prompted.
 - The UI is served from `src/`.
-- Rust backend lives in `src-tauri/`.
+- Rust backend lives in `src-ui/`.
 
 ## Troubleshooting
 
