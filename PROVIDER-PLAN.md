@@ -51,7 +51,7 @@ Jarvis currently hardcodes OpenAI Realtime API as the sole STT provider. The goa
 ### Core Trait
 
 ```rust
-// src-ui/src/provider/mod.rs
+// src/provider/mod.rs
 
 pub trait SttProvider: Send + Sync {
     fn name(&self) -> &str;
@@ -95,7 +95,7 @@ pub fn create_provider(id: &str) -> Arc<dyn SttProvider> { ... }
 ## File Layout
 
 ```
-src-ui/src/
+src/
   main.rs              — replace `mod openai` with `mod provider`
   provider/
     mod.rs             — trait, types, registry, create_provider()
