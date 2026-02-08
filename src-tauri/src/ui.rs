@@ -314,9 +314,9 @@ impl JarvisApp {
                 let bg = ui.interact(
                     ui.max_rect(),
                     egui::Id::new("window_drag"),
-                    Sense::click(),
+                    Sense::click_and_drag(),
                 );
-                if bg.is_pointer_button_down_on() {
+                if bg.drag_started() || bg.dragged() {
                     ctx.send_viewport_cmd(ViewportCommand::StartDrag);
                 }
 
