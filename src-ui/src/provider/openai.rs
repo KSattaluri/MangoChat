@@ -51,6 +51,7 @@ impl SttProvider for OpenAiProvider {
                 type_field: "type".into(),
                 type_value: "input_audio_buffer.append".into(),
                 audio_field: "audio".into(),
+                extra_fields: Vec::new(),
             },
             commit_message: CommitMessage::Json(json!({ "type": "input_audio_buffer.commit" })),
             close_message: None,

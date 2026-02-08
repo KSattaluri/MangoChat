@@ -235,12 +235,16 @@ pub async fn run_session(
                             type_field,
                             type_value,
                             audio_field,
+                            extra_fields,
                         } => {
                             let audio_b64 = BASE64.encode(&pcm_data);
-                            let msg = serde_json::json!({
-                                type_field: type_value,
-                                audio_field: audio_b64,
-                            });
+                            let mut map = serde_json::Map::new();
+                            map.insert(type_field.clone(), serde_json::Value::String(type_value.clone()));
+                            map.insert(audio_field.clone(), serde_json::Value::String(audio_b64));
+                            for (key, value) in extra_fields {
+                                map.insert(key.clone(), value.clone());
+                            }
+                            let msg = serde_json::Value::Object(map);
                             tungstenite::Message::Text(msg.to_string().into())
                         }
                         AudioEncoding::RawBinary => {
