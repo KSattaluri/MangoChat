@@ -2,7 +2,7 @@
 
 mod audio;
 mod hotkey;
-mod openai;
+mod provider;
 mod settings;
 mod snip;
 mod state;

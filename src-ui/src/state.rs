@@ -12,6 +12,7 @@ pub enum AppEvent {
     TranscriptDelta(String),
     TranscriptFinal(String),
     SnipTrigger,
+    ApiKeyValidated { ok: bool, message: String },
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
