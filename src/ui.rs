@@ -1,6 +1,7 @@
 use crate::audio;
 use crate::settings::Settings;
 use crate::snip;
+use crate::usage::{append_usage_line, session_usage_path};
 use crate::state::{AppEvent, AppState};
 use eframe::egui;
 use egui::{
@@ -216,6 +217,20 @@ impl JarvisApp {
         }
 
         let gen = self.state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        // Initialize per-session usage.
+        let now = now_ms();
+        if let Ok(mut session) = self.state.session_usage.lock() {
+            *session = crate::state::SessionUsage {
+                session_id: gen,
+                provider: self.settings.provider.clone(),
+                bytes_sent: 0,
+                ms_sent: 0,
+                ms_suppressed: 0,
+                commits: 0,
+                started_ms: now,
+                updated_ms: now,
+            };
+        }
 
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
@@ -266,6 +281,17 @@ impl JarvisApp {
         }
 
         self.set_status("Ready", "idle");
+
+        // Persist and reset per-session usage.
+        if let Ok(mut session) = self.state.session_usage.lock() {
+            if session.started_ms != 0 {
+                if let Ok(path) = session_usage_path() {
+                    let snapshot = session.clone();
+                    let _ = append_usage_line(&path, &snapshot);
+                }
+            }
+            *session = crate::state::SessionUsage::default();
+        }
     }
 
     fn process_events(&mut self) {
@@ -1096,4 +1122,12 @@ fn open_task_manager() {
         let _ = enigo.key(Key::Shift, enigo::Direction::Release);
         let _ = enigo.text("Jarvis");
     }
+}
+
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

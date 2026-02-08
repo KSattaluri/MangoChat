@@ -78,6 +78,14 @@ fn emit_transcript(tx: &EventSender<AppEvent>, text: &str, is_final: bool) {
     }
 }
 
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 pub async fn run_session(
     provider: Arc<dyn SttProvider>,
     event_tx: EventSender<AppEvent>,
@@ -166,8 +174,10 @@ pub async fn run_session(
     let close_message = config.close_message.clone();
     let keepalive_message = config.keepalive_message.clone();
     let keepalive_secs = config.keepalive_interval_secs;
+    let sample_rate = config.sample_rate.max(1);
     let pname_send = provider_name.to_string();
     let activity_id = Arc::new(AtomicU64::new(0));
+    let state_send = state.clone();
 
     // Task: forward audio from channel to WebSocket.
     let activity_id_send = activity_id.clone();
@@ -207,6 +217,17 @@ pub async fn run_session(
                                     .is_err()
                                 {
                                     break;
+                                }
+                                // Count commit
+                                if let Ok(mut usage) = state_send.usage.lock() {
+                                    usage.commits = usage.commits.saturating_add(1);
+                                    usage.last_update_ms = now_ms();
+                                }
+                                if let Ok(mut session) = state_send.session_usage.lock() {
+                                    if session.started_ms != 0 {
+                                        session.commits = session.commits.saturating_add(1);
+                                        session.updated_ms = now_ms();
+                                    }
                                 }
                             }
                             CommitMessage::None => {}
@@ -251,6 +272,10 @@ pub async fn run_session(
                         );
                     }
 
+                    // Compute usage before moving pcm_data into message.
+                    let bytes = pcm_data.len() as u64;
+                    let ms = ((bytes as f64 / 2.0) / sample_rate as f64 * 1000.0) as u64;
+
                     // Encode audio per provider config.
                     let ws_msg = match &audio_encoding {
                         AudioEncoding::Base64Json {
@@ -276,6 +301,19 @@ pub async fn run_session(
 
                     if ws_tx.send(ws_msg).await.is_err() {
                         break;
+                    }
+                    // Update usage counters after successful send.
+                    if let Ok(mut usage) = state_send.usage.lock() {
+                        usage.bytes_sent = usage.bytes_sent.saturating_add(bytes);
+                        usage.ms_sent = usage.ms_sent.saturating_add(ms);
+                        usage.last_update_ms = now_ms();
+                    }
+                    if let Ok(mut session) = state_send.session_usage.lock() {
+                        if session.started_ms != 0 {
+                            session.bytes_sent = session.bytes_sent.saturating_add(bytes);
+                            session.ms_sent = session.ms_sent.saturating_add(ms);
+                            session.updated_ms = now_ms();
+                        }
                     }
                 }
                 ctrl = ctrl_rx.recv() => {
