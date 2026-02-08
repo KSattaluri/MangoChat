@@ -52,6 +52,7 @@ pub struct JarvisApp {
     pub snip_bounds: Option<snip::MonitorBounds>,
     pub snip_copy_image: bool,
     pub snip_edit_after: bool,
+    pub snip_focus_pending: bool,
 
     // Window positioning
     pub positioned: bool,
@@ -118,6 +119,7 @@ impl JarvisApp {
             snip_bounds: None,
             snip_copy_image: false,
             snip_edit_after: false,
+            snip_focus_pending: false,
             error_time: None,
             form_provider,
             form_api_key,
@@ -228,7 +230,7 @@ impl JarvisApp {
         let now = now_ms();
         if let Ok(mut session) = self.state.session_usage.lock() {
             *session = crate::state::SessionUsage {
-                session_id: gen,
+                session_id: now,
                 provider: self.settings.provider.clone(),
                 bytes_sent: 0,
                 ms_sent: 0,
@@ -336,6 +338,7 @@ impl JarvisApp {
                 self.snip_texture = None;
                 self.snip_drag_start = None;
                 self.snip_drag_current = None;
+                self.snip_focus_pending = true;
             }
             Err(e) => {
                 eprintln!("[ui] capture error: {}", e);
@@ -479,7 +482,7 @@ impl JarvisApp {
                 ui.add_space(6.0);
 
                 // --- Button row ---
-                ui.horizontal(|ui| {
+                ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
                     if record_toggle(ui, self.is_recording).clicked() {
@@ -500,7 +503,7 @@ impl JarvisApp {
                                 pos2(outer.min.x, new_y),
                             ));
                         }
-                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(320.0, new_h)));
+                        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(360.0, new_h)));
                     }
                     if icon_btn(ui, "\u{1F4C1}", "Open Snips Folder").clicked() {
                         let _ = snip::open_snip_folder();
@@ -770,7 +773,7 @@ impl JarvisApp {
                                             ));
                                         }
                                         ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(
-                                            320.0, 80.0,
+                                            360.0, 80.0,
                                         )));
                                     }
                                     Err(e) => {
@@ -784,6 +787,10 @@ impl JarvisApp {
     }
 
     fn render_snip_overlay(&mut self, ctx: &egui::Context) {
+        if self.snip_focus_pending {
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+            self.snip_focus_pending = false;
+        }
         // Load texture on first render
         if self.snip_texture.is_none() {
             if let Ok(guard) = self.state.snip_image.lock() {
@@ -932,7 +939,7 @@ impl eframe::App for JarvisApp {
         // Position bottom-right on first frame
         if !self.positioned {
             if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                let win = vec2(320.0, 80.0);
+                let win = vec2(360.0, 80.0);
                 let pos = pos2(
                     monitor.x - win.x - 16.0,
                     monitor.y - win.y - 56.0, // above taskbar
