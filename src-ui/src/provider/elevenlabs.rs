@@ -1,7 +1,16 @@
 use super::{
     AudioEncoding, CommitMessage, ConnectionConfig, ProviderEvent, ProviderSettings, SttProvider,
 };
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use serde_json::{json, Value};
+
+fn silence_b64(sample_rate: u32, ms: u32) -> String {
+    let samples = (sample_rate as u64 * ms as u64 / 1000) as usize;
+    let bytes = samples * 2; // 16-bit PCM
+    let buf = vec![0u8; bytes];
+    BASE64.encode(buf)
+}
 
 pub struct ElevenLabsProvider;
 
@@ -12,7 +21,14 @@ impl SttProvider for ElevenLabsProvider {
 
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig {
         // Use manual commit (we drive commits from local VAD).
-        let url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&commit_strategy=manual&audio_format=pcm_16000".to_string();
+        let url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&commit_strategy=manual&audio_format=pcm_16000&language_code=en".to_string();
+
+        let silence = silence_b64(16000, 100);
+        let silence_msg = json!({
+            "message_type": "input_audio_chunk",
+            "audio_base_64": silence,
+            "sample_rate": 16000,
+        });
 
         ConnectionConfig {
             url,
@@ -20,7 +36,7 @@ impl SttProvider for ElevenLabsProvider {
                 ("xi-api-key".into(), settings.api_key.clone()),
                 ("Host".into(), "api.elevenlabs.io".into()),
             ],
-            init_message: None,
+            init_message: Some(silence_msg.clone()),
             audio_encoding: AudioEncoding::Base64Json {
                 type_field: "message_type".into(),
                 type_value: "input_audio_chunk".into(),
@@ -34,8 +50,8 @@ impl SttProvider for ElevenLabsProvider {
                 "commit": true,
             })),
             close_message: Some(json!({ "message_type": "close" })),
-            keepalive_message: None,
-            keepalive_interval_secs: 0,
+            keepalive_message: Some(silence_msg),
+            keepalive_interval_secs: 3,
             sample_rate: 16000,
         }
     }
@@ -51,6 +67,9 @@ impl SttProvider for ElevenLabsProvider {
             .or_else(|| event.get("type"))
             .and_then(|t| t.as_str())
             .unwrap_or("");
+
+        // Log raw ElevenLabs events for debugging idle/timeout behavior.
+        println!("[ElevenLabs Realtime] event: {}", event);
 
         match msg_type {
             "session_started" => vec![ProviderEvent::Status("session started".into())],

@@ -876,9 +876,14 @@ impl eframe::App for JarvisApp {
         // Snip overlay viewport
         if self.snip_overlay_active {
             let vp = if let Some(b) = &self.snip_bounds {
+                let scale = if b.scale_factor > 0.0 { b.scale_factor } else { 1.0 };
+                let logical_x = b.x as f32 / scale;
+                let logical_y = b.y as f32 / scale;
+                let logical_w = b.width as f32 / scale;
+                let logical_h = b.height as f32 / scale;
                 ViewportBuilder::default()
-                    .with_position(pos2(b.x as f32, b.y as f32))
-                    .with_inner_size(vec2(b.width as f32, b.height as f32))
+                    .with_position(pos2(logical_x, logical_y))
+                    .with_inner_size(vec2(logical_w, logical_h))
                     .with_decorations(false)
                     .with_always_on_top()
                     .with_resizable(false)
