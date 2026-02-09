@@ -21,6 +21,8 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
         let key_held_clone = key_held.clone();
         let snip_key_held = Arc::new(AtomicBool::new(false));
         let snip_key_held_clone = snip_key_held.clone();
+        let ctrl_any_held = Arc::new(AtomicBool::new(false));
+        let ctrl_any_held_clone = ctrl_any_held.clone();
 
         let callback = move |event: Event| {
             let trigger_snip = |state: &Arc<AppState>, event_tx: &EventSender<AppEvent>| {
@@ -53,6 +55,7 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
 
             match event.event_type {
                 EventType::KeyPress(Key::ControlRight) => {
+                    ctrl_any_held_clone.store(true, Ordering::SeqCst);
                     if !state.armed.load(Ordering::SeqCst) {
                         return;
                     }
@@ -73,16 +76,37 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
                     }
                 }
                 EventType::KeyRelease(Key::ControlRight) => {
+                    ctrl_any_held_clone.store(false, Ordering::SeqCst);
                     key_held_clone.store(false, Ordering::SeqCst);
                 }
-                EventType::KeyPress(Key::AltGr) | EventType::KeyPress(Key::Alt) => {
+                EventType::KeyPress(Key::ControlLeft) => {
+                    ctrl_any_held_clone.store(true, Ordering::SeqCst);
+                }
+                EventType::KeyRelease(Key::ControlLeft) => {
+                    ctrl_any_held_clone.store(false, Ordering::SeqCst);
+                }
+                EventType::KeyPress(Key::AltGr) => {
                     if snip_key_held_clone.load(Ordering::SeqCst) {
                         return;
                     }
                     snip_key_held_clone.store(true, Ordering::SeqCst);
                     trigger_snip(&state, &event_tx);
                 }
-                EventType::KeyRelease(Key::AltGr) | EventType::KeyRelease(Key::Alt) => {
+                // Some layouts/apps report Right Alt as Alt + Ctrl instead of AltGr.
+                EventType::KeyPress(Key::Alt) => {
+                    if !ctrl_any_held_clone.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if snip_key_held_clone.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    snip_key_held_clone.store(true, Ordering::SeqCst);
+                    trigger_snip(&state, &event_tx);
+                }
+                EventType::KeyRelease(Key::AltGr) => {
+                    snip_key_held_clone.store(false, Ordering::SeqCst);
+                }
+                EventType::KeyRelease(Key::Alt) => {
                     snip_key_held_clone.store(false, Ordering::SeqCst);
                 }
                 EventType::MouseMove { x, y } => {

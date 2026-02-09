@@ -115,7 +115,6 @@ pub struct JarvisApp {
     pub key_check_inflight: bool,
     pub key_check_result: Option<(bool, String)>,
     pub last_armed: bool,
-    pub alt_fallback_held: bool,
     pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
 }
@@ -189,7 +188,6 @@ impl JarvisApp {
             key_check_inflight: false,
             key_check_result: None,
             last_armed: false,
-            alt_fallback_held: false,
             tray_toggle,
             session_history: vec![],
         };
@@ -631,50 +629,63 @@ impl JarvisApp {
                         }
                         self.apply_window_mode(ctx, self.settings_open);
                     }
-                    if icon_btn(ui, "\u{1F4C1}", "Open Snips Folder").clicked() {
-                        let _ = snip::open_snip_folder();
-                    }
-                    let clip_label = if self.snip_copy_image {
-                        "Clip: Image"
-                    } else {
-                        "Clip: Path"
-                    };
-                    if ui
-                        .add(
+                    // Manual preset picker (no popup, no cycling):
+                    // P = Path, I = Image, E = Image + Edit.
+                    let preset_btn = |ui: &mut egui::Ui,
+                                      label: &str,
+                                      active: bool,
+                                      tip: &str,
+                                      p: ThemePalette| {
+                        ui.add(
                             egui::Button::new(
-                                egui::RichText::new(clip_label)
+                                egui::RichText::new(label)
                                     .size(11.0)
-                                    .color(p.text),
+                                    .strong()
+                                    .color(if active { Color32::WHITE } else { p.text }),
                             )
-                            .fill(p.btn_bg)
+                            .fill(if active { BTN_PRIMARY } else { p.btn_bg })
                             .stroke(Stroke::new(1.0, p.btn_border))
                             .rounding(4.0)
-                            .min_size(vec2(62.0, 22.0)),
+                            .min_size(vec2(20.0, 22.0)),
                         )
-                        .clicked()
-                    {
-                        self.snip_copy_image = !self.snip_copy_image;
-                    }
-                    let edit_label = if self.snip_edit_after {
-                        "Edit: On"
-                    } else {
-                        "Edit: Off"
+                        .on_hover_text(tip)
                     };
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(edit_label)
-                                    .size(11.0)
-                                    .color(p.text),
-                            )
-                            .fill(p.btn_bg)
-                            .stroke(Stroke::new(1.0, p.btn_border))
-                            .rounding(4.0)
-                            .min_size(vec2(62.0, 22.0)),
-                        )
-                        .clicked()
+
+                    if preset_btn(
+                        ui,
+                        "P",
+                        !self.snip_copy_image,
+                        "Preset: Path (copy file path)",
+                        p,
+                    )
+                    .clicked()
                     {
-                        self.snip_edit_after = !self.snip_edit_after;
+                        self.snip_copy_image = false;
+                        self.snip_edit_after = false;
+                    }
+                    if preset_btn(
+                        ui,
+                        "I",
+                        self.snip_copy_image && !self.snip_edit_after,
+                        "Preset: Image (copy image)",
+                        p,
+                    )
+                    .clicked()
+                    {
+                        self.snip_copy_image = true;
+                        self.snip_edit_after = false;
+                    }
+                    if preset_btn(
+                        ui,
+                        "E",
+                        self.snip_copy_image && self.snip_edit_after,
+                        "Preset: Image + Edit",
+                        p,
+                    )
+                    .clicked()
+                    {
+                        self.snip_copy_image = true;
+                        self.snip_edit_after = true;
                     }
                     if icon_btn(ui, "\u{1F4CA}", "Task Manager").clicked() {
                         std::thread::spawn(open_task_manager);
@@ -949,6 +960,22 @@ impl JarvisApp {
                                         &mut self.form_snip_editor_path,
                                         false,
                                     );
+                                    ui.add_space(4.0);
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new("Open Snips Folder")
+                                                    .size(11.0)
+                                                    .color(TEXT_COLOR),
+                                            )
+                                            .fill(BTN_BG)
+                                            .stroke(Stroke::new(1.0, BTN_BORDER))
+                                            .rounding(4.0),
+                                        )
+                                        .clicked()
+                                    {
+                                        let _ = snip::open_snip_folder();
+                                    }
 
                                     section_header(ui, "Voice URL Commands");
                                     ui.label(
@@ -1650,20 +1677,6 @@ impl eframe::App for JarvisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
-
-        // Fallback: when Jarvis window is focused, Right Alt may not always
-        // reach the global hook consistently. Trigger snip on Alt down edge.
-        let alt_now = ctx.input(|i| i.modifiers.alt);
-        if alt_now && !self.alt_fallback_held {
-            if self.state.armed.load(Ordering::SeqCst) {
-                let now = now_ms();
-                if !self.state.snip_active.swap(true, Ordering::SeqCst) {
-                    self.state.snip_started_ms.store(now, Ordering::SeqCst);
-                    self.trigger_snip();
-                }
-            }
-        }
-        self.alt_fallback_held = alt_now;
 
         let armed = self.state.armed.load(Ordering::SeqCst);
         if armed != self.last_armed {
