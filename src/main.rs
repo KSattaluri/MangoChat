@@ -2,6 +2,7 @@
 
 mod audio;
 mod hotkey;
+mod headset;
 mod provider;
 mod settings;
 mod snip;
@@ -54,6 +55,8 @@ fn main() {
     // Auto-arm and start hotkey listener
     app_state.armed.store(true, Ordering::SeqCst);
     hotkey::start_listener(app_state.clone(), event_tx.clone());
+    // Windows-only test hook for headset mic stem mute/unmute.
+    headset::start_mute_watcher(app_state.clone(), event_tx.clone());
     println!("[jarvis] auto-armed, hold Right Ctrl to dictate");
 
     // Periodic usage logging thread

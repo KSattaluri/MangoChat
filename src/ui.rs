@@ -2011,20 +2011,62 @@ fn open_task_manager() {
     use std::thread::sleep;
     use std::time::Duration;
 
-    let _ = std::process::Command::new("taskmgr").spawn();
-    sleep(Duration::from_millis(1500));
+    let had_existing = is_task_manager_running();
+    if !had_existing {
+        let _ = std::process::Command::new("taskmgr").spawn();
+    }
 
+    // Task Manager launch/focus can be delayed. Keep trying briefly.
+    for _ in 0..10 {
+        if activate_task_manager_window() {
+            break;
+        }
+        sleep(Duration::from_millis(200));
+    }
+
+    // If it was already open, requirement is focus only (do not overwrite existing filter text).
+    if had_existing {
+        return;
+    }
+
+    // Fresh launch path: apply filter once.
+    sleep(Duration::from_millis(150));
     if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
         let _ = enigo.key(Key::Control, enigo::Direction::Press);
         let _ = enigo.key(Key::Unicode('f'), enigo::Direction::Click);
         let _ = enigo.key(Key::Control, enigo::Direction::Release);
-        sleep(Duration::from_millis(200));
-        let _ = enigo.key(Key::Home, enigo::Direction::Click);
-        let _ = enigo.key(Key::Shift, enigo::Direction::Press);
-        let _ = enigo.key(Key::End, enigo::Direction::Click);
-        let _ = enigo.key(Key::Shift, enigo::Direction::Release);
+        sleep(Duration::from_millis(220));
+        let _ = enigo.key(Key::Control, enigo::Direction::Press);
+        let _ = enigo.key(Key::Unicode('a'), enigo::Direction::Click);
+        let _ = enigo.key(Key::Control, enigo::Direction::Release);
         let _ = enigo.text("Jarvis");
     }
+}
+
+fn is_task_manager_running() -> bool {
+    std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "if (Get-Process -Name Taskmgr -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
+        ])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn activate_task_manager_window() -> bool {
+    std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ws = New-Object -ComObject WScript.Shell; if ($ws.AppActivate('Task Manager')) { exit 0 } else { exit 1 }",
+        ])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn now_ms() -> u64 {
