@@ -213,6 +213,9 @@ fn make_enigo() -> Option<Enigo> {
 
 fn release_modifiers(enigo: &mut Enigo) {
     let _ = enigo.key(Key::Control, enigo::Direction::Release);
+    let _ = enigo.key(Key::Shift, enigo::Direction::Release);
+    let _ = enigo.key(Key::Alt, enigo::Direction::Release);
+    let _ = enigo.key(Key::Meta, enigo::Direction::Release);
 }
 
 pub fn type_text(text: &str) {
