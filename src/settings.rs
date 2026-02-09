@@ -23,8 +23,26 @@ pub struct Settings {
     pub mic_device: String,
     #[serde(default = "default_vad_mode")]
     pub vad_mode: String,
+    #[serde(default = "default_theme")]
+    pub theme: String, // dark | light
+    #[serde(default = "default_text_size")]
+    pub text_size: String, // small | medium | large
     #[serde(default)]
     pub snip_editor_path: String,
+    #[serde(default = "default_chrome_path")]
+    pub chrome_path: String,
+    #[serde(default = "default_paint_path")]
+    pub paint_path: String,
+    #[serde(default = "default_url_commands")]
+    pub url_commands: Vec<UrlCommand>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UrlCommand {
+    pub trigger: String,
+    pub url: String,
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 impl Settings {
@@ -54,7 +72,12 @@ impl Default for Settings {
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
+            theme: default_theme(),
+            text_size: default_text_size(),
             snip_editor_path: String::new(),
+            chrome_path: default_chrome_path(),
+            paint_path: default_paint_path(),
+            url_commands: default_url_commands(),
         }
     }
 }
@@ -74,6 +97,24 @@ fn default_language() -> String {
 }
 fn default_vad_mode() -> String {
     "strict".into()
+}
+fn default_theme() -> String {
+    "dark".into()
+}
+fn default_text_size() -> String {
+    "medium".into()
+}
+fn default_chrome_path() -> String {
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()
+}
+fn default_paint_path() -> String {
+    r"C:\Windows\System32\mspaint.exe".into()
+}
+fn default_url_commands() -> Vec<UrlCommand> {
+    vec![
+        UrlCommand { trigger: "github".into(), url: "https://github.com".into(), builtin: true },
+        UrlCommand { trigger: "youtube".into(), url: "https://youtube.com".into(), builtin: true },
+    ]
 }
 
 pub fn settings_path() -> Result<PathBuf, String> {
@@ -105,6 +146,15 @@ pub fn load() -> Settings {
     // Migrate deprecated provider id.
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
+    }
+    if settings.theme != "dark" && settings.theme != "light" {
+        settings.theme = default_theme();
+    }
+    if settings.text_size != "small"
+        && settings.text_size != "medium"
+        && settings.text_size != "large"
+    {
+        settings.text_size = default_text_size();
     }
     settings
 }

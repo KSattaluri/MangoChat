@@ -1,4 +1,4 @@
-use crate::state::UsageTotals;
+use crate::state::{SessionUsage, UsageTotals};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
@@ -90,5 +90,43 @@ fn truncate_log(path: &PathBuf, max_lines: usize) {
     let mut out = keep.join("\n");
     out.push('\n');
     let _ = fs::write(path, out.as_bytes());
+}
+
+/// Load the most recent `max` session entries from usage-session.jsonl (newest first).
+pub fn load_recent_sessions(max: usize) -> Vec<SessionUsage> {
+    let path = match session_usage_path() {
+        Ok(p) => p,
+        Err(_) => return vec![],
+    };
+    let text = match fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+    text.lines()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .take(max)
+        .collect()
+}
+
+/// Return the Jarvis data directory path.
+pub fn data_dir() -> Option<PathBuf> {
+    if let Some(dir) = dirs::data_local_dir() {
+        return Some(dir.join("Jarvis"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Some(home.join(".jarvis"));
+    }
+    None
+}
+
+/// Delete the all-time totals log file.
+pub fn reset_totals_file() -> Result<(), String> {
+    let path = usage_path()?;
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("Failed to reset totals: {}", e))?;
+    }
+    Ok(())
 }
 
