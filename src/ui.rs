@@ -115,6 +115,7 @@ pub struct JarvisApp {
     pub key_check_inflight: bool,
     pub key_check_result: Option<(bool, String)>,
     pub last_armed: bool,
+    pub alt_fallback_held: bool,
     pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
 }
@@ -188,6 +189,7 @@ impl JarvisApp {
             key_check_inflight: false,
             key_check_result: None,
             last_armed: false,
+            alt_fallback_held: false,
             tray_toggle,
             session_history: vec![],
         };
@@ -1648,6 +1650,20 @@ impl eframe::App for JarvisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
+
+        // Fallback: when Jarvis window is focused, Right Alt may not always
+        // reach the global hook consistently. Trigger snip on Alt down edge.
+        let alt_now = ctx.input(|i| i.modifiers.alt);
+        if alt_now && !self.alt_fallback_held {
+            if self.state.armed.load(Ordering::SeqCst) {
+                let now = now_ms();
+                if !self.state.snip_active.swap(true, Ordering::SeqCst) {
+                    self.state.snip_started_ms.store(now, Ordering::SeqCst);
+                    self.trigger_snip();
+                }
+            }
+        }
+        self.alt_fallback_held = alt_now;
 
         let armed = self.state.armed.load(Ordering::SeqCst);
         if armed != self.last_armed {
