@@ -53,6 +53,12 @@ pub struct AppState {
     pub session_usage: Mutex<SessionUsage>,
     /// FFT magnitudes for the visualizer bars (0.0–1.0 range).
     pub fft_data: Mutex<[f32; 50]>,
+    /// Configurable app path for Chrome (used by URL commands).
+    pub chrome_path: Mutex<String>,
+    /// Configurable app path for Paint.
+    pub paint_path: Mutex<String>,
+    /// Dynamic URL voice commands: (trigger, url).
+    pub url_commands: Mutex<Vec<(String, String)>>,
 }
 
 impl AppState {
@@ -72,6 +78,9 @@ impl AppState {
             usage: Mutex::new(UsageTotals::default()),
             session_usage: Mutex::new(SessionUsage::default()),
             fft_data: Mutex::new([0.0; 50]),
+            chrome_path: Mutex::new(r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()),
+            paint_path: Mutex::new(r"C:\Windows\System32\mspaint.exe".into()),
+            url_commands: Mutex::new(vec![]),
         }
     }
 }

@@ -17,6 +17,7 @@ fn normalize(text: &str) -> String {
 }
 
 /// Commands sorted longest-first so "back back" matches before "back".
+/// NOTE: chrome/github/youtube URL commands are handled dynamically via settings.
 const COMMANDS: &[(&str, fn())] = &[
     ("back back",      cmd_delete_line as fn()),
     ("new paragraph",  cmd_new_paragraph as fn()),
@@ -42,10 +43,6 @@ const COMMANDS: &[(&str, fn())] = &[
     ("copy",           cmd_copy as fn()),
     ("paste",          cmd_paste as fn()),
     ("cut",            cmd_cut as fn()),
-    ("chrome",         cmd_focus_chrome as fn()),
-    ("open chrome",    cmd_focus_chrome as fn()),
-    ("github",         cmd_open_github as fn()),
-    ("open github",    cmd_open_github as fn()),
 ];
 
 const WAKE_WORDS: &[&str] = &["jarvis", "jarvi", "jarbi", "jarbis", "jarviss"];
@@ -60,58 +57,68 @@ fn cmd_copy()           { press_ctrl_key(Key::Unicode('c')); }
 fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
-fn cmd_focus_chrome()   { focus_or_launch_chrome(); }
-fn cmd_open_github()    { open_github(); }
-
-fn open_github() {
-    focus_or_launch_chrome();
+/// Open a URL in Chrome: focus/launch Chrome, then Ctrl+T → Ctrl+L → type URL → Enter.
+pub fn open_url_in_chrome(chrome_path: &str, url: &str) {
+    focus_or_launch_chrome(chrome_path);
     #[cfg(windows)]
     {
         use std::thread::sleep;
         use std::time::Duration;
-        // Give Chrome time to come to foreground.
         sleep(Duration::from_millis(400));
-        // New tab, then focus address bar and type URL.
         press_ctrl_key(Key::Unicode('t'));
         sleep(Duration::from_millis(120));
         press_ctrl_key(Key::Unicode('l'));
         sleep(Duration::from_millis(120));
-        type_text("github.com");
+        type_text(url);
         sleep(Duration::from_millis(80));
         press_enter();
     }
     #[cfg(not(windows))]
     {
-        println!("[typing] open github not supported on this OS");
+        let _ = (chrome_path, url);
+        println!("[typing] open_url_in_chrome not supported on this OS");
     }
 }
 
-fn focus_or_launch_chrome() {
+/// Launch an application by path.
+pub fn launch_app(path: &str) {
+    if path.is_empty() {
+        return;
+    }
+    let _ = std::process::Command::new(path).spawn();
+}
+
+fn focus_or_launch_chrome(chrome_path: &str) {
     #[cfg(windows)]
     {
-        let script = r#"
+        let escaped = chrome_path.replace('\'', "''");
+        let script = format!(
+            r#"
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
-public class Win32 {
+public class Win32 {{
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-}
+}}
 '@;
-$p = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1;
-if ($p) {
-  [Win32]::ShowWindowAsync($p.MainWindowHandle, 9) | Out-Null;  # SW_RESTORE
+$p = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object {{ $_.MainWindowHandle -ne 0 }} | Select-Object -First 1;
+if ($p) {{
+  [Win32]::ShowWindowAsync($p.MainWindowHandle, 9) | Out-Null;
   [Win32]::SetForegroundWindow($p.MainWindowHandle) | Out-Null;
-} else {
-  Start-Process 'chrome';
-}
-"#;
+}} else {{
+  Start-Process '{}';
+}}
+"#,
+            escaped
+        );
         let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
+            .args(["-NoProfile", "-Command", &script])
             .spawn();
     }
     #[cfg(not(windows))]
     {
+        let _ = chrome_path;
         println!("[typing] chrome command not supported on this OS");
     }
 }
@@ -125,21 +132,52 @@ fn match_command(phrase: &str) -> Option<(&'static str, fn())> {
     None
 }
 
-pub fn process_transcript(text: &str) {
+pub fn process_transcript(
+    text: &str,
+    chrome_path: &str,
+    paint_path: &str,
+    url_commands: &[(String, String)],
+) {
     let norm = normalize(text);
     let mut parts = norm.split_whitespace();
     let first = parts.next().unwrap_or("");
 
-    if WAKE_WORDS.contains(&first) {
-        let after_prefix = parts.collect::<Vec<&str>>().join(" ");
-        // Try each command pattern (longest first)
+    // Determine command phrase (strip wake word if present).
+    let (has_wake, phrase) = if WAKE_WORDS.contains(&first) {
+        (true, parts.collect::<Vec<&str>>().join(" "))
+    } else {
+        (false, norm.clone())
+    };
+
+    // 1. URL commands (dynamic, from settings).
+    for (trigger, url) in url_commands {
+        let t = trigger.to_lowercase();
+        if phrase == t || phrase == format!("open {}", t) {
+            println!("[typing] url command: \"{}\" → {}", trigger, url);
+            open_url_in_chrome(chrome_path, url);
+            return;
+        }
+    }
+
+    // 2. App-launch commands.
+    if phrase == "chrome" || phrase == "open chrome" {
+        println!("[typing] command: focus chrome");
+        focus_or_launch_chrome(chrome_path);
+        return;
+    }
+    if phrase == "paint" || phrase == "open paint" {
+        println!("[typing] command: launch paint");
+        launch_app(paint_path);
+        return;
+    }
+
+    // 3. Static commands.
+    if has_wake {
         for (keyword, action) in COMMANDS {
-            // Exact match or keyword followed by more text
-            if after_prefix == *keyword || after_prefix.starts_with(&format!("{} ", keyword)) {
+            if phrase == *keyword || phrase.starts_with(&format!("{} ", keyword)) {
                 println!("[typing] command: \"{}\"", keyword);
                 action();
-                // Type any remaining text after the command keyword
-                let remainder = after_prefix[keyword.len()..].trim();
+                let remainder = phrase[keyword.len()..].trim();
                 if !remainder.is_empty() {
                     println!("[typing] typing remainder: \"{}\"", remainder);
                     type_text(remainder);
@@ -147,20 +185,18 @@ pub fn process_transcript(text: &str) {
                 return;
             }
         }
-        // Wake word but no known keyword — type the whole original
-        println!("[typing] unknown command in: \"{}\"", after_prefix);
+        // Wake word but no known command — type original.
+        println!("[typing] unknown command in: \"{}\"", phrase);
         type_text(text);
-        return;
+    } else {
+        // Standalone: exact match only.
+        if let Some((keyword, action)) = match_command(&phrase) {
+            println!("[typing] command: \"{}\"", keyword);
+            action();
+        } else {
+            type_text(text);
+        }
     }
-
-    // No wake word: only accept standalone command (no extra words)
-    if let Some((keyword, action)) = match_command(&norm) {
-        println!("[typing] command: \"{}\"", keyword);
-        action();
-        return;
-    }
-
-    type_text(text);
 }
 
 // --- Input helpers ---

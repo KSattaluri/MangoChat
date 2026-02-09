@@ -36,6 +36,21 @@ fn main() {
         }
     }
 
+    // Populate dynamic config from settings
+    if let Ok(mut p) = app_state.chrome_path.lock() {
+        *p = settings.chrome_path.clone();
+    }
+    if let Ok(mut p) = app_state.paint_path.lock() {
+        *p = settings.paint_path.clone();
+    }
+    if let Ok(mut v) = app_state.url_commands.lock() {
+        *v = settings
+            .url_commands
+            .iter()
+            .map(|c| (c.trigger.clone(), c.url.clone()))
+            .collect();
+    }
+
     // Auto-arm and start hotkey listener
     app_state.armed.store(true, Ordering::SeqCst);
     hotkey::start_listener(app_state.clone(), event_tx.clone());
@@ -66,10 +81,10 @@ fn main() {
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_title("Jarvis")
-            .with_inner_size(vec2(280.0, 80.0))
+            .with_inner_size(vec2(360.0, 80.0))
             .with_decorations(false)
             .with_always_on_top()
-            .with_resizable(false),
+            .with_resizable(true),
         ..Default::default()
     };
 
@@ -79,7 +94,11 @@ fn main() {
         "Jarvis",
         native_options,
         Box::new(move |cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            if settings.theme == "light" {
+                cc.egui_ctx.set_visuals(egui::Visuals::light());
+            } else {
+                cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            }
             println!("[jarvis] eframe app created");
             Ok(Box::new(ui::JarvisApp::new(
                 app_state,
