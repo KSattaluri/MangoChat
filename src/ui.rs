@@ -1728,7 +1728,8 @@ impl eframe::App for JarvisApp {
                 }
                 "quit" => {
                     self.should_quit = true;
-                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                    self.state.armed.store(false, Ordering::SeqCst);
+                    force_quit_process();
                 }
                 _ => {}
             }
@@ -2076,3 +2077,10 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+fn force_quit_process() {
+    // Ensure tray Quit exits immediately even if background threads are active.
+    std::process::exit(0);
+}
+
+

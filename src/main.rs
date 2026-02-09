@@ -5,6 +5,7 @@ mod hotkey;
 mod headset;
 mod provider;
 mod settings;
+mod single_instance;
 mod snip;
 mod state;
 mod typing;
@@ -22,6 +23,13 @@ use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS};
 fn main() {
     env_logger::init();
 
+    let _single_instance_guard = match single_instance::acquire("Jarvis.App.Singleton") {
+        Some(g) => g,
+        None => {
+            eprintln!("[jarvis] another instance is already running; exiting");
+            return;
+        }
+    };
     let app_state = Arc::new(AppState::new());
     let settings = settings::load();
     let (event_tx, event_rx) = std::sync::mpsc::channel::<AppEvent>();
@@ -114,3 +122,6 @@ fn main() {
     )
     .expect("Failed to start eframe");
 }
+
+
+

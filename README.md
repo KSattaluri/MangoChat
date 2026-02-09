@@ -1,36 +1,70 @@
-# Jarvis (Strict Dictation)
+# Jarvis (Windows Desktop, Rust)
 
-## What it is
-Minimal local web UI that streams microphone audio to OpenAI Realtime and renders a live transcript.
-Strict mode: it appends text exactly as spoken.
+## Prerequisites (Windows)
 
-## Setup (from repo root)
-1) Install deps:
-```bash
-uv sync
+Run in PowerShell (preferably elevated for installs):
+
+```powershell
+winget install -e --id Rustlang.Rustup
+winget install Microsoft.VisualStudio.2022.BuildTools --force --override "--wait --passive --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100"
 ```
 
-2) Ensure `.env.local` in repo root includes:
-```
-OPENAI_API_KEY=...
-# Optional:
-# OPENAI_REALTIME_MODEL=gpt-realtime
-# OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
-# OPENAI_REVISE_MODEL=gpt-4.1-mini
+Notes:
+- This app is Rust + `eframe/egui` (not Tauri).
+- WebView2 is not required for this app.
+
+## Verify toolchain
+
+```powershell
+rustc --version
+cargo --version
 ```
 
-3) Run the app:
-```bash
-uv run python jarvis/app.py
+## Run locally
+
+From repo root:
+
+```powershell
+cargo check
+cargo run
 ```
 
-4) Open:
-```
-http://127.0.0.1:8000
+## Build EXE
+
+```powershell
+cargo build --release
 ```
 
-## Notes
-- Audio is captured in the browser and streamed as 24kHz mono PCM.
-- Final transcripts are appended; interim text appears in gray.
-- Say `command ... end command` to mark edits, then click **Revise** to apply.
+Output:
+- `target\release\jarvis.exe`
+
+## Build installer (Inno Setup)
+
+Install Inno Setup 6, then:
+
+```powershell
+.\scripts\build-installer.ps1 -BuildName local-test1
+```
+
+Output:
+- `dist\Jarvis-Setup-<version>-<buildname>.exe`
+
+Default install path:
+- `%LOCALAPPDATA%\Programs\Jarvis`
+
+Uninstall behavior:
+- removes app binaries/shortcuts
+- keeps user data
+
+## GitHub Releases
+
+Workflow:
+- `.github/workflows/release-windows.yml`
+
+Trigger:
+- push a tag like `v0.1.0`
+
+Release assets:
+- installer `.exe`
+- `SHA256SUMS.txt`
 

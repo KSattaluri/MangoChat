@@ -1,0 +1,66 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Determine app version
+        id: vars
+        shell: pwsh
+        run: |
+          $cargoToml = Get-Content "Cargo.toml" -Raw
+          $m = [regex]::Match($cargoToml, '(?m)^version\s*=\s*"([^"]+)"')
+          if (-not $m.Success) { throw "Could not parse version from Cargo.toml" }
+          $version = $m.Groups[1].Value
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC not found: $iscc" }
+          $exe = (Resolve-Path "target\release\jarvis.exe").Path
+          & $iscc "installer\Jarvis.iss" "/DMyAppVersion=${{ steps.vars.outputs.version }}" "/DMyAppExe=$exe"
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $files = Get-ChildItem dist -File
+          if (-not $files) { throw "No files found in dist/" }
+          $out = "dist\SHA256SUMS.txt"
+          if (Test-Path $out) { Remove-Item $out -Force }
+          foreach ($f in $files) {
+            $h = Get-FileHash $f.FullName -Algorithm SHA256
+            "$($h.Hash)  $($f.Name)" | Out-File -FilePath $out -Encoding utf8 -Append
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+
