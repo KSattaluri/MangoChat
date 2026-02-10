@@ -111,12 +111,43 @@ pub struct JarvisApp {
     pub form_url_commands: Vec<crate::settings::UrlCommand>,
     pub key_check_inflight: HashSet<String>,
     pub key_check_result: HashMap<String, (bool, String)>,
+    pub last_validated_provider: Option<String>,
     pub last_armed: bool,
     pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
 }
 
 impl JarvisApp {
+    fn provider_color(provider_id: &str, p: ThemePalette) -> Color32 {
+        match provider_id {
+            "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
+            "deepgram" => Color32::from_rgb(0x3b, 0x82, 0xf6),
+            "elevenlabs" => Color32::from_rgb(0xf5, 0x9e, 0x0b),
+            _ => p.text,
+        }
+    }
+
+    fn sync_form_from_settings(&mut self) {
+        self.form_provider = self.settings.provider.clone();
+        self.form_api_keys = self.settings.api_keys.clone();
+        for (id, _) in PROVIDER_ROWS {
+            self.form_api_keys.entry((*id).to_string()).or_default();
+        }
+        self.form_model = self.settings.model.clone();
+        self.form_language = self.settings.language.clone();
+        self.form_mic = self.settings.mic_device.clone();
+        self.form_vad_mode = self.settings.vad_mode.clone();
+        self.form_start_cue = self.settings.start_cue.clone();
+        self.form_text_size = self.settings.text_size.clone();
+        self.form_snip_editor_path = self.settings.snip_editor_path.clone();
+        self.form_chrome_path = self.settings.chrome_path.clone();
+        self.form_paint_path = self.settings.paint_path.clone();
+        self.form_url_commands = self.settings.url_commands.clone();
+        self.key_check_inflight.clear();
+        self.key_check_result.clear();
+        self.last_validated_provider = None;
+    }
+
     pub fn new(
         state: Arc<AppState>,
         event_tx: EventSender<AppEvent>,
@@ -237,6 +268,7 @@ impl JarvisApp {
             form_url_commands,
             key_check_inflight: HashSet::new(),
             key_check_result: HashMap::new(),
+            last_validated_provider: None,
             last_armed: false,
             tray_toggle,
             session_history: vec![],
@@ -501,6 +533,7 @@ impl JarvisApp {
                     message,
                 } => {
                     self.key_check_inflight.remove(&provider);
+                    self.last_validated_provider = Some(provider.clone());
                     self.key_check_result.insert(provider, (ok, message));
                 }
             }
@@ -683,20 +716,16 @@ impl JarvisApp {
                         self.snip_copy_image = true;
                         self.snip_edit_after = true;
                     }
-                    if icon_btn(ui, "\u{2699}", "Settings").clicked() {
-                        self.settings_open = !self.settings_open;
-                        if self.settings_open {
-                            // Stop recording when opening settings to avoid
-                            // provider mismatch between UI and active session.
-                            if self.is_recording {
-                                self.stop_recording();
-                            }
-                            self.session_history = crate::usage::load_recent_sessions(20);
+                    if self.settings_open {
+                        if window_ctrl_btn(ui, "-", false).clicked() {
+                            self.settings_open = false;
+                            self.apply_window_mode(ctx, false);
                         }
-                        self.apply_window_mode(ctx, self.settings_open);
-                    }
-                    if window_ctrl_btn(ui, "-", false).clicked() {
-                        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+                    } else if icon_btn(ui, "\u{2699}", "Settings").clicked() {
+                        self.settings_open = true;
+                        self.sync_form_from_settings();
+                        self.session_history = crate::usage::load_recent_sessions(20);
+                        self.apply_window_mode(ctx, true);
                     }
                 });
 
@@ -777,12 +806,27 @@ impl JarvisApp {
                             // ── Tab content ──
                             match self.settings_tab.as_str() {
                                 "provider" => {
-                                    ui.label(
-                                        egui::RichText::new("Provider Credentials")
-                                            .size(14.0)
-                                            .strong()
-                                            .color(p.text),
-                                    );
+                                    let current_provider_name = PROVIDER_ROWS
+                                        .iter()
+                                        .find(|(id, _)| *id == self.settings.provider.as_str())
+                                        .map(|(_, name)| *name)
+                                        .unwrap_or("Unknown");
+                                    let current_provider_color =
+                                        Self::provider_color(&self.settings.provider, p);
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("Current Provider:")
+                                                .size(14.0)
+                                                .strong()
+                                                .color(p.text_muted),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(current_provider_name)
+                                                .size(14.0)
+                                                .strong()
+                                                .color(current_provider_color),
+                                        );
+                                    });
                                     ui.add_space(8.0);
 
                                     let total_w = ui.available_width();
@@ -851,12 +895,8 @@ impl JarvisApp {
                                             .show(ui, |ui| {
                                                 ui.set_width(total_w);
                                                 ui.horizontal(|ui| {
-                                                    let provider_color = match provider_id.as_str() {
-                                                        "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
-                                                        "deepgram" => Color32::from_rgb(0x3b, 0x82, 0xf6),
-                                                        "elevenlabs" => Color32::from_rgb(0xf5, 0x9e, 0x0b),
-                                                        _ => p.text,
-                                                    };
+                                                    let provider_color =
+                                                        Self::provider_color(&provider_id, p);
                                                     ui.add_sized(
                                                         [provider_w, 24.0],
                                                         egui::Label::new(
@@ -905,6 +945,13 @@ impl JarvisApp {
                                                         .inner;
                                                     if key_resp.changed() {
                                                         self.key_check_result.remove(&provider_id);
+                                                        if self
+                                                            .last_validated_provider
+                                                            .as_deref()
+                                                            == Some(provider_id.as_str())
+                                                        {
+                                                            self.last_validated_provider = None;
+                                                        }
                                                     }
 
                                                     let key_present = !key_value.trim().is_empty();
@@ -933,6 +980,13 @@ impl JarvisApp {
                                                     if validate_resp.clicked() && key_present && !inflight {
                                                         self.key_check_inflight.insert(provider_id.clone());
                                                         self.key_check_result.remove(&provider_id);
+                                                        self.last_validated_provider =
+                                                            Some(provider_id.clone());
+                                                        let provider_name = PROVIDER_ROWS
+                                                            .iter()
+                                                            .find(|(id, _)| *id == provider_id.as_str())
+                                                            .map(|(_, name)| (*name).to_string())
+                                                            .unwrap_or_else(|| provider_id.clone());
                                                         let provider = crate::provider::create_provider(&provider_id);
                                                         let provider_settings = crate::provider::ProviderSettings {
                                                             api_key: key_value.clone(),
@@ -949,8 +1003,20 @@ impl JarvisApp {
                                                             )
                                                             .await;
                                                             let (ok, message) = match result {
-                                                                Ok(()) => (true, "API key is valid".to_string()),
-                                                                Err(e) => (false, e),
+                                                                Ok(()) => (
+                                                                    true,
+                                                                    format!(
+                                                                        "{} API key is valid",
+                                                                        provider_name
+                                                                    ),
+                                                                ),
+                                                                Err(e) => (
+                                                                    false,
+                                                                    format!(
+                                                                        "{} validation failed: {}",
+                                                                        provider_name, e
+                                                                    ),
+                                                                ),
                                                             };
                                                             let _ = event_tx.send(AppEvent::ApiKeyValidated {
                                                                 provider: validated_provider_id,
@@ -998,10 +1064,20 @@ impl JarvisApp {
                                         ui.add_space(6.0);
                                     }
 
-                                    if let Some((ok, msg)) = self.key_check_result.get(&self.form_provider) {
-                                        let color = if *ok { GREEN } else { RED };
-                                        ui.add_space(4.0);
-                                        ui.label(egui::RichText::new(msg).size(11.0).color(color));
+                                    if let Some(provider_id) =
+                                        self.last_validated_provider.as_ref()
+                                    {
+                                        if let Some((ok, msg)) =
+                                            self.key_check_result.get(provider_id)
+                                        {
+                                            let color = if *ok { GREEN } else { RED };
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                egui::RichText::new(msg)
+                                                    .size(11.0)
+                                                    .color(color),
+                                            );
+                                        }
                                     }
                                     if self
                                         .form_api_keys
@@ -1585,10 +1661,11 @@ impl JarvisApp {
                                 "provider" | "audio" | "advanced" | "commands"
                             ) {
                                 ui.add_space(6.0);
+                                    let save_label = "Save";
                                     let save = ui.add_sized(
                                         [ui.available_width(), 24.0],
                                         egui::Button::new(
-                                            egui::RichText::new("Save")
+                                            egui::RichText::new(save_label)
                                                 .size(13.0)
                                                 .color(TEXT_COLOR),
                                         )
@@ -1648,10 +1725,20 @@ impl JarvisApp {
                                                         .map(|c| (c.trigger.clone(), c.url.clone()))
                                                         .collect();
                                                 }
-                                                self.apply_appearance(ctx);
-                                                self.set_status("Saved", "idle");
-                                                self.settings_open = false;
-                                                self.apply_window_mode(ctx, false);
+                                                if self.settings_tab == "provider" {
+                                                    let was_recording = self.is_recording;
+                                                    if was_recording {
+                                                        self.stop_recording();
+                                                        self.start_recording();
+                                                    } else {
+                                                        self.set_status("Saved", "idle");
+                                                    }
+                                                } else {
+                                                    self.apply_appearance(ctx);
+                                                    self.set_status("Saved", "idle");
+                                                    self.settings_open = false;
+                                                    self.apply_window_mode(ctx, false);
+                                                }
                                             }
                                             Err(e) => {
                                                 self.set_status(
