@@ -1823,10 +1823,29 @@ impl eframe::App for JarvisApp {
 
         // Position bottom-right on first frame
         if !self.positioned {
-            if let Some(pos) = default_compact_position(ctx) {
+            let compact_size = vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H);
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize(compact_size));
+            if let Some(pos) = default_compact_position_for_size(ctx, compact_size) {
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
                 self.compact_anchor_pos = Some(pos);
                 self.positioned = true;
+            } else if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
+                let win = outer.size();
+                if let Some(pos) = default_compact_position_for_size(ctx, win) {
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
+                    self.compact_anchor_pos = Some(pos);
+                    self.positioned = true;
+                    self.initial_position_corrected = true;
+                } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
+                    let pos = pos2(
+                        monitor.x - win.x - 16.0,
+                        monitor.y - win.y - 64.0,
+                    );
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
+                    self.compact_anchor_pos = Some(pos);
+                    self.positioned = true;
+                    self.initial_position_corrected = true;
+                }
             } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
                 let win = vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H);
                 let pos = pos2(
@@ -1837,6 +1856,15 @@ impl eframe::App for JarvisApp {
                 self.compact_anchor_pos = Some(pos);
                 self.positioned = true;
             }
+        }
+        // Compact mode should never maximize/snap-maximize.
+        if !self.settings_open
+            && ctx
+                .input(|i| i.viewport().maximized)
+                .unwrap_or(false)
+        {
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+            self.apply_window_mode(ctx, false);
         }
         // One-time startup correction using the actual first rendered outer size.
         // This prevents initial tray overlap on some DPI/taskbar layouts.
@@ -2295,11 +2323,11 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn default_compact_position(ctx: &egui::Context) -> Option<Pos2> {
+fn default_compact_position_for_size(ctx: &egui::Context, size: egui::Vec2) -> Option<Pos2> {
     let work = work_area_rect_logical(ctx)?;
     let margin = 10.0;
-    let x = work.max.x - COMPACT_WINDOW_W - margin;
-    let y = work.max.y - COMPACT_WINDOW_H - margin;
+    let x = work.max.x - size.x - margin;
+    let y = work.max.y - size.y - margin;
     Some(pos2(x.max(work.min.x), y.max(work.min.y)))
 }
 
