@@ -45,6 +45,9 @@ impl SttProvider for DeepgramProvider {
             close_message: Some(json!({"type": "CloseStream"})),
             keepalive_message: Some(json!({"type": "KeepAlive"})),
             keepalive_interval_secs: 5,
+            min_audio_chunk_ms: 0,
+            pre_commit_silence_ms: 0,
+            commit_flush_timeout_ms: 700,
             sample_rate,
         }
     }

@@ -13,6 +13,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite};
 
+type WsSink = futures_util::stream::SplitSink<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    tungstenite::Message,
+>;
+
 fn build_ws_request(config: &ConnectionConfig) -> Result<tungstenite::http::Request<()>, String> {
     let mut request = tungstenite::http::Request::builder()
         .uri(&config.url)
@@ -84,6 +89,62 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+async fn send_audio_chunk(
+    ws_tx: &mut WsSink,
+    pcm_data: Vec<u8>,
+    audio_encoding: &AudioEncoding,
+    state_send: &Arc<AppState>,
+    sample_rate: u32,
+) -> Result<(), ()> {
+    if pcm_data.is_empty() {
+        return Ok(());
+    }
+
+    let chunk_bytes = pcm_data.len() as u64;
+    let chunk_ms = ((chunk_bytes as f64 / 2.0) / sample_rate as f64 * 1000.0) as u64;
+
+    let ws_msg = match audio_encoding {
+        AudioEncoding::Base64Json {
+            type_field,
+            type_value,
+            audio_field,
+            extra_fields,
+        } => {
+            let audio_b64 = BASE64.encode(&pcm_data);
+            let mut map = serde_json::Map::new();
+            map.insert(
+                type_field.clone(),
+                serde_json::Value::String(type_value.clone()),
+            );
+            map.insert(audio_field.clone(), serde_json::Value::String(audio_b64));
+            for (key, value) in extra_fields {
+                map.insert(key.clone(), value.clone());
+            }
+            let msg = serde_json::Value::Object(map);
+            tungstenite::Message::Text(msg.to_string().into())
+        }
+        AudioEncoding::RawBinary => tungstenite::Message::Binary(pcm_data.into()),
+    };
+
+    if ws_tx.send(ws_msg).await.is_err() {
+        return Err(());
+    }
+
+    if let Ok(mut usage) = state_send.usage.lock() {
+        usage.bytes_sent = usage.bytes_sent.saturating_add(chunk_bytes);
+        usage.ms_sent = usage.ms_sent.saturating_add(chunk_ms);
+        usage.last_update_ms = now_ms();
+    }
+    if let Ok(mut session) = state_send.session_usage.lock() {
+        if session.started_ms != 0 {
+            session.bytes_sent = session.bytes_sent.saturating_add(chunk_bytes);
+            session.ms_sent = session.ms_sent.saturating_add(chunk_ms);
+            session.updated_ms = now_ms();
+        }
+    }
+    Ok(())
 }
 
 pub async fn run_session(
@@ -175,6 +236,9 @@ pub async fn run_session(
     let keepalive_message = config.keepalive_message.clone();
     let keepalive_secs = config.keepalive_interval_secs;
     let sample_rate = config.sample_rate.max(1);
+    let min_audio_chunk_ms = config.min_audio_chunk_ms;
+    let pre_commit_silence_ms = config.pre_commit_silence_ms;
+    let commit_flush_timeout_ms = config.commit_flush_timeout_ms.max(100);
     let pname_send = provider_name.to_string();
     let activity_id = Arc::new(AtomicU64::new(0));
     let state_send = state.clone();
@@ -185,6 +249,13 @@ pub async fn run_session(
     let send_task = tokio::spawn(async move {
         let mut frames: u64 = 0;
         let mut bytes: u64 = 0;
+        let bytes_per_ms = (sample_rate as usize * 2) / 1000;
+        let min_chunk_bytes = if min_audio_chunk_ms > 0 {
+            (bytes_per_ms * min_audio_chunk_ms as usize).max(2)
+        } else {
+            0
+        };
+        let mut pending_pcm: Vec<u8> = Vec::new();
         let keepalive_dur = if keepalive_secs > 0 {
             Duration::from_secs(keepalive_secs)
         } else {
@@ -201,13 +272,49 @@ pub async fn run_session(
                     let mut rx = audio_rx_send.lock().await;
                     rx.recv().await
                 } => {
-                    let pcm_data = match audio {
+                    let mut pcm_data = match audio {
                         Some(d) => d,
                         None => break,
                     };
                     // Empty buffer = commit signal (VAD detected end of speech).
                     if pcm_data.is_empty() {
                         println!("[{}] VAD commit", pname_send);
+                        if !pending_pcm.is_empty() {
+                            if min_chunk_bytes > 0 && pending_pcm.len() < min_chunk_bytes {
+                                pending_pcm.resize(min_chunk_bytes, 0);
+                            }
+                            let to_send = std::mem::take(&mut pending_pcm);
+                            if send_audio_chunk(
+                                &mut ws_tx,
+                                to_send,
+                                &audio_encoding,
+                                &state_send,
+                                sample_rate,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        if pre_commit_silence_ms > 0 {
+                            let silence_bytes =
+                                ((sample_rate as usize * 2 * pre_commit_silence_ms as usize) / 1000)
+                                    .max(2);
+                            let silence = vec![0u8; silence_bytes];
+                            if send_audio_chunk(
+                                &mut ws_tx,
+                                silence,
+                                &audio_encoding,
+                                &state_send,
+                                sample_rate,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                break;
+                            }
+                        }
                         match &commit_message {
                             CommitMessage::Json(msg) => {
                                 println!("[{}] sending commit message", pname_send);
@@ -230,14 +337,16 @@ pub async fn run_session(
                                     }
                                 }
                             }
-                            CommitMessage::None => {}
                         }
                         let commit_activity = activity_id_send.load(Ordering::SeqCst);
                         let flush_tx_delayed = flush_tx.clone();
                         let pname_flush = pname_send.clone();
                         let activity_id_flush = activity_id_send.clone();
                         tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(700)).await;
+                            tokio::time::sleep(Duration::from_millis(
+                                commit_flush_timeout_ms as u64,
+                            ))
+                            .await;
                             if activity_id_flush.load(Ordering::SeqCst) == commit_activity {
                                 println!("[{}] commit timeout flush", pname_flush);
                                 let _ = flush_tx_delayed.send(()).await;
@@ -272,48 +381,39 @@ pub async fn run_session(
                         );
                     }
 
-                    // Compute usage before moving pcm_data into message.
-                    let bytes = pcm_data.len() as u64;
-                    let ms = ((bytes as f64 / 2.0) / sample_rate as f64 * 1000.0) as u64;
-
-                    // Encode audio per provider config.
-                    let ws_msg = match &audio_encoding {
-                        AudioEncoding::Base64Json {
-                            type_field,
-                            type_value,
-                            audio_field,
-                            extra_fields,
-                        } => {
-                            let audio_b64 = BASE64.encode(&pcm_data);
-                            let mut map = serde_json::Map::new();
-                            map.insert(type_field.clone(), serde_json::Value::String(type_value.clone()));
-                            map.insert(audio_field.clone(), serde_json::Value::String(audio_b64));
-                            for (key, value) in extra_fields {
-                                map.insert(key.clone(), value.clone());
+                    if min_chunk_bytes > 0 {
+                        pending_pcm.append(&mut pcm_data);
+                        let mut send_failed = false;
+                        while pending_pcm.len() >= min_chunk_bytes {
+                            let to_send: Vec<u8> = pending_pcm.drain(..min_chunk_bytes).collect();
+                            if send_audio_chunk(
+                                &mut ws_tx,
+                                to_send,
+                                &audio_encoding,
+                                &state_send,
+                                sample_rate,
+                            )
+                            .await
+                            .is_err()
+                            {
+                                send_failed = true;
+                                break;
                             }
-                            let msg = serde_json::Value::Object(map);
-                            tungstenite::Message::Text(msg.to_string().into())
                         }
-                        AudioEncoding::RawBinary => {
-                            tungstenite::Message::Binary(pcm_data.into())
+                        if send_failed {
+                            break;
                         }
-                    };
-
-                    if ws_tx.send(ws_msg).await.is_err() {
+                    } else if send_audio_chunk(
+                        &mut ws_tx,
+                        pcm_data,
+                        &audio_encoding,
+                        &state_send,
+                        sample_rate,
+                    )
+                    .await
+                    .is_err()
+                    {
                         break;
-                    }
-                    // Update usage counters after successful send.
-                    if let Ok(mut usage) = state_send.usage.lock() {
-                        usage.bytes_sent = usage.bytes_sent.saturating_add(bytes);
-                        usage.ms_sent = usage.ms_sent.saturating_add(ms);
-                        usage.last_update_ms = now_ms();
-                    }
-                    if let Ok(mut session) = state_send.session_usage.lock() {
-                        if session.started_ms != 0 {
-                            session.bytes_sent = session.bytes_sent.saturating_add(bytes);
-                            session.ms_sent = session.ms_sent.saturating_add(ms);
-                            session.updated_ms = now_ms();
-                        }
                     }
                 }
                 ctrl = ctrl_rx.recv() => {
@@ -350,7 +450,6 @@ pub async fn run_session(
                         .send(tungstenite::Message::Text(msg.to_string().into()))
                         .await;
                 }
-                CommitMessage::None => {}
             }
         }
         tokio::time::sleep(Duration::from_millis(2000)).await;
