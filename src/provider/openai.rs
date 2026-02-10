@@ -57,6 +57,9 @@ impl SttProvider for OpenAiProvider {
             close_message: None,
             keepalive_message: None,
             keepalive_interval_secs: 0,
+            min_audio_chunk_ms: 0,
+            pre_commit_silence_ms: 0,
+            commit_flush_timeout_ms: 700,
             sample_rate: 24000,
         }
     }

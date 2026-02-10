@@ -32,6 +32,7 @@ const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
     ("openai", "OpenAI Realtime"),
     ("elevenlabs", "ElevenLabs Realtime"),
+    ("assemblyai", "AssemblyAI"),
 ];
 
 #[derive(Clone, Copy)]
@@ -123,6 +124,7 @@ impl JarvisApp {
             "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
             "deepgram" => Color32::from_rgb(0x3b, 0x82, 0xf6),
             "elevenlabs" => Color32::from_rgb(0xf5, 0x9e, 0x0b),
+            "assemblyai" => Color32::from_rgb(0xa8, 0x55, 0xf7),
             _ => p.text,
         }
     }
@@ -1613,7 +1615,7 @@ impl JarvisApp {
                                                 ),
                                                 (
                                                     "What providers are supported?",
-                                                    "OpenAI Realtime, Deepgram, and ElevenLabs Realtime. Select your provider in the Provider tab.",
+                                                    "OpenAI Realtime, Deepgram, ElevenLabs Realtime, and AssemblyAI. Select your provider in the Provider tab.",
                                                 ),
                                                 (
                                                     "How does VAD mode work?",

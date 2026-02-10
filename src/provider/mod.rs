@@ -47,8 +47,6 @@ pub enum AudioEncoding {
 pub enum CommitMessage {
     /// Send a JSON message to commit the buffer.
     Json(Value),
-    /// Provider doesn't need an explicit commit (e.g. Deepgram with endpointing).
-    None,
 }
 
 /// Everything needed to establish and configure a provider WebSocket connection.
@@ -67,6 +65,14 @@ pub struct ConnectionConfig {
     pub keepalive_message: Option<Value>,
     /// Interval in seconds for keepalive messages (default: 5).
     pub keepalive_interval_secs: u64,
+    /// Minimum audio chunk duration to send, in milliseconds.
+    /// 0 means send each captured chunk immediately.
+    pub min_audio_chunk_ms: u32,
+    /// Optional silence tail to send before commit, in milliseconds.
+    /// Helps providers finalize the trailing word before endpointing.
+    pub pre_commit_silence_ms: u32,
+    /// Fallback delay before forcing a local flush if provider final does not arrive.
+    pub commit_flush_timeout_ms: u32,
     pub sample_rate: u32,
 }
 
@@ -96,7 +102,7 @@ pub fn create_provider(id: &str) -> Arc<dyn SttProvider> {
     match id {
         "deepgram" => Arc::new(deepgram::DeepgramProvider::new()),
         "elevenlabs" => Arc::new(elevenlabs::ElevenLabsProvider),
-        "assemblyai" => Arc::new(assemblyai::AssemblyAiProvider),
+        "assemblyai" => Arc::new(assemblyai::AssemblyAiProvider::new()),
         _ => Arc::new(openai::OpenAiProvider),
     }
 }

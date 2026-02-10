@@ -8,12 +8,14 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 const DEFAULT_SAMPLE_RATE: u32 = 24000;
-const THRESHOLD_STRICT: f32 = 150.0 / 32768.0;
+const THRESHOLD_STRICT: f32 = 120.0 / 32768.0;
 const THRESHOLD_LENIENT: f32 = 100.0 / 32768.0;
-const HANGOVER_STRICT_MS: u128 = 300;
+const HANGOVER_STRICT_MS: u128 = 550;
 const HANGOVER_LENIENT_MS: u128 = 700;
-const PREROLL_STRICT_MS: f64 = 100.0;
+const PREROLL_STRICT_MS: f64 = 220.0;
 const PREROLL_LENIENT_MS: f64 = 300.0;
+const MIN_TURN_STRICT_MS: f64 = 20.0;
+const MIN_TURN_LENIENT_MS: f64 = 10.0;
 const FFT_SIZE: usize = 256;
 const BAR_COUNT: usize = 50;
 
@@ -180,6 +182,7 @@ fn process_audio(
 ) {
     let mut last_voice_ts = Instant::now() - std::time::Duration::from_secs(10);
     let mut is_sending = false;
+    let mut voiced_ms = 0.0f64;
     let mut preroll: Vec<Vec<u8>> = Vec::new();
     let mut preroll_ms = 0.0;
     let mut resampler = ResamplerState::default();
@@ -209,10 +212,20 @@ fn process_audio(
         // Peak amplitude for VAD
         let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         let mode = state.vad_mode.load(std::sync::atomic::Ordering::SeqCst);
-        let (threshold, hangover_ms, preroll_target) = match mode {
-            2 => (0.0f32, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS), // legacy off: always send
-            1 => (THRESHOLD_LENIENT, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS),
-            _ => (THRESHOLD_STRICT, HANGOVER_STRICT_MS, PREROLL_STRICT_MS),
+        let (threshold, hangover_ms, preroll_target, min_turn_ms) = match mode {
+            2 => (0.0f32, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS, 0.0), // legacy off: always send
+            1 => (
+                THRESHOLD_LENIENT,
+                HANGOVER_LENIENT_MS,
+                PREROLL_LENIENT_MS,
+                MIN_TURN_LENIENT_MS,
+            ),
+            _ => (
+                THRESHOLD_STRICT,
+                HANGOVER_STRICT_MS,
+                PREROLL_STRICT_MS,
+                MIN_TURN_STRICT_MS,
+            ),
         };
         let has_voice = if mode == 2 { true } else { peak >= threshold };
         let now = Instant::now();
@@ -222,6 +235,9 @@ fn process_audio(
         let in_hangover = now.duration_since(last_voice_ts).as_millis() <= hangover_ms;
 
         let chunk_ms = (send_samples.len() as f64 / target_rate as f64) * 1000.0;
+        if has_voice {
+            voiced_ms += chunk_ms;
+        }
 
         // Accumulate samples for FFT
         fft_ring.extend_from_slice(&samples);
@@ -291,9 +307,17 @@ fn process_audio(
                     "[audio] VAD stop: peak={:.5} threshold={:.5} hangover_ms={} preroll_ms={:.1}",
                     peak, threshold, hangover_ms, preroll_ms
                 );
-                let _ = audio_tx.try_send(Vec::new());
+                if voiced_ms >= min_turn_ms {
+                    let _ = audio_tx.try_send(Vec::new());
+                } else {
+                    println!(
+                        "[audio] dropping micro-turn: voiced_ms={:.1} < min_turn_ms={:.1}",
+                        voiced_ms, min_turn_ms
+                    );
+                }
             }
             is_sending = false;
+            voiced_ms = 0.0;
             continue;
         }
 
