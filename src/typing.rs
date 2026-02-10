@@ -1,4 +1,10 @@
 use enigo::{Enigo, Key, Keyboard, Settings};
+#[cfg(windows)]
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+#[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetClassNameW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+};
 
 /// Strip punctuation, lowercase, collapse whitespace.
 /// "Jarvis: back, back." → "jarvis back back"
@@ -59,19 +65,18 @@ fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
 /// Open a URL in Chrome: focus/launch Chrome, then Ctrl+T → Ctrl+L → type URL → Enter.
 pub fn open_url_in_chrome(chrome_path: &str, url: &str) {
-    focus_or_launch_chrome(chrome_path);
     #[cfg(windows)]
     {
-        use std::thread::sleep;
-        use std::time::Duration;
-        sleep(Duration::from_millis(400));
-        press_ctrl_key(Key::Unicode('t'));
-        sleep(Duration::from_millis(120));
-        press_ctrl_key(Key::Unicode('l'));
-        sleep(Duration::from_millis(120));
-        type_text(url);
-        sleep(Duration::from_millis(80));
-        press_enter();
+        // Prefer explicit Chrome path, then PATH-resolved "chrome", then OS URL handler.
+        if launch_chrome_with_url(chrome_path, url) {
+            return;
+        }
+        if launch_chrome_with_url("chrome", url) {
+            return;
+        }
+        let _ = std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn();
     }
     #[cfg(not(windows))]
     {
@@ -91,29 +96,14 @@ pub fn launch_app(path: &str) {
 fn focus_or_launch_chrome(chrome_path: &str) {
     #[cfg(windows)]
     {
-        let escaped = chrome_path.replace('\'', "''");
-        let script = format!(
-            r#"
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class Win32 {{
-  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-}}
-'@;
-$p = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object {{ $_.MainWindowHandle -ne 0 }} | Select-Object -First 1;
-if ($p) {{
-  [Win32]::ShowWindowAsync($p.MainWindowHandle, 9) | Out-Null;
-  [Win32]::SetForegroundWindow($p.MainWindowHandle) | Out-Null;
-}} else {{
-  Start-Process '{}';
-}}
-"#,
-            escaped
-        );
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
+        if focus_existing_chrome_window() {
+            return;
+        }
+        if launch_chrome(chrome_path) {
+            return;
+        }
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", "chrome"])
             .spawn();
     }
     #[cfg(not(windows))]
@@ -121,6 +111,66 @@ if ($p) {{
         let _ = chrome_path;
         println!("[typing] chrome command not supported on this OS");
     }
+}
+
+#[cfg(windows)]
+fn launch_chrome_with_url(chrome_path: &str, url: &str) -> bool {
+    let exe = chrome_path.trim().trim_matches('"');
+    if exe.is_empty() {
+        return false;
+    }
+    std::process::Command::new(exe)
+        .arg(url)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(windows)]
+fn launch_chrome(chrome_path: &str) -> bool {
+    let exe = chrome_path.trim().trim_matches('"');
+    if exe.is_empty() {
+        return false;
+    }
+    std::process::Command::new(exe).spawn().is_ok()
+}
+
+#[cfg(windows)]
+fn focus_existing_chrome_window() -> bool {
+    unsafe extern "system" fn enum_windows_cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        if !IsWindowVisible(hwnd).as_bool() {
+            return BOOL(1);
+        }
+
+        let mut class_buf = [0u16; 256];
+        let len = unsafe { GetClassNameW(hwnd, &mut class_buf) };
+        if len <= 0 {
+            return BOOL(1);
+        }
+
+        let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+        if class_name.starts_with("Chrome_WidgetWin_") {
+            let found = lparam.0 as *mut Option<HWND>;
+            if !found.is_null() {
+                unsafe {
+                    *found = Some(hwnd);
+                }
+            }
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+
+    let mut found: Option<HWND> = None;
+    unsafe {
+        let _ = EnumWindows(Some(enum_windows_cb), LPARAM(&mut found as *mut _ as isize));
+    }
+    if let Some(hwnd) = found {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            return SetForegroundWindow(hwnd).as_bool();
+        }
+    }
+    false
 }
 
 fn match_command(phrase: &str) -> Option<(&'static str, fn())> {
@@ -151,9 +201,13 @@ pub fn process_transcript(
 
     // 1. URL commands (dynamic, from settings).
     for (trigger, url) in url_commands {
-        let t = trigger.to_lowercase();
-        if phrase == t || phrase == format!("open {}", t) {
-            println!("[typing] url command: \"{}\" → {}", trigger, url);
+        let t = normalize(trigger);
+        if phrase == t
+            || phrase == format!("open {}", t)
+            || phrase == format!("{} com", t)
+            || phrase == format!("open {} com", t)
+        {
+            println!("[typing] url command: \"{}\" -> {}", trigger, url);
             open_url_in_chrome(chrome_path, url);
             return;
         }
@@ -301,3 +355,4 @@ pub fn copy_to_clipboard(text: &str) {
         }
     }
 }
+
