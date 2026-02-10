@@ -12,7 +12,7 @@ pub enum AppEvent {
     TranscriptDelta(String),
     TranscriptFinal(String),
     SnipTrigger,
-    ApiKeyValidated { ok: bool, message: String },
+    ApiKeyValidated { provider: String, ok: bool, message: String },
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
@@ -47,7 +47,7 @@ pub struct AppState {
     pub snip_active: AtomicBool,
     pub snip_started_ms: AtomicU64,
     pub cursor_pos: Mutex<Option<(i32, i32)>>,
-    /// 0 = strict, 1 = lenient, 2 = off
+    /// 0 = strict, 1 = lenient, 2 = legacy off (not user-selectable)
     pub vad_mode: AtomicU64,
     pub usage: Mutex<UsageTotals>,
     pub session_usage: Mutex<SessionUsage>,

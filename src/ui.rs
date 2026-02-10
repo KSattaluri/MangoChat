@@ -8,6 +8,7 @@ use egui::{
     pos2, vec2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, TextureHandle,
     ViewportBuilder, ViewportCommand, ViewportId,
 };
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver as EventReceiver, Sender as EventSender};
 use std::sync::Arc;
@@ -26,7 +27,12 @@ const GREEN: Color32 = Color32::from_rgb(0x36, 0xd3, 0x99);
 const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 const GRAY_DOT: Color32 = Color32::from_rgb(0x7b, 0x7b, 0x7b);
 const COMPACT_WINDOW_W: f32 = 360.0;
-const COMPACT_WINDOW_H: f32 = 80.0;
+const COMPACT_WINDOW_H: f32 = 54.0;
+const PROVIDER_ROWS: &[(&str, &str)] = &[
+    ("deepgram", "Deepgram"),
+    ("openai", "OpenAI Realtime"),
+    ("elevenlabs", "ElevenLabs Realtime"),
+];
 
 #[derive(Clone, Copy)]
 struct ThemePalette {
@@ -36,30 +42,16 @@ struct ThemePalette {
     btn_bg: Color32,
     btn_border: Color32,
     settings_bg: Color32,
-    gray_dot: Color32,
 }
 
-fn theme_palette(dark: bool) -> ThemePalette {
-    if dark {
-        ThemePalette {
-            bg: BG_COLOR,
-            text: TEXT_COLOR,
-            text_muted: TEXT_MUTED,
-            btn_bg: BTN_BG,
-            btn_border: BTN_BORDER,
-            settings_bg: SETTINGS_BG,
-            gray_dot: GRAY_DOT,
-        }
-    } else {
-        ThemePalette {
-            bg: Color32::from_rgb(0xf3, 0xf4, 0xf6),
-            text: Color32::from_rgb(0x11, 0x18, 0x27),
-            text_muted: Color32::from_rgb(0x4b, 0x55, 0x63),
-            btn_bg: Color32::from_rgb(0xff, 0xff, 0xff),
-            btn_border: Color32::from_rgb(0xd1, 0xd5, 0xdb),
-            settings_bg: Color32::from_rgb(0xe5, 0xe7, 0xeb),
-            gray_dot: Color32::from_rgb(0x9c, 0xa3, 0xaf),
-        }
+fn theme_palette(_dark: bool) -> ThemePalette {
+    ThemePalette {
+        bg: BG_COLOR,
+        text: TEXT_COLOR,
+        text_muted: TEXT_MUTED,
+        btn_bg: BTN_BG,
+        btn_border: BTN_BORDER,
+        settings_bg: SETTINGS_BG,
     }
 }
 
@@ -81,6 +73,10 @@ pub struct JarvisApp {
 
     // Tray icon (must stay alive or the icon disappears)
     pub _tray_icon: Option<tray_icon::TrayIcon>,
+    // Flags set by the tray background thread (works even when window is hidden)
+    pub tray_open_flag: Arc<std::sync::atomic::AtomicBool>,
+    pub tray_toggle_flag: Arc<std::sync::atomic::AtomicBool>,
+    pub tray_click_flag: Arc<std::sync::atomic::AtomicBool>,
 
     // Snip overlay state
     pub snip_overlay_active: bool,
@@ -94,6 +90,7 @@ pub struct JarvisApp {
 
     // Window positioning
     pub positioned: bool,
+    pub initial_position_corrected: bool,
     pub compact_anchor_pos: Option<Pos2>,
 
     // Error auto-recovery
@@ -101,19 +98,19 @@ pub struct JarvisApp {
 
     // Settings form fields
     pub form_provider: String,
-    pub form_api_key: String,
+    pub form_api_keys: HashMap<String, String>,
     pub form_model: String,
     pub form_language: String,
     pub form_mic: String,
     pub form_vad_mode: String,
-    pub form_theme: String,
+    pub form_start_cue: String,
     pub form_text_size: String,
     pub form_snip_editor_path: String,
     pub form_chrome_path: String,
     pub form_paint_path: String,
     pub form_url_commands: Vec<crate::settings::UrlCommand>,
-    pub key_check_inflight: bool,
-    pub key_check_result: Option<(bool, String)>,
+    pub key_check_inflight: HashSet<String>,
+    pub key_check_result: HashMap<String, (bool, String)>,
     pub last_armed: bool,
     pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
@@ -126,15 +123,19 @@ impl JarvisApp {
         event_rx: EventReceiver<AppEvent>,
         runtime: Arc<tokio::runtime::Runtime>,
         settings: Settings,
+        egui_ctx: egui::Context,
     ) -> Self {
         let mic_devices = audio::list_input_devices();
         let form_provider = settings.provider.clone();
-        let form_api_key = settings.api_key_for(&settings.provider).to_string();
+        let mut form_api_keys = settings.api_keys.clone();
+        for (id, _) in PROVIDER_ROWS {
+            form_api_keys.entry((*id).to_string()).or_default();
+        }
         let form_model = settings.model.clone();
         let form_language = settings.language.clone();
         let form_mic = settings.mic_device.clone();
         let form_vad_mode = settings.vad_mode.clone();
-        let form_theme = settings.theme.clone();
+        let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
         let form_snip_editor_path = settings.snip_editor_path.clone();
         let form_chrome_path = settings.chrome_path.clone();
@@ -145,6 +146,51 @@ impl JarvisApp {
         let (tray_icon, tray_toggle) =
             setup_tray(state.armed.load(Ordering::SeqCst));
         println!("[tray] icon created: {}", tray_icon.is_some());
+
+        // Background threads to handle tray events independently of the eframe
+        // event loop. When the window is hidden, eframe may stop calling update(),
+        // so tray events (especially quit) must be processed from a separate thread.
+        let tray_open_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tray_toggle_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tray_click_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let open_flag = tray_open_flag.clone();
+            let toggle_flag = tray_toggle_flag.clone();
+            let ctx = egui_ctx.clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
+                    let id = event.id.0.as_str();
+                    println!("[tray-thread] menu event: {}", id);
+                    match id {
+                        "quit" => {
+                            println!("[tray-thread] quit — calling process::exit");
+                            std::process::exit(0);
+                        }
+                        "open" => {
+                            open_flag.store(true, Ordering::SeqCst);
+                            ctx.request_repaint();
+                        }
+                        "toggle_armed" => {
+                            toggle_flag.store(true, Ordering::SeqCst);
+                            ctx.request_repaint();
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+        {
+            let click_flag = tray_click_flag.clone();
+            let ctx = egui_ctx;
+            std::thread::spawn(move || {
+                while let Ok(event) = tray_icon::TrayIconEvent::receiver().recv() {
+                    if matches!(event, tray_icon::TrayIconEvent::Click { .. }) {
+                        click_flag.store(true, Ordering::SeqCst);
+                        ctx.request_repaint();
+                    }
+                }
+            });
+        }
 
         let mut app = Self {
             state,
@@ -162,7 +208,11 @@ impl JarvisApp {
             visible: true,
             mic_devices,
             _tray_icon: tray_icon,
+            tray_open_flag,
+            tray_toggle_flag,
+            tray_click_flag,
             positioned: false,
+            initial_position_corrected: false,
             compact_anchor_pos: None,
             snip_overlay_active: false,
             snip_texture: None,
@@ -174,19 +224,19 @@ impl JarvisApp {
             snip_focus_pending: false,
             error_time: None,
             form_provider,
-            form_api_key,
+            form_api_keys,
             form_model,
             form_language,
             form_mic,
             form_vad_mode,
-            form_theme,
+            form_start_cue,
             form_text_size,
             form_snip_editor_path,
             form_chrome_path,
             form_paint_path,
             form_url_commands,
-            key_check_inflight: false,
-            key_check_result: None,
+            key_check_inflight: HashSet::new(),
+            key_check_result: HashMap::new(),
             last_armed: false,
             tray_toggle,
             session_history: vec![],
@@ -222,11 +272,7 @@ impl JarvisApp {
         style.spacing.item_spacing = vec2(8.0, 6.0);
         style.spacing.button_padding = vec2(8.0, 5.0);
         style.spacing.interact_size.y = 24.0;
-        if self.settings.theme == "light" {
-            ctx.set_visuals(egui::Visuals::light());
-        } else {
-            ctx.set_visuals(egui::Visuals::dark());
-        }
+        ctx.set_visuals(egui::Visuals::dark());
         // Keep zoom fixed to avoid snip coordinate distortion across mixed-DPI monitors.
         if (ctx.zoom_factor() - 1.0).abs() > 0.001 {
             ctx.set_zoom_factor(1.0);
@@ -262,17 +308,20 @@ impl JarvisApp {
                 let compact_h = outer.height();
                 let new_x = outer.min.x + compact_w - target.x;
                 let new_y = outer.min.y + compact_h - target.y;
-                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos2(new_x, new_y)));
+                let pos = clamp_window_pos(ctx, pos2(new_x, new_y), target);
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
             }
         } else if let Some(anchor) = self.compact_anchor_pos {
             // Restore to the exact compact position where expansion started.
-            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(anchor));
+            let pos = clamp_window_pos(ctx, anchor, target);
+            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
         } else if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
             // Fallback if no anchor was captured yet.
             let br = outer.max;
             let new_x = br.x - target.x;
             let new_y = br.y - target.y;
-            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos2(new_x, new_y)));
+            let pos = clamp_window_pos(ctx, pos2(new_x, new_y), target);
+            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
         }
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(target));
     }
@@ -292,11 +341,14 @@ impl JarvisApp {
             return;
         }
 
+        if let Err(e) = crate::start_cue::play_start_cue(&self.settings.start_cue) {
+            eprintln!("[ui] start cue error: {}", e);
+        }
+
         self.is_recording = true;
-        // Update VAD mode from settings (strict/lenient/off).
+        // Update VAD mode from settings (strict/lenient).
         let mode = match self.settings.vad_mode.as_str() {
             "lenient" => 1,
-            "off" => 2,
             _ => 0,
         };
         self.state.vad_mode.store(mode, Ordering::SeqCst);
@@ -398,6 +450,9 @@ impl JarvisApp {
         if !self.is_recording {
             return;
         }
+        if let Err(e) = crate::start_cue::play_stop_cue() {
+            eprintln!("[ui] stop cue error: {}", e);
+        }
         self.is_recording = false;
         self.audio_capture = None;
 
@@ -440,9 +495,13 @@ impl JarvisApp {
                     let _ = text;
                 }
                 AppEvent::SnipTrigger => self.trigger_snip(),
-                AppEvent::ApiKeyValidated { ok, message } => {
-                    self.key_check_inflight = false;
-                    self.key_check_result = Some((ok, message));
+                AppEvent::ApiKeyValidated {
+                    provider,
+                    ok,
+                    message,
+                } => {
+                    self.key_check_inflight.remove(&provider);
+                    self.key_check_result.insert(provider, (ok, message));
                 }
             }
         }
@@ -519,12 +578,12 @@ impl JarvisApp {
     }
 
     fn render_main_ui(&mut self, ctx: &egui::Context) {
-        let p = theme_palette(self.settings.theme != "light");
+        let p = theme_palette(true);
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(p.bg)
-                    .inner_margin(egui::Margin::symmetric(10.0, 8.0)),
+                    .inner_margin(egui::Margin::symmetric(12.0, 12.0)),
             )
             .show(ctx, |ui| {
                 // Drag anywhere on window background to move it
@@ -537,76 +596,7 @@ impl JarvisApp {
                     ctx.send_viewport_cmd(ViewportCommand::StartDrag);
                 }
 
-                // --- Header row: "Jarvis" on left, status on right ---
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Jarvis")
-                            .size(13.0)
-                            .strong()
-                            .color(p.text),
-                    );
-
-                    // Push status to the right
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let is_live = self.is_recording;
-
-                        if is_live {
-                            // Draw visualizer bars
-                            let fft = self
-                                .state
-                                .fft_data
-                                .lock()
-                                .map(|d| *d)
-                                .unwrap_or([0.0; 50]);
-                            let (bar_rect, _) =
-                                ui.allocate_exact_size(vec2(160.0, 16.0), Sense::hover());
-                            let painter = ui.painter();
-                            let bar_count = 50;
-                            let gap = 1.0;
-                            let mut bar_w = (bar_rect.width() - gap * (bar_count as f32 - 1.0))
-                                / bar_count as f32;
-                            if bar_w < 1.0 {
-                                bar_w = 1.0;
-                            }
-                            for i in 0..bar_count {
-                                // Boost sensitivity so low-level speech shows movement.
-                                // Use a nonlinear curve to lift quiet signals.
-                                let boosted = (fft[i] * 50.0).min(1.0);
-                                let value = boosted.sqrt().max(0.06);
-                                let h = (value * bar_rect.height()).max(2.0);
-                                let x = bar_rect.min.x + i as f32 * (bar_w + gap);
-                                let y = bar_rect.center().y - h / 2.0;
-                                painter.rect_filled(
-                                    Rect::from_min_size(pos2(x, y), vec2(bar_w, h)),
-                                    1.0,
-                                    GREEN,
-                                );
-                            }
-                        } else {
-                            // Status text
-                            ui.label(
-                                egui::RichText::new(&self.status_text)
-                                    .size(11.0)
-                                    .color(p.text_muted),
-                            );
-                        }
-
-                        // Status dot
-                        let dot_color = match self.status_state.as_str() {
-                            "live" => GREEN,
-                            "error" => RED,
-                            _ => p.gray_dot,
-                        };
-                        let (dot_rect, _) =
-                            ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
-                        ui.painter()
-                            .circle_filled(dot_rect.center(), 4.0, dot_color);
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                // --- Button row ---
+                // --- Top control row ---
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
@@ -616,18 +606,6 @@ impl JarvisApp {
                         } else {
                             self.start_recording();
                         }
-                    }
-                    if icon_btn(ui, "\u{2699}", "Settings").clicked() {
-                        self.settings_open = !self.settings_open;
-                        if self.settings_open {
-                            // Stop recording when opening settings to avoid
-                            // provider mismatch between UI and active session.
-                            if self.is_recording {
-                                self.stop_recording();
-                            }
-                            self.session_history = crate::usage::load_recent_sessions(20);
-                        }
-                        self.apply_window_mode(ctx, self.settings_open);
                     }
                     // Manual preset picker (no popup, no cycling):
                     // P = Path, I = Image, E = Image + Edit.
@@ -648,8 +626,26 @@ impl JarvisApp {
                             .rounding(4.0)
                             .min_size(vec2(20.0, 22.0)),
                         )
-                        .on_hover_text(tip)
+                            .on_hover_text(tip)
                     };
+
+                    let right_controls_w = 24.0 * 5.0 + 4.0 * 4.0;
+                    let viz_w = (ui.available_width() - right_controls_w).max(120.0);
+                    let fft = self
+                        .state
+                        .fft_data
+                        .lock()
+                        .map(|d| *d)
+                        .unwrap_or([0.0; 50]);
+                    let t = ctx.input(|i| i.time) as f32;
+                    let (viz_rect, _) =
+                        ui.allocate_exact_size(vec2(viz_w, 20.0), Sense::hover());
+                    draw_dancing_strings(
+                        ui.painter(),
+                        viz_rect,
+                        t,
+                        if self.is_recording { Some(&fft) } else { None },
+                    );
 
                     if preset_btn(
                         ui,
@@ -687,13 +683,24 @@ impl JarvisApp {
                         self.snip_copy_image = true;
                         self.snip_edit_after = true;
                     }
-                    if icon_btn(ui, "\u{1F4CA}", "Task Manager").clicked() {
-                        std::thread::spawn(open_task_manager);
+                    if icon_btn(ui, "\u{2699}", "Settings").clicked() {
+                        self.settings_open = !self.settings_open;
+                        if self.settings_open {
+                            // Stop recording when opening settings to avoid
+                            // provider mismatch between UI and active session.
+                            if self.is_recording {
+                                self.stop_recording();
+                            }
+                            self.session_history = crate::usage::load_recent_sessions(20);
+                        }
+                        self.apply_window_mode(ctx, self.settings_open);
                     }
-                    if icon_btn(ui, "\u{2715}", "Minimize").clicked() {
+                    if window_ctrl_btn(ui, "-", false).clicked() {
                         ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
                     }
                 });
+
+                ui.add_space(if self.settings_open { 6.0 } else { 2.0 });
 
                 // --- Collapsible settings panel ---
                 if self.settings_open {
@@ -725,7 +732,8 @@ impl JarvisApp {
                                         for (id, label) in [
                                             ("provider", "Provider"),
                                             ("audio", "Audio"),
-                                            ("appearance", "Appearance"),
+                                            ("advanced", "Advanced"),
+                                            ("commands", "Commands"),
                                             ("usage", "Usage"),
                                             ("faq", "FAQ"),
                                             ("about", "About"),
@@ -769,113 +777,247 @@ impl JarvisApp {
                             // ── Tab content ──
                             match self.settings_tab.as_str() {
                                 "provider" => {
-                                    let selected_label = crate::provider::PROVIDERS
-                                        .iter()
-                                        .find(|(id, _)| *id == self.form_provider)
-                                        .map(|(_, name)| *name)
-                                        .unwrap_or("OpenAI Realtime");
-                                    let mut provider_changed = false;
-                                    let prev_provider = self.form_provider.clone();
-                                    egui::ComboBox::from_id_salt("provider_select")
-                                        .selected_text(selected_label)
-                                        .width(ui.available_width())
-                                        .show_ui(ui, |ui| {
-                                            for (id, name) in crate::provider::PROVIDERS {
-                                                let resp = ui.selectable_value(
-                                                    &mut self.form_provider,
-                                                    id.to_string(),
-                                                    *name,
-                                                );
-                                                if resp.changed() {
-                                                    provider_changed = true;
-                                                }
-                                            }
-                                        });
-                                    if provider_changed {
-                                        self.settings.set_api_key(
-                                            &prev_provider,
-                                            self.form_api_key.clone(),
+                                    ui.label(
+                                        egui::RichText::new("Provider Credentials")
+                                            .size(14.0)
+                                            .strong()
+                                            .color(p.text),
+                                    );
+                                    ui.add_space(8.0);
+
+                                    let total_w = ui.available_width();
+                                    let provider_w = 200.0;
+                                    let validate_w = 92.0;
+                                    let default_w = 72.0;
+                                    let row_pad_x = 8.0;
+                                    let spacing_w = 32.0;
+                                    let api_w = (total_w
+                                        - provider_w
+                                        - validate_w
+                                        - default_w
+                                        - row_pad_x * 2.0
+                                        - spacing_w)
+                                        .max(160.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.set_width(total_w - row_pad_x * 2.0);
+                                        ui.add_space(row_pad_x);
+                                        ui.add_sized(
+                                            [provider_w, 20.0],
+                                            egui::Label::new(
+                                                egui::RichText::new("Provider")
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text_muted),
+                                            ),
                                         );
-                                        self.form_api_key = self
-                                            .settings
-                                            .api_key_for(&self.form_provider)
-                                            .to_string();
-                                        self.key_check_result = None;
+                                        ui.add_sized(
+                                            [api_w, 20.0],
+                                            egui::Label::new(
+                                                egui::RichText::new("API Key")
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text_muted),
+                                            ),
+                                        );
+                                        ui.add_sized(
+                                            [validate_w, 20.0],
+                                            egui::Label::new(
+                                                egui::RichText::new("Validate")
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text_muted),
+                                            ),
+                                        );
+                                        ui.add_sized(
+                                            [default_w, 20.0],
+                                            egui::Label::new(
+                                                egui::RichText::new("Default")
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text_muted),
+                                            ),
+                                        );
+                                    });
+                                    ui.add_space(2.0);
+
+                                    for (provider_id, provider_name) in PROVIDER_ROWS {
+                                        let provider_id = (*provider_id).to_string();
+                                        egui::Frame::none()
+                                            .fill(p.btn_bg)
+                                            .stroke(Stroke::new(1.0, p.btn_border))
+                                            .rounding(6.0)
+                                            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                                            .show(ui, |ui| {
+                                                ui.set_width(total_w);
+                                                ui.horizontal(|ui| {
+                                                    let provider_color = match provider_id.as_str() {
+                                                        "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
+                                                        "deepgram" => Color32::from_rgb(0x3b, 0x82, 0xf6),
+                                                        "elevenlabs" => Color32::from_rgb(0xf5, 0x9e, 0x0b),
+                                                        _ => p.text,
+                                                    };
+                                                    ui.add_sized(
+                                                        [provider_w, 24.0],
+                                                        egui::Label::new(
+                                                            egui::RichText::new(*provider_name)
+                                                                .size(13.0)
+                                                                .strong()
+                                                                .color(provider_color),
+                                                        ),
+                                                    );
+
+                                                    let key_value = self
+                                                        .form_api_keys
+                                                        .entry(provider_id.clone())
+                                                        .or_default();
+                                                    let key_resp = ui
+                                                        .scope(|ui| {
+                                                            let dark = ui.visuals().dark_mode;
+                                                            let input_bg = if dark {
+                                                                Color32::from_rgb(0x1a, 0x1d, 0x24)
+                                                            } else {
+                                                                Color32::from_rgb(0xff, 0xff, 0xff)
+                                                            };
+                                                            let input_stroke = if dark {
+                                                                Color32::from_rgb(0x2c, 0x2f, 0x36)
+                                                            } else {
+                                                                Color32::from_rgb(0xd1, 0xd5, 0xdb)
+                                                            };
+                                                            let visuals = ui.visuals_mut();
+                                                            visuals.extreme_bg_color = input_bg;
+                                                            visuals.widgets.inactive.bg_fill = input_bg;
+                                                            visuals.widgets.hovered.bg_fill = input_bg;
+                                                            visuals.widgets.active.bg_fill = input_bg;
+                                                            visuals.widgets.inactive.bg_stroke =
+                                                                Stroke::new(1.0, input_stroke);
+                                                            visuals.widgets.hovered.bg_stroke =
+                                                                Stroke::new(1.0, input_stroke);
+                                                            visuals.widgets.active.bg_stroke =
+                                                                Stroke::new(1.0, input_stroke);
+                                                            ui.add_sized(
+                                                                [api_w, 24.0],
+                                                                egui::TextEdit::singleline(key_value)
+                                                                    .password(true)
+                                                                    .font(FontId::proportional(12.5)),
+                                                            )
+                                                        })
+                                                        .inner;
+                                                    if key_resp.changed() {
+                                                        self.key_check_result.remove(&provider_id);
+                                                    }
+
+                                                    let key_present = !key_value.trim().is_empty();
+                                                    let inflight =
+                                                        self.key_check_inflight.contains(&provider_id);
+                                                    let result =
+                                                        self.key_check_result.get(&provider_id).cloned();
+                                                    let validate_resp = ui
+                                                        .allocate_ui_with_layout(
+                                                            vec2(validate_w, 24.0),
+                                                            egui::Layout::centered_and_justified(
+                                                                egui::Direction::LeftToRight,
+                                                            ),
+                                                            |ui| {
+                                                                provider_validate_button(
+                                                                    ui,
+                                                                    key_present,
+                                                                    inflight,
+                                                                    result
+                                                                        .as_ref()
+                                                                        .map(|(ok, _)| *ok),
+                                                                )
+                                                            },
+                                                        )
+                                                        .inner;
+                                                    if validate_resp.clicked() && key_present && !inflight {
+                                                        self.key_check_inflight.insert(provider_id.clone());
+                                                        self.key_check_result.remove(&provider_id);
+                                                        let provider = crate::provider::create_provider(&provider_id);
+                                                        let provider_settings = crate::provider::ProviderSettings {
+                                                            api_key: key_value.clone(),
+                                                            model: self.form_model.clone(),
+                                                            transcription_model: self.settings.transcription_model.clone(),
+                                                            language: self.form_language.clone(),
+                                                        };
+                                                        let event_tx = self.event_tx.clone();
+                                                        let validated_provider_id = provider_id.clone();
+                                                        self.runtime.spawn(async move {
+                                                            let result = crate::provider::session::validate_key(
+                                                                provider,
+                                                                provider_settings,
+                                                            )
+                                                            .await;
+                                                            let (ok, message) = match result {
+                                                                Ok(()) => (true, "API key is valid".to_string()),
+                                                                Err(e) => (false, e),
+                                                            };
+                                                            let _ = event_tx.send(AppEvent::ApiKeyValidated {
+                                                                provider: validated_provider_id,
+                                                                ok,
+                                                                message,
+                                                            });
+                                                        });
+                                                    }
+                                                    validate_resp.on_hover_text(
+                                                        if inflight {
+                                                            "Validating..."
+                                                        } else if let Some((ok, msg)) = &result {
+                                                            if *ok { "Validated" } else { msg.as_str() }
+                                                        } else if key_present {
+                                                            "Validate key"
+                                                        } else {
+                                                            "Enter API key first"
+                                                        },
+                                                    );
+
+                                                    let can_default = key_present;
+                                                    let is_default = self.form_provider == provider_id;
+                                                    let radio = ui
+                                                        .allocate_ui_with_layout(
+                                                            vec2(default_w, 24.0),
+                                                            egui::Layout::centered_and_justified(
+                                                                egui::Direction::LeftToRight,
+                                                            ),
+                                                            |ui| {
+                                                                ui.add_enabled(
+                                                                    can_default,
+                                                                    egui::RadioButton::new(
+                                                                        is_default,
+                                                                        "",
+                                                                    ),
+                                                                )
+                                                            },
+                                                        )
+                                                        .inner;
+                                                    if radio.clicked() && can_default {
+                                                        self.form_provider = provider_id.clone();
+                                                    }
+                                                });
+                                            });
+                                        ui.add_space(6.0);
                                     }
 
-                                    let api_resp =
-                                        field(ui, "API Key", &mut self.form_api_key, true);
-                                    if api_resp.changed() {
-                                        self.key_check_result = None;
-                                    }
-                                    ui.add_space(2.0);
-                                    let validate_enabled =
-                                        !self.form_api_key.trim().is_empty()
-                                            && !self.key_check_inflight;
-                                    let validate = ui.add_enabled(
-                                        validate_enabled,
-                                        egui::Button::new(
-                                            egui::RichText::new("Validate Key")
-                                                .size(11.0)
-                                                .color(TEXT_COLOR),
-                                        )
-                                        .fill(BTN_BG)
-                                        .stroke(Stroke::new(1.0, BTN_BORDER))
-                                        .min_size(vec2(ui.available_width(), 22.0)),
-                                    );
-                                    if validate.clicked() {
-                                        self.key_check_inflight = true;
-                                        self.key_check_result = None;
-                                        let provider = crate::provider::create_provider(
-                                            &self.form_provider,
-                                        );
-                                        let provider_settings =
-                                            crate::provider::ProviderSettings {
-                                                api_key: self.form_api_key.clone(),
-                                                model: self.form_model.clone(),
-                                                transcription_model: self
-                                                    .settings
-                                                    .transcription_model
-                                                    .clone(),
-                                                language: self.form_language.clone(),
-                                            };
-                                        let event_tx = self.event_tx.clone();
-                                        self.runtime.spawn(async move {
-                                            let result =
-                                                crate::provider::session::validate_key(
-                                                    provider,
-                                                    provider_settings,
-                                                )
-                                                .await;
-                                            let (ok, message) = match result {
-                                                Ok(()) => {
-                                                    (true, "API key is valid".to_string())
-                                                }
-                                                Err(e) => (false, e),
-                                            };
-                                            let _ = event_tx.send(
-                                                AppEvent::ApiKeyValidated { ok, message },
-                                            );
-                                        });
-                                    }
-                                    if self.key_check_inflight {
-                                        ui.label(
-                                            egui::RichText::new("Validating...")
-                                                .size(11.0)
-                                                .color(TEXT_MUTED),
-                                        );
-                                    } else if let Some((ok, msg)) =
-                                        &self.key_check_result
-                                    {
+                                    if let Some((ok, msg)) = self.key_check_result.get(&self.form_provider) {
                                         let color = if *ok { GREEN } else { RED };
+                                        ui.add_space(4.0);
+                                        ui.label(egui::RichText::new(msg).size(11.0).color(color));
+                                    }
+                                    if self
+                                        .form_api_keys
+                                        .get(&self.form_provider)
+                                        .map(|k| k.trim().is_empty())
+                                        .unwrap_or(true)
+                                    {
+                                        ui.add_space(2.0);
                                         ui.label(
-                                            egui::RichText::new(msg)
-                                                .size(11.0)
-                                                .color(color),
+                                            egui::RichText::new(
+                                                "Default provider must have an API key.",
+                                            )
+                                            .size(11.0)
+                                            .color(TEXT_MUTED),
                                         );
                                     }
-                                    readonly_field(ui, "Model", &self.form_model);
-                                    readonly_field(ui, "Language", &self.form_language);
                                 }
                                 "audio" => {
                                   egui::ScrollArea::vertical()
@@ -890,7 +1032,6 @@ impl JarvisApp {
                                         .selected_text(
                                             match self.form_vad_mode.as_str() {
                                                 "lenient" => "Lenient",
-                                                "off" => "Off",
                                                 _ => "Strict",
                                             },
                                         )
@@ -905,11 +1046,6 @@ impl JarvisApp {
                                                 &mut self.form_vad_mode,
                                                 "lenient".to_string(),
                                                 "Lenient",
-                                            );
-                                            ui.selectable_value(
-                                                &mut self.form_vad_mode,
-                                                "off".to_string(),
-                                                "Off",
                                             );
                                         });
                                     ui.add_space(2.0);
@@ -939,175 +1075,35 @@ impl JarvisApp {
                                                 );
                                             }
                                         });
-                                    section_header(ui, "App Paths");
-                                    field(
-                                        ui,
-                                        "Chrome",
-                                        &mut self.form_chrome_path,
-                                        false,
-                                    );
                                     ui.add_space(2.0);
-                                    field(
-                                        ui,
-                                        "Paint",
-                                        &mut self.form_paint_path,
-                                        false,
-                                    );
-                                    ui.add_space(2.0);
-                                    field(
-                                        ui,
-                                        "Snip Editor",
-                                        &mut self.form_snip_editor_path,
-                                        false,
-                                    );
-                                    ui.add_space(4.0);
-                                    if ui
-                                        .add(
-                                            egui::Button::new(
-                                                egui::RichText::new("Open Snips Folder")
-                                                    .size(11.0)
-                                                    .color(TEXT_COLOR),
-                                            )
-                                            .fill(BTN_BG)
-                                            .stroke(Stroke::new(1.0, BTN_BORDER))
-                                            .rounding(4.0),
-                                        )
-                                        .clicked()
-                                    {
-                                        let _ = snip::open_snip_folder();
-                                    }
-
-                                    section_header(ui, "Voice URL Commands");
                                     ui.label(
-                                        egui::RichText::new(
-                                            "Say the trigger word to open the URL in Chrome",
-                                        )
-                                        .size(10.0)
-                                        .color(TEXT_MUTED),
-                                    );
-                                    ui.add_space(2.0);
-
-                                    let mut delete_idx: Option<usize> = None;
-                                    for (i, cmd) in
-                                        self.form_url_commands.iter_mut().enumerate()
-                                    {
-                                        ui.horizontal(|ui| {
-                                            // Trigger: read-only label for builtins, editable for custom
-                                            if cmd.builtin {
-                                                ui.add_sized(
-                                                    [60.0, 18.0],
-                                                    egui::Label::new(
-                                                        egui::RichText::new(&cmd.trigger)
-                                                            .size(12.0)
-                                                            .color(TEXT_COLOR),
-                                                    ),
-                                                );
-                                            } else {
-                                                ui.visuals_mut().extreme_bg_color =
-                                                    if self.settings.theme == "light" {
-                                                        Color32::from_rgb(0xff, 0xff, 0xff)
-                                                    } else {
-                                                        Color32::from_rgb(0x1a, 0x1d, 0x24)
-                                                    };
-                                                ui.add_sized(
-                                                    [60.0, 18.0],
-                                                    egui::TextEdit::singleline(
-                                                        &mut cmd.trigger,
-                                                    )
-                                                    .font(FontId::proportional(11.0))
-                                                    .text_color(TEXT_COLOR),
-                                                );
-                                            }
-                                            // URL field (always editable)
-                                            ui.visuals_mut().extreme_bg_color =
-                                                if self.settings.theme == "light" {
-                                                    Color32::from_rgb(0xff, 0xff, 0xff)
-                                                } else {
-                                                    Color32::from_rgb(0x1a, 0x1d, 0x24)
-                                                };
-                                            ui.add(
-                                                egui::TextEdit::singleline(&mut cmd.url)
-                                                    .font(FontId::proportional(11.0))
-                                                    .text_color(TEXT_COLOR)
-                                                    .desired_width(
-                                                        ui.available_width() - 24.0,
-                                                    ),
-                                            );
-                                            // Delete button (only for custom commands)
-                                            if !cmd.builtin {
-                                                if ui
-                                                    .add_sized(
-                                                        [18.0, 18.0],
-                                                        egui::Button::new(
-                                                            egui::RichText::new("x")
-                                                                .size(11.0)
-                                                                .color(RED),
-                                                        )
-                                                        .fill(BTN_BG)
-                                                        .stroke(Stroke::new(
-                                                            0.5, BTN_BORDER,
-                                                        )),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    delete_idx = Some(i);
-                                                }
-                                            }
-                                        });
-                                    }
-                                    if let Some(idx) = delete_idx {
-                                        self.form_url_commands.remove(idx);
-                                    }
-
-                                    // Add button
-                                    if ui
-                                        .add_sized(
-                                            [ui.available_width(), 20.0],
-                                            egui::Button::new(
-                                                egui::RichText::new("+ Add Command")
-                                                    .size(11.0)
-                                                    .color(TEXT_COLOR),
-                                            )
-                                            .fill(BTN_BG)
-                                            .stroke(Stroke::new(0.5, BTN_BORDER)),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.form_url_commands.push(
-                                            crate::settings::UrlCommand {
-                                                trigger: String::new(),
-                                                url: String::new(),
-                                                builtin: false,
-                                            },
-                                        );
-                                    }
-                                    }); // end ScrollArea
-                                }
-                                "appearance" => {
-                                    ui.label(
-                                        egui::RichText::new("Theme")
+                                        egui::RichText::new("Start Cue")
                                             .size(11.0)
                                             .color(TEXT_MUTED),
                                     );
-                                    egui::ComboBox::from_id_salt("theme_select")
-                                        .selected_text(match self.form_theme.as_str() {
-                                            "light" => "Light",
-                                            _ => "Dark",
-                                        })
+                                    let cue_label = crate::start_cue::START_CUES
+                                        .iter()
+                                        .find(|(id, _)| *id == self.form_start_cue)
+                                        .map(|(_, label)| *label)
+                                        .unwrap_or("Audio 1");
+                                    egui::ComboBox::from_id_salt("start_cue_select")
+                                        .selected_text(cue_label)
                                         .width(ui.available_width())
                                         .show_ui(ui, |ui| {
-                                            ui.selectable_value(
-                                                &mut self.form_theme,
-                                                "dark".to_string(),
-                                                "Dark",
-                                            );
-                                            ui.selectable_value(
-                                                &mut self.form_theme,
-                                                "light".to_string(),
-                                                "Light",
-                                            );
+                                            for (id, label) in crate::start_cue::START_CUES {
+                                                ui.selectable_value(
+                                                    &mut self.form_start_cue,
+                                                    (*id).to_string(),
+                                                    *label,
+                                                );
+                                            }
                                         });
-                                    ui.add_space(6.0);
+                                    }); // end ScrollArea
+                                }
+                                "advanced" => {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
                                     ui.label(
                                         egui::RichText::new("Text Size")
                                             .size(11.0)
@@ -1137,14 +1133,138 @@ impl JarvisApp {
                                                 "Large",
                                             );
                                         });
+                                    ui.add_space(8.0);
+                                    section_header(ui, "App Paths");
+                                    field(
+                                        ui,
+                                        "Chrome",
+                                        &mut self.form_chrome_path,
+                                        false,
+                                    );
+                                    ui.add_space(2.0);
+                                    field(
+                                        ui,
+                                        "Paint",
+                                        &mut self.form_paint_path,
+                                        false,
+                                    );
                                     ui.add_space(10.0);
                                     ui.label(
                                         egui::RichText::new(
-                                            "Use Save to apply and persist appearance settings.",
+                                            "Use Save to apply and persist advanced settings.",
                                         )
                                         .size(11.0)
                                         .color(TEXT_MUTED),
                                     );
+                                    }); // end ScrollArea
+                                }
+                                "commands" => {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Voice URL commands, say the trigger word to open the URL in Chrome.",
+                                        )
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                    );
+                                    ui.add_space(2.0);
+
+                                    let mut delete_idx: Option<usize> = None;
+                                    for (i, cmd) in
+                                        self.form_url_commands.iter_mut().enumerate()
+                                    {
+                                        let row_w = ui.available_width();
+                                        let trigger_w = 84.0;
+                                        let delete_w = 20.0;
+                                        let spacing = ui.spacing().item_spacing.x;
+                                        let url_w = (row_w - trigger_w - delete_w - spacing * 2.0)
+                                            .max(140.0);
+
+                                        ui.horizontal(|ui| {
+                                            ui.set_width(row_w);
+                                            ui.visuals_mut().extreme_bg_color =
+                                                Color32::from_rgb(0x1a, 0x1d, 0x24);
+                                            ui.add_sized(
+                                                [trigger_w, 18.0],
+                                                egui::TextEdit::singleline(
+                                                    &mut cmd.trigger,
+                                                )
+                                                .interactive(!cmd.builtin)
+                                                .font(FontId::proportional(11.0))
+                                                .text_color(TEXT_COLOR),
+                                            );
+                                            ui.visuals_mut().extreme_bg_color =
+                                                Color32::from_rgb(0x1a, 0x1d, 0x24);
+                                            ui.add_sized(
+                                                [url_w, 18.0],
+                                                egui::TextEdit::singleline(&mut cmd.url)
+                                                    .font(FontId::proportional(11.0))
+                                                    .text_color(TEXT_COLOR),
+                                            );
+                                            if !cmd.builtin {
+                                                if ui
+                                                    .add_sized(
+                                                        [delete_w, 18.0],
+                                                        egui::Button::new(
+                                                            egui::RichText::new("x")
+                                                                .size(11.0)
+                                                                .color(RED),
+                                                        )
+                                                        .fill(BTN_BG)
+                                                        .stroke(Stroke::new(
+                                                            0.5, BTN_BORDER,
+                                                        )),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    delete_idx = Some(i);
+                                                }
+                                            }
+                                            if cmd.builtin {
+                                                ui.add_sized(
+                                                    [delete_w, 18.0],
+                                                    egui::Label::new(""),
+                                                );
+                                            }
+                                        });
+                                    }
+                                    if let Some(idx) = delete_idx {
+                                        self.form_url_commands.remove(idx);
+                                    }
+
+                                    if ui
+                                        .add_sized(
+                                            [ui.available_width(), 20.0],
+                                            egui::Button::new(
+                                                egui::RichText::new("+ Add Command")
+                                                    .size(11.0)
+                                                    .color(TEXT_COLOR),
+                                            )
+                                            .fill(BTN_BG)
+                                            .stroke(Stroke::new(0.5, BTN_BORDER)),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.form_url_commands.push(
+                                            crate::settings::UrlCommand {
+                                                trigger: String::new(),
+                                                url: String::new(),
+                                                builtin: false,
+                                            },
+                                        );
+                                    }
+
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Use Save to apply and persist command settings.",
+                                        )
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                    );
+                                    }); // end ScrollArea
                                 }
                                 "usage" => {
                                     // 4-column stat cards (full width)
@@ -1417,7 +1537,7 @@ impl JarvisApp {
                                                 ),
                                                 (
                                                     "What providers are supported?",
-                                                    "OpenAI Realtime, Deepgram, and AssemblyAI. Select your provider in the Provider tab.",
+                                                    "OpenAI Realtime, Deepgram, and ElevenLabs Realtime. Select your provider in the Provider tab.",
                                                 ),
                                                 (
                                                     "How does VAD mode work?",
@@ -1462,66 +1582,83 @@ impl JarvisApp {
                             // Save button (only on settings tabs)
                             if matches!(
                                 self.settings_tab.as_str(),
-                                "provider" | "audio" | "appearance"
+                                "provider" | "audio" | "advanced" | "commands"
                             ) {
                                 ui.add_space(6.0);
-                                let save = ui.add_sized(
-                                    [ui.available_width(), 24.0],
-                                    egui::Button::new(
-                                        egui::RichText::new("Save")
-                                            .size(12.0)
-                                            .color(TEXT_COLOR),
-                                    )
-                                    .fill(BTN_PRIMARY)
-                                    .stroke(Stroke::new(1.0, BTN_PRIMARY_HOVER)),
+                                    let save = ui.add_sized(
+                                        [ui.available_width(), 24.0],
+                                        egui::Button::new(
+                                            egui::RichText::new("Save")
+                                                .size(13.0)
+                                                .color(TEXT_COLOR),
+                                        )
+                                        .fill(BTN_PRIMARY)
+                                        .stroke(Stroke::new(1.0, BTN_PRIMARY_HOVER)),
                                 );
                                 if save.clicked() {
-                                    self.settings.provider =
-                                        self.form_provider.clone();
-                                    self.settings.set_api_key(
-                                        &self.form_provider,
-                                        self.form_api_key.clone(),
-                                    );
-                                    self.settings.mic_device =
-                                        self.form_mic.clone();
-                                    self.settings.vad_mode =
-                                        self.form_vad_mode.clone();
-                                    self.settings.theme =
-                                        self.form_theme.clone();
-                                    self.settings.text_size =
-                                        self.form_text_size.clone();
-                                    self.settings.snip_editor_path =
-                                        self.form_snip_editor_path.clone();
-                                    self.settings.chrome_path =
-                                        self.form_chrome_path.clone();
-                                    self.settings.paint_path =
-                                        self.form_paint_path.clone();
-                                    self.settings.url_commands =
-                                        self.form_url_commands.clone();
-                                    match crate::settings::save(&self.settings) {
-                                        Ok(()) => {
-                                            // Update AppState so background threads pick up changes
-                                            if let Ok(mut p) = self.state.chrome_path.lock() {
-                                                *p = self.settings.chrome_path.clone();
-                                            }
-                                            if let Ok(mut p) = self.state.paint_path.lock() {
-                                                *p = self.settings.paint_path.clone();
-                                            }
-                                            if let Ok(mut v) = self.state.url_commands.lock() {
-                                                *v = self.settings.url_commands.iter()
-                                                    .map(|c| (c.trigger.clone(), c.url.clone()))
-                                                    .collect();
-                                            }
-                                            self.apply_appearance(ctx);
-                                            self.set_status("Saved", "idle");
-                                            self.settings_open = false;
-                                            self.apply_window_mode(ctx, false);
+                                    let default_key_present = self
+                                        .form_api_keys
+                                        .get(&self.form_provider)
+                                        .map(|k| !k.trim().is_empty())
+                                        .unwrap_or(false);
+                                    if !default_key_present {
+                                        self.set_status(
+                                            "Select a default provider with an API key",
+                                            "error",
+                                        );
+                                    } else {
+                                        self.settings.provider =
+                                            self.form_provider.clone();
+                                        for (provider_id, _) in PROVIDER_ROWS {
+                                            let value = self
+                                                .form_api_keys
+                                                .get(*provider_id)
+                                                .cloned()
+                                                .unwrap_or_default();
+                                            self.settings.set_api_key(provider_id, value);
                                         }
-                                        Err(e) => {
-                                            self.set_status(
-                                                &format!("Save failed: {}", e),
-                                                "error",
-                                            )
+                                        self.settings.mic_device =
+                                            self.form_mic.clone();
+                                        self.settings.vad_mode =
+                                            self.form_vad_mode.clone();
+                                        self.settings.start_cue =
+                                            self.form_start_cue.clone();
+                                        self.settings.theme = "dark".to_string();
+                                        self.settings.text_size =
+                                            self.form_text_size.clone();
+                                        self.settings.snip_editor_path =
+                                            self.form_snip_editor_path.clone();
+                                        self.settings.chrome_path =
+                                            self.form_chrome_path.clone();
+                                        self.settings.paint_path =
+                                            self.form_paint_path.clone();
+                                        self.settings.url_commands =
+                                            self.form_url_commands.clone();
+                                        match crate::settings::save(&self.settings) {
+                                            Ok(()) => {
+                                                // Update AppState so background threads pick up changes
+                                                if let Ok(mut p) = self.state.chrome_path.lock() {
+                                                    *p = self.settings.chrome_path.clone();
+                                                }
+                                                if let Ok(mut p) = self.state.paint_path.lock() {
+                                                    *p = self.settings.paint_path.clone();
+                                                }
+                                                if let Ok(mut v) = self.state.url_commands.lock() {
+                                                    *v = self.settings.url_commands.iter()
+                                                        .map(|c| (c.trigger.clone(), c.url.clone()))
+                                                        .collect();
+                                                }
+                                                self.apply_appearance(ctx);
+                                                self.set_status("Saved", "idle");
+                                                self.settings_open = false;
+                                                self.apply_window_mode(ctx, false);
+                                            }
+                                            Err(e) => {
+                                                self.set_status(
+                                                    &format!("Save failed: {}", e),
+                                                    "error",
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1686,15 +1823,32 @@ impl eframe::App for JarvisApp {
 
         // Position bottom-right on first frame
         if !self.positioned {
-            if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
+            if let Some(pos) = default_compact_position(ctx) {
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
+                self.compact_anchor_pos = Some(pos);
+                self.positioned = true;
+            } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
                 let win = vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H);
                 let pos = pos2(
                     monitor.x - win.x - 16.0,
-                    monitor.y - win.y - 56.0, // above taskbar
+                    monitor.y - win.y - 64.0, // stay above taskbar in compact mode
                 );
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
                 self.compact_anchor_pos = Some(pos);
                 self.positioned = true;
+            }
+        }
+        // One-time startup correction using the actual first rendered outer size.
+        // This prevents initial tray overlap on some DPI/taskbar layouts.
+        if self.positioned && !self.initial_position_corrected && !self.settings_open {
+            if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
+                let size = outer.size();
+                let clamped = clamp_window_pos(ctx, outer.min, size);
+                if (clamped.x - outer.min.x).abs() > 0.5 || (clamped.y - outer.min.y).abs() > 0.5 {
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(clamped));
+                    self.compact_anchor_pos = Some(clamped);
+                }
+                self.initial_position_corrected = true;
             }
         }
 
@@ -1705,45 +1859,29 @@ impl eframe::App for JarvisApp {
             }
         }
 
-        // Tray menu events
-        if let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-            let id = event.id.0.as_str();
-            println!("[tray] menu event: {}", id);
-            match id {
-                "open" => {
-                    self.visible = true;
-                    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-                    ctx.send_viewport_cmd(ViewportCommand::Focus);
-                }
-                "toggle_armed" => {
-                    let was = self.state.armed.load(Ordering::SeqCst);
-                    let now_armed = !was;
-                    self.state.armed.store(now_armed, Ordering::SeqCst);
-                    if !now_armed {
-                        // Disarming should fully stop any active session.
-                        self.stop_recording();
-                    }
-                    println!("[tray] armed = {}", !was);
-                    self.update_tray_icon();
-                }
-                "quit" => {
-                    self.should_quit = true;
-                    self.state.armed.store(false, Ordering::SeqCst);
-                    force_quit_process();
-                }
-                _ => {}
+        // Tray menu events — flags are set by background threads so quit works
+        // even when the window is hidden and eframe isn't calling update().
+        if self.tray_open_flag.swap(false, Ordering::SeqCst) {
+            self.visible = true;
+            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+        }
+        if self.tray_toggle_flag.swap(false, Ordering::SeqCst) {
+            let was = self.state.armed.load(Ordering::SeqCst);
+            let now_armed = !was;
+            self.state.armed.store(now_armed, Ordering::SeqCst);
+            if !now_armed {
+                self.stop_recording();
             }
+            println!("[tray] armed = {}", now_armed);
+            self.update_tray_icon();
         }
 
         // Tray icon click → show window
-        if let Ok(tray_icon::TrayIconEvent::Click { .. }) =
-            tray_icon::TrayIconEvent::receiver().try_recv()
-        {
-            if !self.visible {
-                self.visible = true;
-                ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(ViewportCommand::Focus);
-            }
+        if self.tray_click_flag.swap(false, Ordering::SeqCst) && !self.visible {
+            self.visible = true;
+            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
         }
 
         // Close → hide to tray (unless quitting)
@@ -1794,7 +1932,8 @@ impl eframe::App for JarvisApp {
         if self.is_recording {
             ctx.request_repaint();
         } else {
-            ctx.request_repaint_after(Duration::from_millis(100));
+            // Keep a gentle refresh cadence so the idle dancing strings animate.
+            ctx.request_repaint_after(Duration::from_millis(33));
         }
     }
 }
@@ -1809,6 +1948,31 @@ fn icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
         .rounding(4.0)
         .min_size(vec2(24.0, 22.0));
     ui.add(btn).on_hover_text(tooltip)
+}
+
+fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Response {
+    let p = theme_palette(ui.visuals().dark_mode);
+    let fill = if danger {
+        Color32::from_rgb(0x2d, 0x1f, 0x22)
+    } else {
+        p.btn_bg
+    };
+    let stroke = if danger {
+        Color32::from_rgb(0x5b, 0x2a, 0x32)
+    } else {
+        p.btn_border
+    };
+    let btn = egui::Button::new(
+        egui::RichText::new(label)
+            .size(11.0)
+            .strong()
+            .color(p.text),
+    )
+    .fill(fill)
+    .stroke(Stroke::new(1.0, stroke))
+    .rounding(4.0)
+    .min_size(vec2(24.0, 18.0));
+    ui.add(btn)
 }
 
 fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
@@ -1851,6 +2015,132 @@ fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
     response.on_hover_text(tooltip)
 }
 
+fn provider_validate_button(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    inflight: bool,
+    result_ok: Option<bool>,
+) -> egui::Response {
+    let size = vec2(22.0, 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+
+    let (fill, stroke, glyph, glyph_color) = if !enabled {
+        (
+            Color32::from_rgb(0x52, 0x56, 0x60),
+            Color32::from_rgb(0x3a, 0x3f, 0x4a),
+            "",
+            TEXT_COLOR,
+        )
+    } else if inflight {
+        (
+            Color32::from_rgb(0x25, 0x63, 0xeb),
+            Color32::from_rgb(0x1d, 0x4e, 0xd8),
+            "...",
+            Color32::WHITE,
+        )
+    } else if result_ok == Some(true) {
+        (
+            Color32::from_rgb(0x16, 0xa3, 0x4a),
+            Color32::from_rgb(0x15, 0x86, 0x40),
+            "v",
+            Color32::WHITE,
+        )
+    } else if result_ok == Some(false) {
+        (
+            Color32::from_rgb(0xdc, 0x26, 0x26),
+            Color32::from_rgb(0xb9, 0x1c, 0x1c),
+            "!",
+            Color32::WHITE,
+        )
+    } else {
+        (
+            Color32::from_rgb(0x66, 0x6f, 0x80),
+            Color32::from_rgb(0x8b, 0x96, 0xab),
+            "",
+            Color32::WHITE,
+        )
+    };
+
+    ui.painter()
+        .circle_filled(rect.center(), rect.width() * 0.45, fill);
+    ui.painter().circle_stroke(
+        rect.center(),
+        rect.width() * 0.45,
+        Stroke::new(1.0, stroke),
+    );
+    if !glyph.is_empty() {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            FontId::proportional(11.0),
+            glyph_color,
+        );
+    }
+
+    response
+}
+
+fn draw_dancing_strings(
+    painter: &egui::Painter,
+    rect: Rect,
+    t: f32,
+    live_fft: Option<&[f32; 50]>,
+) {
+    let is_live = live_fft.is_some();
+    let lines = 4usize;
+    let samples = 72usize;
+    let width = rect.width().max(1.0);
+    let base_y = rect.center().y;
+    let amp_base = if is_live { 2.4 } else { 1.8 };
+
+    for line in 0..lines {
+        let phase = t * (1.6 + line as f32 * 0.28) + line as f32 * 0.9;
+        let amp = amp_base + (t * 1.2 + line as f32).sin() * 0.35;
+        let color = if is_live {
+            Color32::from_rgba_unmultiplied(54, 211, 153, 110 + line as u8 * 24)
+        } else {
+            Color32::from_rgba_unmultiplied(184, 192, 204, 90 + line as u8 * 20)
+        };
+
+        let mut points = Vec::with_capacity(samples);
+        for i in 0..samples {
+            let x = rect.min.x + width * (i as f32 / (samples - 1) as f32);
+            let nx = (x - rect.min.x) / width;
+            // Pin all strings to the same start/end point.
+            let envelope = (std::f32::consts::PI * nx).sin().powf(1.15);
+            let wave = (nx * std::f32::consts::TAU * (1.2 + line as f32 * 0.25) + phase).sin();
+            let y = base_y + wave * amp * envelope;
+            points.push(pos2(x, y));
+        }
+        painter.add(egui::Shape::line(points, Stroke::new(1.0, color)));
+    }
+
+    if let Some(fft) = live_fft {
+        // Overlay wide equalizer when speaking, tapered near the edges.
+        let bar_count = 42usize;
+        let gap = 1.1;
+        let overlay_w = rect.width() * 0.94;
+        let left = rect.center().x - overlay_w * 0.5;
+        let bar_w = ((overlay_w - gap * (bar_count as f32 - 1.0)) / bar_count as f32).max(1.0);
+        for i in 0..bar_count {
+            let idx = ((i as f32 / (bar_count - 1) as f32) * 49.0) as usize;
+            let boosted = (fft[idx] * 50.0).min(1.0);
+            let value = boosted.sqrt().max(0.05);
+            let nx = i as f32 / (bar_count - 1) as f32;
+            let envelope = (std::f32::consts::PI * nx).sin().powf(0.8);
+            let h = (value * rect.height() * (0.45 + envelope * 0.75)).max(1.5);
+            let x = left + i as f32 * (bar_w + gap);
+            let y = rect.center().y - h * 0.5;
+            painter.rect_filled(
+                Rect::from_min_size(pos2(x, y), vec2(bar_w, h)),
+                1.0,
+                Color32::from_rgba_unmultiplied(54, 211, 153, 195),
+            );
+        }
+    }
+}
+
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) -> egui::Response {
     let p = theme_palette(ui.visuals().dark_mode);
     ui.label(egui::RichText::new(label).size(11.0).color(p.text_muted));
@@ -1868,16 +2158,6 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String, password: bool) -> 
         te = te.password(true);
     }
     ui.add(te)
-}
-
-fn readonly_field(ui: &mut egui::Ui, label: &str, value: &str) {
-    let p = theme_palette(ui.visuals().dark_mode);
-    ui.label(egui::RichText::new(label).size(11.0).color(p.text_muted));
-    ui.label(
-        egui::RichText::new(value)
-            .size(12.0)
-            .color(p.text_muted),
-    );
 }
 
 fn section_header(ui: &mut egui::Ui, text: &str) {
@@ -2007,69 +2287,6 @@ fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
     }
 }
 
-fn open_task_manager() {
-    use enigo::{Enigo, Key, Keyboard, Settings};
-    use std::thread::sleep;
-    use std::time::Duration;
-
-    let had_existing = is_task_manager_running();
-    if !had_existing {
-        let _ = std::process::Command::new("taskmgr").spawn();
-    }
-
-    // Task Manager launch/focus can be delayed. Keep trying briefly.
-    for _ in 0..10 {
-        if activate_task_manager_window() {
-            break;
-        }
-        sleep(Duration::from_millis(200));
-    }
-
-    // If it was already open, requirement is focus only (do not overwrite existing filter text).
-    if had_existing {
-        return;
-    }
-
-    // Fresh launch path: apply filter once.
-    sleep(Duration::from_millis(150));
-    if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-        let _ = enigo.key(Key::Control, enigo::Direction::Press);
-        let _ = enigo.key(Key::Unicode('f'), enigo::Direction::Click);
-        let _ = enigo.key(Key::Control, enigo::Direction::Release);
-        sleep(Duration::from_millis(220));
-        let _ = enigo.key(Key::Control, enigo::Direction::Press);
-        let _ = enigo.key(Key::Unicode('a'), enigo::Direction::Click);
-        let _ = enigo.key(Key::Control, enigo::Direction::Release);
-        let _ = enigo.text("Jarvis");
-    }
-}
-
-fn is_task_manager_running() -> bool {
-    std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "if (Get-Process -Name Taskmgr -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn activate_task_manager_window() -> bool {
-    std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$ws = New-Object -ComObject WScript.Shell; if ($ws.AppActivate('Task Manager')) { exit 0 } else { exit 1 }",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -2078,9 +2295,50 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn force_quit_process() {
-    // Ensure tray Quit exits immediately even if background threads are active.
-    std::process::exit(0);
+fn default_compact_position(ctx: &egui::Context) -> Option<Pos2> {
+    let work = work_area_rect_logical(ctx)?;
+    let margin = 10.0;
+    let x = work.max.x - COMPACT_WINDOW_W - margin;
+    let y = work.max.y - COMPACT_WINDOW_H - margin;
+    Some(pos2(x.max(work.min.x), y.max(work.min.y)))
 }
 
+fn clamp_window_pos(ctx: &egui::Context, pos: Pos2, size: egui::Vec2) -> Pos2 {
+    let Some(work) = work_area_rect_logical(ctx) else {
+        return pos;
+    };
+    let margin = 8.0;
+    let min_x = work.min.x + margin;
+    let min_y = work.min.y + margin;
+    let max_x = work.max.x - size.x - margin;
+    let max_y = work.max.y - size.y - margin;
+    let x = if min_x <= max_x { pos.x.clamp(min_x, max_x) } else { min_x };
+    let y = if min_y <= max_y { pos.y.clamp(min_y, max_y) } else { min_y };
+    pos2(x, y)
+}
 
+fn work_area_rect_logical(ctx: &egui::Context) -> Option<Rect> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+
+    let mut rect = RECT::default();
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some((&mut rect as *mut RECT).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    };
+    if ok.is_err() {
+        return None;
+    }
+
+    let ppp = ctx.pixels_per_point().max(0.1);
+    Some(Rect::from_min_max(
+        pos2(rect.left as f32 / ppp, rect.top as f32 / ppp),
+        pos2(rect.right as f32 / ppp, rect.bottom as f32 / ppp),
+    ))
+}

@@ -156,6 +156,7 @@ pub fn snip_dir() -> Result<PathBuf, String> {
     Err("Failed to resolve Pictures directory".into())
 }
 
+#[allow(dead_code)]
 pub fn open_snip_folder() -> Result<(), String> {
     let dir = snip_dir()?;
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir: {}", e))?;

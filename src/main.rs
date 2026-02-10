@@ -7,6 +7,7 @@ mod provider;
 mod settings;
 mod single_instance;
 mod snip;
+mod start_cue;
 mod state;
 mod typing;
 mod ui;
@@ -117,6 +118,7 @@ fn main() {
                 event_rx,
                 runtime,
                 settings,
+                cc.egui_ctx.clone(),
             )))
         }),
     )

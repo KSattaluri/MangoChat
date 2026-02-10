@@ -91,14 +91,6 @@ pub trait SttProvider: Send + Sync {
     }
 }
 
-/// Registry of available providers: (id, display_name).
-pub const PROVIDERS: &[(&str, &str)] = &[
-    ("openai", "OpenAI Realtime"),
-    ("deepgram", "Deepgram"),
-    ("elevenlabs", "ElevenLabs Realtime"),
-    ("assemblyai", "AssemblyAI"),
-];
-
 /// Create a provider instance by ID.
 pub fn create_provider(id: &str) -> Arc<dyn SttProvider> {
     match id {

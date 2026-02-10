@@ -210,7 +210,7 @@ fn process_audio(
         let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         let mode = state.vad_mode.load(std::sync::atomic::Ordering::SeqCst);
         let (threshold, hangover_ms, preroll_target) = match mode {
-            2 => (0.0f32, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS), // off: always send
+            2 => (0.0f32, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS), // legacy off: always send
             1 => (THRESHOLD_LENIENT, HANGOVER_LENIENT_MS, PREROLL_LENIENT_MS),
             _ => (THRESHOLD_STRICT, HANGOVER_STRICT_MS, PREROLL_STRICT_MS),
         };

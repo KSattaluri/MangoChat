@@ -23,8 +23,10 @@ pub struct Settings {
     pub mic_device: String,
     #[serde(default = "default_vad_mode")]
     pub vad_mode: String,
+    #[serde(default = "default_start_cue")]
+    pub start_cue: String,
     #[serde(default = "default_theme")]
-    pub theme: String, // dark | light
+    pub theme: String, // dark only
     #[serde(default = "default_text_size")]
     pub text_size: String, // small | medium | large
     #[serde(default)]
@@ -72,6 +74,7 @@ impl Default for Settings {
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
+            start_cue: default_start_cue(),
             theme: default_theme(),
             text_size: default_text_size(),
             snip_editor_path: String::new(),
@@ -97,6 +100,9 @@ fn default_language() -> String {
 }
 fn default_vad_mode() -> String {
     "strict".into()
+}
+fn default_start_cue() -> String {
+    "audio1.wav".into()
 }
 fn default_theme() -> String {
     "dark".into()
@@ -147,8 +153,17 @@ pub fn load() -> Settings {
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
     }
-    if settings.theme != "dark" && settings.theme != "light" {
-        settings.theme = default_theme();
+    // App is dark-theme only.
+    settings.theme = default_theme();
+    // App supports strict/lenient VAD only.
+    if settings.vad_mode == "off" {
+        settings.vad_mode = default_vad_mode();
+    }
+    if settings.vad_mode != "strict" && settings.vad_mode != "lenient" {
+        settings.vad_mode = default_vad_mode();
+    }
+    if settings.start_cue != "audio1.wav" && settings.start_cue != "audio2.wav" {
+        settings.start_cue = default_start_cue();
     }
     if settings.text_size != "small"
         && settings.text_size != "medium"
