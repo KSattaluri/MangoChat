@@ -45,6 +45,13 @@ struct ThemePalette {
     settings_bg: Color32,
 }
 
+#[derive(Clone)]
+struct ControlTooltipState {
+    key: String,
+    text: String,
+    until: f64,
+}
+
 fn theme_palette(_dark: bool) -> ThemePalette {
     ThemePalette {
         bg: BG_COLOR,
@@ -116,6 +123,7 @@ pub struct JarvisApp {
     pub last_armed: bool,
     pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
+    control_tooltip: Option<ControlTooltipState>,
 }
 
 impl JarvisApp {
@@ -274,6 +282,7 @@ impl JarvisApp {
             last_armed: false,
             tray_toggle,
             session_history: vec![],
+            control_tooltip: None,
         };
         app.last_armed = app.state.armed.load(Ordering::SeqCst);
         app.update_tray_icon();
@@ -612,6 +621,65 @@ impl JarvisApp {
         self.state.snip_active.store(false, Ordering::SeqCst);
     }
 
+    fn paint_control_tooltip(
+        &mut self,
+        ctx: &egui::Context,
+        response: &egui::Response,
+        key: &str,
+        text: &str,
+        persist_on_click: bool,
+    ) {
+        let now = ctx.input(|i| i.time);
+        if response.clicked() && persist_on_click {
+            self.control_tooltip = Some(ControlTooltipState {
+                key: key.to_string(),
+                text: text.to_string(),
+                until: now + 0.9,
+            });
+        }
+
+        let persisted = self
+            .control_tooltip
+            .as_ref()
+            .is_some_and(|t| t.key == key && t.until > now);
+        if !response.hovered() && !persisted {
+            return;
+        }
+
+        let label_text = if response.hovered() {
+            text.to_string()
+        } else if let Some(tip) = &self.control_tooltip {
+            tip.text.clone()
+        } else {
+            text.to_string()
+        };
+
+        let pos = pos2(response.rect.center().x, response.rect.min.y - 6.0);
+        egui::Area::new(egui::Id::new(format!("control_tooltip_{key}")))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .constrain(false)
+            .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, 0.0))
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(0x9f, 0xef, 0xcd))
+                    .stroke(Stroke::new(1.0, GREEN))
+                    .rounding(4.0)
+                    .inner_margin(egui::Margin::symmetric(6.0, 3.0))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(label_text)
+                                    .size(11.0)
+                                    .color(Color32::BLACK),
+                            )
+                            .wrap_mode(egui::TextWrapMode::Extend),
+                        );
+                    });
+            });
+    }
+
     fn render_main_ui(&mut self, ctx: &egui::Context) {
         let p = theme_palette(true);
         egui::CentralPanel::default()
@@ -635,7 +703,11 @@ impl JarvisApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
-                    if record_toggle(ui, self.is_recording).clicked() {
+                    let record_resp = record_toggle(ui, self.is_recording);
+                    let record_tip =
+                        if self.is_recording { "Stop recording" } else { "Start recording" };
+                    self.paint_control_tooltip(ctx, &record_resp, "record", record_tip, true);
+                    if record_resp.clicked() {
                         if self.is_recording {
                             self.stop_recording();
                         } else {
@@ -647,7 +719,6 @@ impl JarvisApp {
                     let preset_btn = |ui: &mut egui::Ui,
                                       label: &str,
                                       active: bool,
-                                      tip: &str,
                                       p: ThemePalette| {
                         ui.add(
                             egui::Button::new(
@@ -661,7 +732,6 @@ impl JarvisApp {
                             .rounding(4.0)
                             .min_size(vec2(20.0, 22.0)),
                         )
-                            .on_hover_text(tip)
                     };
 
                     let right_controls_w = 24.0 * 5.0 + 4.0 * 4.0;
@@ -682,39 +752,54 @@ impl JarvisApp {
                         if self.is_recording { Some(&fft) } else { None },
                     );
 
-                    if preset_btn(
+                    let p_resp = preset_btn(
                         ui,
                         "P",
                         !self.snip_copy_image,
-                        "Preset: Path (copy file path)",
                         p,
-                    )
-                    .clicked()
-                    {
+                    );
+                    self.paint_control_tooltip(
+                        ctx,
+                        &p_resp,
+                        "preset_path",
+                        "Preset: Path (copy file path)",
+                        true,
+                    );
+                    if p_resp.clicked() {
                         self.snip_copy_image = false;
                         self.snip_edit_after = false;
                     }
-                    if preset_btn(
+                    let i_resp = preset_btn(
                         ui,
                         "I",
                         self.snip_copy_image && !self.snip_edit_after,
-                        "Preset: Image (copy image)",
                         p,
-                    )
-                    .clicked()
-                    {
+                    );
+                    self.paint_control_tooltip(
+                        ctx,
+                        &i_resp,
+                        "preset_image",
+                        "Preset: Image (copy image)",
+                        true,
+                    );
+                    if i_resp.clicked() {
                         self.snip_copy_image = true;
                         self.snip_edit_after = false;
                     }
-                    if preset_btn(
+                    let e_resp = preset_btn(
                         ui,
                         "E",
                         self.snip_copy_image && self.snip_edit_after,
-                        "Preset: Image + Edit",
                         p,
-                    )
-                    .clicked()
-                    {
+                    );
+                    self.paint_control_tooltip(
+                        ctx,
+                        &e_resp,
+                        "preset_edit",
+                        "Preset: Image + Edit",
+                        true,
+                    );
+                    if e_resp.clicked() {
                         self.snip_copy_image = true;
                         self.snip_edit_after = true;
                     }
@@ -723,11 +808,21 @@ impl JarvisApp {
                             self.settings_open = false;
                             self.apply_window_mode(ctx, false);
                         }
-                    } else if icon_btn(ui, "\u{2699}", "Settings").clicked() {
-                        self.settings_open = true;
-                        self.sync_form_from_settings();
-                        self.session_history = crate::usage::load_recent_sessions(20);
-                        self.apply_window_mode(ctx, true);
+                    } else {
+                        let settings_resp = icon_btn(ui, "\u{2699}");
+                        self.paint_control_tooltip(
+                            ctx,
+                            &settings_resp,
+                            "settings",
+                            "Settings",
+                            false,
+                        );
+                        if settings_resp.clicked() {
+                            self.settings_open = true;
+                            self.sync_form_from_settings();
+                            self.session_history = crate::usage::load_recent_sessions(20);
+                            self.apply_window_mode(ctx, true);
+                        }
                     }
                 });
 
@@ -2048,14 +2143,14 @@ impl eframe::App for JarvisApp {
 
 // --- Helpers ---
 
-fn icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str) -> egui::Response {
+fn icon_btn(ui: &mut egui::Ui, icon: &str) -> egui::Response {
     let p = theme_palette(ui.visuals().dark_mode);
     let btn = egui::Button::new(egui::RichText::new(icon).size(13.0).color(p.text))
         .fill(p.btn_bg)
         .stroke(Stroke::new(1.0, p.btn_border))
         .rounding(4.0)
         .min_size(vec2(24.0, 22.0));
-    ui.add(btn).on_hover_text(tooltip)
+    ui.add(btn).on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Response {
@@ -2119,8 +2214,7 @@ fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
         }
     }
 
-    let tooltip = if is_recording { "Stop recording" } else { "Start recording" };
-    response.on_hover_text(tooltip)
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn provider_validate_button(
