@@ -2497,6 +2497,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tray-icon",
+ "webrtc-vad",
  "windows 0.58.0",
  "xcap",
 ]
@@ -5438,6 +5439,15 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "url",
  "web-sys",
+]
+
+[[package]]
+name = "webrtc-vad"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39a1e40fd6ca90be95459152a2537f2ba4286ee1b13073f7ebcaa74fc94e3008"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

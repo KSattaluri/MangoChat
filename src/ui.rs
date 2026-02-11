@@ -1167,29 +1167,6 @@ impl JarvisApp {
                                             }
                                         }
                                     });
-                                    ui.add_space(2.0);
-                                    ui.label(
-                                        egui::RichText::new("Start Cue")
-                                            .size(11.0)
-                                            .color(TEXT_MUTED),
-                                    );
-                                    let cue_label = crate::start_cue::START_CUES
-                                        .iter()
-                                        .find(|(id, _)| *id == self.form_start_cue)
-                                        .map(|(_, label)| *label)
-                                        .unwrap_or("Audio 1");
-                                    egui::ComboBox::from_id_salt("start_cue_select")
-                                        .selected_text(cue_label)
-                                        .width(ui.available_width())
-                                        .show_ui(ui, |ui| {
-                                            for (id, label) in crate::start_cue::START_CUES {
-                                                ui.selectable_value(
-                                                    &mut self.form_start_cue,
-                                                    (*id).to_string(),
-                                                    *label,
-                                                );
-                                            }
-                                        });
                                     }); // end ScrollArea
                                 }
                                 "advanced" => {
