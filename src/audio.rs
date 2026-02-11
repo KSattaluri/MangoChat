@@ -8,13 +8,13 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 const DEFAULT_SAMPLE_RATE: u32 = 24000;
-const THRESHOLD_STRICT: f32 = 120.0 / 32768.0;
+const THRESHOLD_STRICT: f32 = 130.0 / 32768.0;
 const THRESHOLD_LENIENT: f32 = 100.0 / 32768.0;
-const HANGOVER_STRICT_MS: u128 = 550;
+const HANGOVER_STRICT_MS: u128 = 750;
 const HANGOVER_LENIENT_MS: u128 = 700;
 const PREROLL_STRICT_MS: f64 = 220.0;
 const PREROLL_LENIENT_MS: f64 = 300.0;
-const MIN_TURN_STRICT_MS: f64 = 20.0;
+const MIN_TURN_STRICT_MS: f64 = 35.0;
 const MIN_TURN_LENIENT_MS: f64 = 10.0;
 const FFT_SIZE: usize = 256;
 const BAR_COUNT: usize = 50;
