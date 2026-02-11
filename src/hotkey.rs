@@ -26,8 +26,7 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
 
         let callback = move |event: Event| {
             let trigger_snip = |state: &Arc<AppState>, event_tx: &EventSender<AppEvent>| {
-                if !state.armed.load(Ordering::SeqCst) {
-                    println!("[hotkey] Alt pressed but not armed, ignoring");
+                if !state.screenshot_enabled.load(Ordering::SeqCst) {
                     return;
                 }
                 let now_ms = SystemTime::now()
@@ -56,9 +55,6 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
             match event.event_type {
                 EventType::KeyPress(Key::ControlRight) => {
                     ctrl_any_held_clone.store(true, Ordering::SeqCst);
-                    if !state.armed.load(Ordering::SeqCst) {
-                        return;
-                    }
                     if key_held_clone.load(Ordering::SeqCst) {
                         return;
                     }

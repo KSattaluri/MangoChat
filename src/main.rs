@@ -61,12 +61,16 @@ fn main() {
             .collect();
     }
 
-    // Auto-arm and start hotkey listener
-    app_state.armed.store(true, Ordering::SeqCst);
+    // Populate feature gates from settings
+    app_state
+        .screenshot_enabled
+        .store(settings.screenshot_enabled, Ordering::SeqCst);
+
+    // Start hotkey listener
     hotkey::start_listener(app_state.clone(), event_tx.clone());
     // Windows-only test hook for headset mic stem mute/unmute.
-    headset::start_mute_watcher(app_state.clone(), event_tx.clone());
-    println!("[jarvis] auto-armed, hold Right Ctrl to dictate");
+    headset::start_mute_watcher(event_tx.clone());
+    println!("[jarvis] hotkeys active, hold Right Ctrl to dictate");
 
     // Periodic usage logging thread
     {
@@ -93,7 +97,10 @@ fn main() {
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_title("Jarvis")
-            .with_inner_size(vec2(360.0, 80.0))
+            .with_inner_size(vec2(
+                if settings.screenshot_enabled { 360.0 } else { 210.0 },
+                80.0,
+            ))
             .with_decorations(false)
             .with_always_on_top()
             .with_resizable(true),

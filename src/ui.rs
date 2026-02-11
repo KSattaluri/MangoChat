@@ -25,8 +25,8 @@ const BTN_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x1d, 0x4e, 0xd8);
 const SETTINGS_BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x21);
 const GREEN: Color32 = Color32::from_rgb(0x36, 0xd3, 0x99);
 const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
-const GRAY_DOT: Color32 = Color32::from_rgb(0x7b, 0x7b, 0x7b);
-const COMPACT_WINDOW_W: f32 = 360.0;
+const COMPACT_WINDOW_W_WITH_SNIP: f32 = 360.0;
+const COMPACT_WINDOW_W_NO_SNIP: f32 = 210.0;
 const COMPACT_WINDOW_H: f32 = 54.0;
 const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
@@ -83,7 +83,6 @@ pub struct JarvisApp {
     pub _tray_icon: Option<tray_icon::TrayIcon>,
     // Flags set by the tray background thread (works even when window is hidden)
     pub tray_open_flag: Arc<std::sync::atomic::AtomicBool>,
-    pub tray_toggle_flag: Arc<std::sync::atomic::AtomicBool>,
     pub tray_click_flag: Arc<std::sync::atomic::AtomicBool>,
 
     // Snip overlay state
@@ -111,6 +110,7 @@ pub struct JarvisApp {
     pub form_language: String,
     pub form_mic: String,
     pub form_vad_mode: String,
+    pub form_screenshot_enabled: bool,
     pub form_start_cue: String,
     pub form_text_size: String,
     pub form_snip_editor_path: String,
@@ -120,13 +120,19 @@ pub struct JarvisApp {
     pub key_check_inflight: HashSet<String>,
     pub key_check_result: HashMap<String, (bool, String)>,
     pub last_validated_provider: Option<String>,
-    pub last_armed: bool,
-    pub tray_toggle: Option<tray_icon::menu::MenuItem>,
     pub session_history: Vec<SessionUsage>,
     control_tooltip: Option<ControlTooltipState>,
 }
 
 impl JarvisApp {
+    fn compact_window_width(&self) -> f32 {
+        if self.settings.screenshot_enabled {
+            COMPACT_WINDOW_W_WITH_SNIP
+        } else {
+            COMPACT_WINDOW_W_NO_SNIP
+        }
+    }
+
     fn provider_color(provider_id: &str, p: ThemePalette) -> Color32 {
         match provider_id {
             "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
@@ -147,6 +153,7 @@ impl JarvisApp {
         self.form_language = self.settings.language.clone();
         self.form_mic = self.settings.mic_device.clone();
         self.form_vad_mode = self.settings.vad_mode.clone();
+        self.form_screenshot_enabled = self.settings.screenshot_enabled;
         self.form_start_cue = self.settings.start_cue.clone();
         self.form_text_size = self.settings.text_size.clone();
         self.form_snip_editor_path = self.settings.snip_editor_path.clone();
@@ -176,6 +183,7 @@ impl JarvisApp {
         let form_language = settings.language.clone();
         let form_mic = settings.mic_device.clone();
         let form_vad_mode = settings.vad_mode.clone();
+        let form_screenshot_enabled = settings.screenshot_enabled;
         let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
         let form_snip_editor_path = settings.snip_editor_path.clone();
@@ -184,19 +192,16 @@ impl JarvisApp {
         let form_url_commands = settings.url_commands.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
-        let (tray_icon, tray_toggle) =
-            setup_tray(state.armed.load(Ordering::SeqCst));
+        let tray_icon = setup_tray();
         println!("[tray] icon created: {}", tray_icon.is_some());
 
         // Background threads to handle tray events independently of the eframe
         // event loop. When the window is hidden, eframe may stop calling update(),
         // so tray events (especially quit) must be processed from a separate thread.
         let tray_open_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let tray_toggle_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tray_click_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         {
             let open_flag = tray_open_flag.clone();
-            let toggle_flag = tray_toggle_flag.clone();
             let ctx = egui_ctx.clone();
             std::thread::spawn(move || {
                 while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
@@ -209,10 +214,6 @@ impl JarvisApp {
                         }
                         "open" => {
                             open_flag.store(true, Ordering::SeqCst);
-                            ctx.request_repaint();
-                        }
-                        "toggle_armed" => {
-                            toggle_flag.store(true, Ordering::SeqCst);
                             ctx.request_repaint();
                         }
                         _ => {}
@@ -233,7 +234,7 @@ impl JarvisApp {
             });
         }
 
-        let mut app = Self {
+        let app = Self {
             state,
             event_tx,
             event_rx,
@@ -250,7 +251,6 @@ impl JarvisApp {
             mic_devices,
             _tray_icon: tray_icon,
             tray_open_flag,
-            tray_toggle_flag,
             tray_click_flag,
             positioned: false,
             initial_position_corrected: false,
@@ -270,6 +270,7 @@ impl JarvisApp {
             form_language,
             form_mic,
             form_vad_mode,
+            form_screenshot_enabled,
             form_start_cue,
             form_text_size,
             form_snip_editor_path,
@@ -279,29 +280,10 @@ impl JarvisApp {
             key_check_inflight: HashSet::new(),
             key_check_result: HashMap::new(),
             last_validated_provider: None,
-            last_armed: false,
-            tray_toggle,
             session_history: vec![],
             control_tooltip: None,
         };
-        app.last_armed = app.state.armed.load(Ordering::SeqCst);
-        app.update_tray_icon();
         app
-    }
-
-    fn update_tray_icon(&self) {
-        let armed = self.state.armed.load(Ordering::SeqCst);
-        let color = if armed { GREEN } else { GRAY_DOT };
-        if let Some(ref tray) = self._tray_icon {
-            if let Some(icon) = make_tray_icon(color) {
-                let _ = tray.set_icon(Some(icon));
-                let _ = tray.set_tooltip(Some(if armed { "Jarvis - Armed" } else { "Jarvis - Disarmed" }));
-            }
-        }
-        if let Some(ref item) = self.tray_toggle {
-            let label = if armed { "Disarm Jarvis" } else { "Arm Jarvis" };
-            let _ = item.set_text(label);
-        }
     }
 
     fn apply_appearance(&self, ctx: &egui::Context) {
@@ -326,7 +308,7 @@ impl JarvisApp {
     fn expanded_window_size(&self, ctx: &egui::Context) -> egui::Vec2 {
         if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
             let margin = 24.0;
-            let max_w = (monitor.x - margin * 2.0).max(COMPACT_WINDOW_W);
+            let max_w = (monitor.x - margin * 2.0).max(COMPACT_WINDOW_W_WITH_SNIP);
             let max_h = (monitor.y - margin * 2.0).max(420.0);
             let w = (monitor.x * 0.5).max(820.0).min(max_w);
             let h = (monitor.y * 0.82).max(620.0).min(max_h);
@@ -339,7 +321,7 @@ impl JarvisApp {
         let target = if settings_open {
             self.expanded_window_size(ctx)
         } else {
-            vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H)
+            vec2(self.compact_window_width(), COMPACT_WINDOW_H)
         };
 
         if settings_open {
@@ -552,6 +534,9 @@ impl JarvisApp {
     }
 
     fn trigger_snip(&mut self) {
+        if !self.state.screenshot_enabled.load(Ordering::SeqCst) {
+            return;
+        }
         let cursor = self.state.cursor_pos.lock().ok().and_then(|v| *v);
         let state = self.state.clone();
 
@@ -734,7 +719,14 @@ impl JarvisApp {
                         )
                     };
 
-                    let right_controls_w = 24.0 * 5.0 + 4.0 * 4.0;
+                    let show_screenshot_controls = self.settings.screenshot_enabled;
+                    let settings_w = 28.0;
+                    let right_edge_pad = 6.0;
+                    let right_controls_w = if show_screenshot_controls {
+                        20.0 * 3.0 + settings_w + 4.0 * 3.0 + right_edge_pad
+                    } else {
+                        settings_w + right_edge_pad
+                    };
                     let viz_w = (ui.available_width() - right_controls_w).max(120.0);
                     let fft = self
                         .state
@@ -752,56 +744,58 @@ impl JarvisApp {
                         if self.is_recording { Some(&fft) } else { None },
                     );
 
-                    let p_resp = preset_btn(
-                        ui,
-                        "P",
-                        !self.snip_copy_image,
-                        p,
-                    );
-                    self.paint_control_tooltip(
-                        ctx,
-                        &p_resp,
-                        "preset_path",
-                        "Preset: Path (copy file path)",
-                        true,
-                    );
-                    if p_resp.clicked() {
-                        self.snip_copy_image = false;
-                        self.snip_edit_after = false;
-                    }
-                    let i_resp = preset_btn(
-                        ui,
-                        "I",
-                        self.snip_copy_image && !self.snip_edit_after,
-                        p,
-                    );
-                    self.paint_control_tooltip(
-                        ctx,
-                        &i_resp,
-                        "preset_image",
-                        "Preset: Image (copy image)",
-                        true,
-                    );
-                    if i_resp.clicked() {
-                        self.snip_copy_image = true;
-                        self.snip_edit_after = false;
-                    }
-                    let e_resp = preset_btn(
-                        ui,
-                        "E",
-                        self.snip_copy_image && self.snip_edit_after,
-                        p,
-                    );
-                    self.paint_control_tooltip(
-                        ctx,
-                        &e_resp,
-                        "preset_edit",
-                        "Preset: Image + Edit",
-                        true,
-                    );
-                    if e_resp.clicked() {
-                        self.snip_copy_image = true;
-                        self.snip_edit_after = true;
+                    if show_screenshot_controls {
+                        let p_resp = preset_btn(
+                            ui,
+                            "P",
+                            !self.snip_copy_image,
+                            p,
+                        );
+                        self.paint_control_tooltip(
+                            ctx,
+                            &p_resp,
+                            "preset_path",
+                            "Preset: Path (copy file path)",
+                            true,
+                        );
+                        if p_resp.clicked() {
+                            self.snip_copy_image = false;
+                            self.snip_edit_after = false;
+                        }
+                        let i_resp = preset_btn(
+                            ui,
+                            "I",
+                            self.snip_copy_image && !self.snip_edit_after,
+                            p,
+                        );
+                        self.paint_control_tooltip(
+                            ctx,
+                            &i_resp,
+                            "preset_image",
+                            "Preset: Image (copy image)",
+                            true,
+                        );
+                        if i_resp.clicked() {
+                            self.snip_copy_image = true;
+                            self.snip_edit_after = false;
+                        }
+                        let e_resp = preset_btn(
+                            ui,
+                            "E",
+                            self.snip_copy_image && self.snip_edit_after,
+                            p,
+                        );
+                        self.paint_control_tooltip(
+                            ctx,
+                            &e_resp,
+                            "preset_edit",
+                            "Preset: Image + Edit",
+                            true,
+                        );
+                        if e_resp.clicked() {
+                            self.snip_copy_image = true;
+                            self.snip_edit_after = true;
+                        }
                     }
                     if self.settings_open {
                         if window_ctrl_btn(ui, "-", false).clicked() {
@@ -824,6 +818,7 @@ impl JarvisApp {
                             self.apply_window_mode(ctx, true);
                         }
                     }
+                    ui.add_space(right_edge_pad);
                 });
 
                 ui.add_space(if self.settings_open { 6.0 } else { 2.0 });
@@ -858,6 +853,7 @@ impl JarvisApp {
                                         for (id, label) in [
                                             ("provider", "Provider"),
                                             ("audio", "Audio"),
+                                            ("screenshot", "Screenshot"),
                                             ("advanced", "Advanced"),
                                             ("commands", "Commands"),
                                             ("usage", "Usage"),
@@ -1263,6 +1259,40 @@ impl JarvisApp {
                                         }
                                     });
                                     }); // end ScrollArea
+                                }
+                                "screenshot" => {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new("Screenshot")
+                                                    .size(12.0)
+                                                    .strong()
+                                                    .color(TEXT_COLOR),
+                                            );
+                                            ui.add_space(4.0);
+                                            ui.checkbox(
+                                                &mut self.form_screenshot_enabled,
+                                                egui::RichText::new("Enable screenshot capture (Right Alt)")
+                                                    .size(11.0)
+                                                    .color(TEXT_COLOR),
+                                            );
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "When enabled, P / I / E buttons are shown and Right Alt triggers screenshot capture.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "When disabled, Right Alt behaves normally and screenshot controls are hidden.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                        });
                                 }
                                 "advanced" => {
                                     egui::ScrollArea::vertical()
@@ -1746,7 +1776,7 @@ impl JarvisApp {
                             // Save button (only on settings tabs)
                             if matches!(
                                 self.settings_tab.as_str(),
-                                "provider" | "audio" | "advanced" | "commands"
+                                "provider" | "audio" | "screenshot" | "advanced" | "commands"
                             ) {
                                 ui.add_space(6.0);
                                     let save_label = "Save";
@@ -1766,7 +1796,7 @@ impl JarvisApp {
                                         .get(&self.form_provider)
                                         .map(|k| !k.trim().is_empty())
                                         .unwrap_or(false);
-                                    if !default_key_present {
+                                    if self.settings_tab == "provider" && !default_key_present {
                                         self.set_status(
                                             "Select a default provider with an API key",
                                             "error",
@@ -1786,6 +1816,8 @@ impl JarvisApp {
                                             self.form_mic.clone();
                                         self.settings.vad_mode =
                                             self.form_vad_mode.clone();
+                                        self.settings.screenshot_enabled =
+                                            self.form_screenshot_enabled;
                                         self.settings.start_cue =
                                             self.form_start_cue.clone();
                                         self.settings.theme = "dark".to_string();
@@ -1813,6 +1845,10 @@ impl JarvisApp {
                                                         .map(|c| (c.trigger.clone(), c.url.clone()))
                                                         .collect();
                                                 }
+                                                self.state.screenshot_enabled.store(
+                                                    self.settings.screenshot_enabled,
+                                                    Ordering::SeqCst,
+                                                );
                                                 if self.settings_tab == "provider" {
                                                     let was_recording = self.is_recording;
                                                     if was_recording {
@@ -1990,15 +2026,9 @@ impl eframe::App for JarvisApp {
         self.apply_appearance(ctx);
         self.process_events();
 
-        let armed = self.state.armed.load(Ordering::SeqCst);
-        if armed != self.last_armed {
-            self.last_armed = armed;
-            self.update_tray_icon();
-        }
-
         // Position bottom-right on first frame
         if !self.positioned {
-            let compact_size = vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H);
+            let compact_size = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
             ctx.send_viewport_cmd(ViewportCommand::InnerSize(compact_size));
             if let Some(pos) = default_compact_position_for_size(ctx, compact_size) {
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
@@ -2022,7 +2052,7 @@ impl eframe::App for JarvisApp {
                     self.initial_position_corrected = true;
                 }
             } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                let win = vec2(COMPACT_WINDOW_W, COMPACT_WINDOW_H);
+                let win = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
                 let pos = pos2(
                     monitor.x - win.x - 16.0,
                     monitor.y - win.y - 64.0, // stay above taskbar in compact mode
@@ -2069,17 +2099,6 @@ impl eframe::App for JarvisApp {
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(ViewportCommand::Focus);
         }
-        if self.tray_toggle_flag.swap(false, Ordering::SeqCst) {
-            let was = self.state.armed.load(Ordering::SeqCst);
-            let now_armed = !was;
-            self.state.armed.store(now_armed, Ordering::SeqCst);
-            if !now_armed {
-                self.stop_recording();
-            }
-            println!("[tray] armed = {}", now_armed);
-            self.update_tray_icon();
-        }
-
         // Tray icon click → show window
         if self.tray_click_flag.swap(false, Ordering::SeqCst) && !self.visible {
             self.visible = true;
@@ -2144,12 +2163,11 @@ impl eframe::App for JarvisApp {
 // --- Helpers ---
 
 fn icon_btn(ui: &mut egui::Ui, icon: &str) -> egui::Response {
-    let p = theme_palette(ui.visuals().dark_mode);
-    let btn = egui::Button::new(egui::RichText::new(icon).size(13.0).color(p.text))
-        .fill(p.btn_bg)
-        .stroke(Stroke::new(1.0, p.btn_border))
-        .rounding(4.0)
-        .min_size(vec2(24.0, 22.0));
+    let btn = egui::Button::new(egui::RichText::new(icon).size(14.0).color(Color32::WHITE))
+        .fill(GREEN)
+        .stroke(Stroke::new(1.5, Color32::from_rgb(0x16, 0xa3, 0x4a)))
+        .rounding(14.0)
+        .min_size(vec2(28.0, 28.0));
     ui.add(btn).on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -2430,27 +2448,21 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: &str) {
     });
 }
 
-fn setup_tray(
-    armed: bool,
-) -> (Option<tray_icon::TrayIcon>, Option<tray_icon::menu::MenuItem>) {
+fn setup_tray() -> Option<tray_icon::TrayIcon> {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
     let open = MenuItem::with_id("open", "Open Jarvis", true, None);
-    let toggle_label = if armed { "Disarm Jarvis" } else { "Arm Jarvis" };
-    let toggle_armed = MenuItem::with_id("toggle_armed", toggle_label, true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
 
     let _ = menu.append(&open);
     let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&toggle_armed);
-    let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 
-    let icon = match make_tray_icon(GRAY_DOT) {
+    let icon = match make_tray_icon(GREEN) {
         Some(i) => i,
-        None => return (None, None),
+        None => return None,
     };
 
     let tray = match TrayIconBuilder::new()
@@ -2469,7 +2481,7 @@ fn setup_tray(
         }
     };
 
-    (tray, Some(toggle_armed))
+    tray
 }
 
 fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
