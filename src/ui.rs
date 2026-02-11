@@ -1132,27 +1132,41 @@ impl JarvisApp {
                                             .size(11.0)
                                             .color(TEXT_MUTED),
                                     );
-                                    egui::ComboBox::from_id_salt("mic_select")
-                                        .selected_text(if self.form_mic.is_empty() {
-                                            "Default"
-                                        } else {
-                                            &self.form_mic
-                                        })
-                                        .width(ui.available_width())
-                                        .show_ui(ui, |ui| {
-                                            ui.selectable_value(
-                                                &mut self.form_mic,
-                                                String::new(),
-                                                "Default",
-                                            );
-                                            for dev in &self.mic_devices {
+                                    ui.horizontal(|ui| {
+                                        let combo_width = (ui.available_width() - 74.0).max(120.0);
+                                        egui::ComboBox::from_id_salt("mic_select")
+                                            .selected_text(if self.form_mic.is_empty() {
+                                                "Default"
+                                            } else {
+                                                &self.form_mic
+                                            })
+                                            .width(combo_width)
+                                            .show_ui(ui, |ui| {
                                                 ui.selectable_value(
                                                     &mut self.form_mic,
-                                                    dev.clone(),
-                                                    dev,
+                                                    String::new(),
+                                                    "Default",
                                                 );
+                                                for dev in &self.mic_devices {
+                                                    ui.selectable_value(
+                                                        &mut self.form_mic,
+                                                        dev.clone(),
+                                                        dev,
+                                                    );
+                                                }
+                                            });
+                                        if ui
+                                            .add_sized([68.0, 22.0], egui::Button::new("Refresh"))
+                                            .clicked()
+                                        {
+                                            self.mic_devices = audio::list_input_devices();
+                                            if !self.form_mic.is_empty()
+                                                && !self.mic_devices.contains(&self.form_mic)
+                                            {
+                                                self.form_mic.clear();
                                             }
-                                        });
+                                        }
+                                    });
                                     ui.add_space(2.0);
                                     ui.label(
                                         egui::RichText::new("Start Cue")
