@@ -6,6 +6,7 @@ use crate::typing;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
+use chrono::Local;
 use std::sync::mpsc::Sender as EventSender;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -17,6 +18,15 @@ type WsSink = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     tungstenite::Message,
 >;
+
+#[derive(Default)]
+struct CommitLatencyState {
+    current_commit_id: u64,
+    current_commit_at: Option<Instant>,
+    window_open: bool,
+    first_delta_logged: bool,
+    first_final_logged: bool,
+}
 
 fn build_ws_request(config: &ConnectionConfig) -> Result<tungstenite::http::Request<()>, String> {
     let mut request = tungstenite::http::Request::builder()
@@ -89,6 +99,10 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn wall_ts() -> String {
+    Local::now().format("%H:%M:%S%.3f").to_string()
 }
 
 async fn send_audio_chunk(
@@ -241,10 +255,14 @@ pub async fn run_session(
     let commit_flush_timeout_ms = config.commit_flush_timeout_ms.max(100);
     let pname_send = provider_name.to_string();
     let activity_id = Arc::new(AtomicU64::new(0));
+    let commit_seq = Arc::new(AtomicU64::new(0));
+    let latency_state = Arc::new(std::sync::Mutex::new(CommitLatencyState::default()));
     let state_send = state.clone();
 
     // Task: forward audio from channel to WebSocket.
     let activity_id_send = activity_id.clone();
+    let commit_seq_send = commit_seq.clone();
+    let latency_state_send = latency_state.clone();
     let audio_rx_send = audio_rx.clone();
     let send_task = tokio::spawn(async move {
         let mut frames: u64 = 0;
@@ -279,6 +297,7 @@ pub async fn run_session(
                     // Empty buffer = commit signal (VAD detected end of speech).
                     if pcm_data.is_empty() {
                         println!("[{}] VAD commit", pname_send);
+                        let commit_activity = activity_id_send.load(Ordering::SeqCst);
                         if !pending_pcm.is_empty() {
                             if min_chunk_bytes > 0 && pending_pcm.len() < min_chunk_bytes {
                                 pending_pcm.resize(min_chunk_bytes, 0);
@@ -325,6 +344,21 @@ pub async fn run_session(
                                 {
                                     break;
                                 }
+                                let commit_id = commit_seq_send.fetch_add(1, Ordering::SeqCst) + 1;
+                                let committed_at = Instant::now();
+                                if let Ok(mut s) = latency_state_send.lock() {
+                                    s.current_commit_id = commit_id;
+                                    s.current_commit_at = Some(committed_at);
+                                    s.window_open = true;
+                                    s.first_delta_logged = false;
+                                    s.first_final_logged = false;
+                                }
+                                println!(
+                                    "[{}] [{}] commit_sent id={}",
+                                    pname_send,
+                                    wall_ts(),
+                                    commit_id
+                                );
                                 // Count commit
                                 if let Ok(mut usage) = state_send.usage.lock() {
                                     usage.commits = usage.commits.saturating_add(1);
@@ -336,22 +370,43 @@ pub async fn run_session(
                                         session.updated_ms = now_ms();
                                     }
                                 }
+                                let flush_tx_delayed = flush_tx.clone();
+                                let pname_flush = pname_send.clone();
+                                let activity_id_flush = activity_id_send.clone();
+                                let latency_state_flush = latency_state_send.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(Duration::from_millis(
+                                        commit_flush_timeout_ms as u64,
+                                    ))
+                                    .await;
+                                    if activity_id_flush.load(Ordering::SeqCst) != commit_activity {
+                                        return;
+                                    }
+                                    let should_flush = if let Ok(mut s) = latency_state_flush.lock() {
+                                        if s.window_open && s.current_commit_id == commit_id {
+                                            s.window_open = false;
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    };
+                                    if !should_flush {
+                                        return;
+                                    }
+                                    println!(
+                                        "[{}] [{}] commit_timeout_flush id={} after={}ms",
+                                        pname_flush,
+                                        wall_ts(),
+                                        commit_id,
+                                        committed_at.elapsed().as_millis()
+                                    );
+                                    let _ = flush_tx_delayed.send(()).await;
+                                });
                             }
+                            CommitMessage::None => {}
                         }
-                        let commit_activity = activity_id_send.load(Ordering::SeqCst);
-                        let flush_tx_delayed = flush_tx.clone();
-                        let pname_flush = pname_send.clone();
-                        let activity_id_flush = activity_id_send.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(
-                                commit_flush_timeout_ms as u64,
-                            ))
-                            .await;
-                            if activity_id_flush.load(Ordering::SeqCst) == commit_activity {
-                                println!("[{}] commit timeout flush", pname_flush);
-                                let _ = flush_tx_delayed.send(()).await;
-                            }
-                        });
                         // Don't flush locally here — let the server respond to
                         // the commit/Finalize message with speech_final or
                         // UtteranceEnd, which parse_event handles correctly.
@@ -450,6 +505,7 @@ pub async fn run_session(
                         .send(tungstenite::Message::Text(msg.to_string().into()))
                         .await;
                 }
+                CommitMessage::None => {}
             }
         }
         tokio::time::sleep(Duration::from_millis(2000)).await;
@@ -458,6 +514,7 @@ pub async fn run_session(
     });
 
     let pname_recv = provider_recv.name().to_string();
+    let latency_state_recv = latency_state.clone();
 
     // Task: receive events from provider WebSocket.
     let recv_task = tokio::spawn(async move {
@@ -509,10 +566,46 @@ pub async fn run_session(
             for event in events {
                 match event {
                     ProviderEvent::TranscriptDelta(delta) => {
+                        if let Ok(mut s) = latency_state_recv.lock() {
+                            if s.window_open {
+                                if let Some(start) = s.current_commit_at {
+                                    let cid = s.current_commit_id;
+                                    if cid > 0 && !s.first_delta_logged {
+                                    println!(
+                                        "[{}] [{}] first_delta_after_commit_ms id={} ms={}",
+                                        pname_recv,
+                                        wall_ts(),
+                                        cid,
+                                        start.elapsed().as_millis()
+                                    );
+                                        s.first_delta_logged = true;
+                                    }
+                                }
+                            }
+                        }
                         println!("[{}] [{:.1}s] transcript delta: {}", pname_recv, ts, delta);
                         emit_transcript(&tx_recv, &delta, false);
                     }
                     ProviderEvent::TranscriptFinal(transcript) => {
+                        if let Ok(mut s) = latency_state_recv.lock() {
+                            if s.window_open {
+                                if let Some(start) = s.current_commit_at {
+                                    let cid = s.current_commit_id;
+                                    if cid > 0 && !s.first_final_logged {
+                                        println!(
+                                            "[{}] [{}] first_final_after_commit_ms id={} ms={}",
+                                            pname_recv,
+                                            wall_ts(),
+                                            cid,
+                                            start.elapsed().as_millis()
+                                        );
+                                        s.first_final_logged = true;
+                                    }
+                                }
+                                // Close this commit window once a final is observed.
+                                s.window_open = false;
+                            }
+                        }
                         println!(
                             "[{}] [{:.1}s] transcript final: \"{}\"",
                             pname_recv, ts, transcript

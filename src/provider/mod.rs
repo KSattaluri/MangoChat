@@ -47,6 +47,8 @@ pub enum AudioEncoding {
 pub enum CommitMessage {
     /// Send a JSON message to commit the buffer.
     Json(Value),
+    /// No commit control message; rely on provider/server-side endpointing.
+    None,
 }
 
 /// Everything needed to establish and configure a provider WebSocket connection.
