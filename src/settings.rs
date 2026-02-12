@@ -33,6 +33,8 @@ pub struct Settings {
     pub theme: String, // dark only
     #[serde(default = "default_text_size")]
     pub text_size: String, // small | medium | large
+    #[serde(default = "default_accent_color")]
+    pub accent_color: String, // green | purple | blue | orange | pink
     #[serde(default)]
     pub snip_editor_path: String,
     #[serde(default = "default_chrome_path")]
@@ -87,6 +89,7 @@ impl Default for Settings {
             start_cue: default_start_cue(),
             theme: default_theme(),
             text_size: default_text_size(),
+            accent_color: default_accent_color(),
             snip_editor_path: String::new(),
             chrome_path: default_chrome_path(),
             paint_path: default_paint_path(),
@@ -124,6 +127,9 @@ fn default_theme() -> String {
 }
 fn default_text_size() -> String {
     "medium".into()
+}
+fn default_accent_color() -> String {
+    "green".into()
 }
 fn default_chrome_path() -> String {
     r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()
@@ -192,6 +198,14 @@ pub fn load() -> Settings {
         && settings.text_size != "large"
     {
         settings.text_size = default_text_size();
+    }
+    if settings.accent_color != "green"
+        && settings.accent_color != "purple"
+        && settings.accent_color != "blue"
+        && settings.accent_color != "orange"
+        && settings.accent_color != "pink"
+    {
+        settings.accent_color = default_accent_color();
     }
     settings.provider_inactivity_timeout_secs =
         settings.provider_inactivity_timeout_secs.clamp(5, 300);

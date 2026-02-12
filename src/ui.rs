@@ -22,10 +22,9 @@ const BTN_BORDER: Color32 = Color32::from_rgb(0x2c, 0x2f, 0x36);
 const BTN_PRIMARY: Color32 = Color32::from_rgb(0x25, 0x63, 0xeb);
 const BTN_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x1d, 0x4e, 0xd8);
 const SETTINGS_BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x21);
-const GREEN: Color32 = Color32::from_rgb(0x36, 0xd3, 0x99);
 const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
-const COMPACT_WINDOW_W_WITH_SNIP: f32 = 360.0;
-const COMPACT_WINDOW_W_NO_SNIP: f32 = 210.0;
+const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
+const COMPACT_WINDOW_W_NO_SNIP: f32 = 176.0;
 const COMPACT_WINDOW_H: f32 = 54.0;
 const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
@@ -43,6 +42,17 @@ struct ThemePalette {
     settings_bg: Color32,
 }
 
+#[derive(Clone, Copy)]
+struct AccentPalette {
+    id: &'static str,
+    name: &'static str,
+    base: Color32,
+    hover: Color32,
+    ring: Color32,
+    dark: Color32,
+    tint_bg: Color32,
+}
+
 #[derive(Clone)]
 struct ControlTooltipState {
     key: String,
@@ -58,6 +68,66 @@ fn theme_palette(_dark: bool) -> ThemePalette {
         btn_border: BTN_BORDER,
         settings_bg: SETTINGS_BG,
     }
+}
+
+fn accent_palette(id: &str) -> AccentPalette {
+    match id {
+        "purple" => AccentPalette {
+            id: "purple",
+            name: "Purple",
+            base: Color32::from_rgb(0xa8, 0x55, 0xf7),
+            hover: Color32::from_rgb(0x93, 0x3d, 0xe8),
+            ring: Color32::from_rgb(0x7e, 0x22, 0xce),
+            dark: Color32::from_rgb(0x58, 0x34, 0x84),
+            tint_bg: Color32::from_rgb(0xdb, 0xbf, 0xff),
+        },
+        "blue" => AccentPalette {
+            id: "blue",
+            name: "Blue",
+            base: Color32::from_rgb(0x3b, 0x82, 0xf6),
+            hover: Color32::from_rgb(0x25, 0x63, 0xeb),
+            ring: Color32::from_rgb(0x1d, 0x4e, 0xd8),
+            dark: Color32::from_rgb(0x2f, 0x44, 0x77),
+            tint_bg: Color32::from_rgb(0xbf, 0xdb, 0xfe),
+        },
+        "orange" => AccentPalette {
+            id: "orange",
+            name: "Orange",
+            base: Color32::from_rgb(0xf5, 0x9e, 0x0b),
+            hover: Color32::from_rgb(0xea, 0x8a, 0x00),
+            ring: Color32::from_rgb(0xc2, 0x41, 0x0c),
+            dark: Color32::from_rgb(0x73, 0x4c, 0x27),
+            tint_bg: Color32::from_rgb(0xfe, 0xd7, 0xaa),
+        },
+        "pink" => AccentPalette {
+            id: "pink",
+            name: "Pink",
+            base: Color32::from_rgb(0xec, 0x48, 0x99),
+            hover: Color32::from_rgb(0xdb, 0x27, 0x7d),
+            ring: Color32::from_rgb(0xbe, 0x18, 0x5d),
+            dark: Color32::from_rgb(0x7b, 0x32, 0x54),
+            tint_bg: Color32::from_rgb(0xfb, 0xbf, 0xdc),
+        },
+        _ => AccentPalette {
+            id: "green",
+            name: "Green",
+            base: Color32::from_rgb(0x36, 0xd3, 0x99),
+            hover: Color32::from_rgb(0x16, 0xa3, 0x4a),
+            ring: Color32::from_rgb(0x16, 0xa3, 0x4a),
+            dark: Color32::from_rgb(0x2f, 0x56, 0x48),
+            tint_bg: Color32::from_rgb(0x9f, 0xef, 0xcd),
+        },
+    }
+}
+
+fn accent_options() -> [AccentPalette; 5] {
+    [
+        accent_palette("green"),
+        accent_palette("purple"),
+        accent_palette("blue"),
+        accent_palette("orange"),
+        accent_palette("pink"),
+    ]
 }
 
 pub struct JarvisApp {
@@ -107,6 +177,7 @@ pub struct JarvisApp {
     pub form_screenshot_retention_count: u32,
     pub form_start_cue: String,
     pub form_text_size: String,
+    pub form_accent_color: String,
     pub form_snip_editor_path: String,
     pub form_chrome_path: String,
     pub form_paint_path: String,
@@ -124,6 +195,29 @@ pub struct JarvisApp {
 }
 
 impl JarvisApp {
+    fn current_accent(&self) -> AccentPalette {
+        if self.settings_open {
+            accent_palette(&self.form_accent_color)
+        } else {
+            accent_palette(&self.settings.accent_color)
+        }
+    }
+
+    fn persist_accent_if_changed(&mut self) {
+        if self.settings.accent_color == self.form_accent_color {
+            return;
+        }
+        self.settings.accent_color = self.form_accent_color.clone();
+        match crate::settings::save(&self.settings) {
+            Ok(()) => {
+                self._tray_icon = setup_tray(accent_palette(&self.settings.accent_color));
+            }
+            Err(e) => {
+                self.set_status(&format!("Save failed: {}", e), "error");
+            }
+        }
+    }
+
     fn provider_form_dirty(&self) -> bool {
         if self.form_provider != self.settings.provider {
             return true;
@@ -182,6 +276,7 @@ impl JarvisApp {
         self.form_screenshot_retention_count = self.settings.screenshot_retention_count;
         self.form_start_cue = self.settings.start_cue.clone();
         self.form_text_size = self.settings.text_size.clone();
+        self.form_accent_color = self.settings.accent_color.clone();
         self.form_snip_editor_path = self.settings.snip_editor_path.clone();
         self.form_chrome_path = self.settings.chrome_path.clone();
         self.form_paint_path = self.settings.paint_path.clone();
@@ -216,6 +311,7 @@ impl JarvisApp {
         let form_screenshot_retention_count = settings.screenshot_retention_count;
         let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
+        let form_accent_color = settings.accent_color.clone();
         let form_snip_editor_path = settings.snip_editor_path.clone();
         let form_chrome_path = settings.chrome_path.clone();
         let form_paint_path = settings.paint_path.clone();
@@ -224,7 +320,7 @@ impl JarvisApp {
         let form_url_commands = settings.url_commands.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
-        let tray_icon = setup_tray();
+        let tray_icon = setup_tray(accent_palette(&settings.accent_color));
         println!("[tray] icon created: {}", tray_icon.is_some());
 
         // Background thread for tray events so quit is handled even if the UI thread stalls.
@@ -281,6 +377,7 @@ impl JarvisApp {
             form_screenshot_retention_count,
             form_start_cue,
             form_text_size,
+            form_accent_color,
             form_snip_editor_path,
             form_chrome_path,
             form_paint_path,
@@ -669,6 +766,7 @@ impl JarvisApp {
         text: &str,
         persist_on_click: bool,
     ) {
+        let accent = self.current_accent();
         let now = ctx.input(|i| i.time);
         if response.clicked() && persist_on_click {
             self.control_tooltip = Some(ControlTooltipState {
@@ -703,8 +801,8 @@ impl JarvisApp {
             .fixed_pos(pos)
             .show(ctx, |ui| {
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(0x9f, 0xef, 0xcd))
-                    .stroke(Stroke::new(1.0, GREEN))
+                    .fill(accent.tint_bg)
+                    .stroke(Stroke::new(1.0, accent.base))
                     .rounding(4.0)
                     .inner_margin(egui::Margin::symmetric(6.0, 3.0))
                     .show(ui, |ui| {
@@ -722,6 +820,7 @@ impl JarvisApp {
 
     fn render_main_ui(&mut self, ctx: &egui::Context) {
         let p = theme_palette(true);
+        let accent = self.current_accent();
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
@@ -733,7 +832,7 @@ impl JarvisApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
-                    let record_resp = record_toggle(ui, self.is_recording);
+                    let record_resp = record_toggle(ui, self.is_recording, accent);
                     let record_tip =
                         if self.is_recording { "Stop recording" } else { "Start recording" };
                     self.paint_control_tooltip(ctx, &record_resp, "record", record_tip, true);
@@ -766,13 +865,15 @@ impl JarvisApp {
 
                     let show_screenshot_controls = self.settings.screenshot_enabled;
                     let settings_w = 28.0;
+                    let row_gap = 4.0;
                     let right_edge_pad = 6.0;
                     let right_controls_w = if show_screenshot_controls {
-                        20.0 * 3.0 + settings_w + 4.0 * 3.0 + right_edge_pad
+                        20.0 * 3.0 + settings_w + row_gap * 3.0 + right_edge_pad
                     } else {
                         settings_w + right_edge_pad
                     };
-                    let viz_w = (ui.available_width() - right_controls_w).max(120.0);
+                    let min_viz_w = if show_screenshot_controls { 36.0 } else { 56.0 };
+                    let viz_w = (ui.available_width() - right_controls_w).max(min_viz_w);
                     let fft = self
                         .state
                         .fft_data
@@ -787,6 +888,7 @@ impl JarvisApp {
                         viz_rect,
                         t,
                         if self.is_recording { Some(&fft) } else { None },
+                        accent,
                     );
 
                     if show_screenshot_controls {
@@ -844,11 +946,12 @@ impl JarvisApp {
                     }
                     if self.settings_open {
                         if window_ctrl_btn(ui, "-", false).clicked() {
+                            self.persist_accent_if_changed();
                             self.settings_open = false;
                             self.apply_window_mode(ctx, false);
                         }
                     } else {
-                        let settings_resp = icon_btn(ui, "\u{2699}");
+                        let settings_resp = settings_toggle(ui, self.is_recording, accent);
                         self.paint_control_tooltip(
                             ctx,
                             &settings_resp,
@@ -898,6 +1001,7 @@ impl JarvisApp {
                                         for (id, label) in [
                                             ("provider", "Provider"),
                                             ("audio", "Audio"),
+                                            ("color", "Color"),
                                             ("screenshot", "Screenshot"),
                                             ("advanced", "Advanced"),
                                             ("configurations", "Configurations"),
@@ -1051,6 +1155,7 @@ impl JarvisApp {
                                                                     ui,
                                                                     can_default,
                                                                     is_default,
+                                                                    accent,
                                                                 )
                                                             },
                                                         )
@@ -1134,6 +1239,7 @@ impl JarvisApp {
                                                                     result
                                                                         .as_ref()
                                                                         .map(|(ok, _)| *ok),
+                                                                    accent,
                                                                 )
                                                             },
                                                         )
@@ -1218,7 +1324,7 @@ impl JarvisApp {
                                         if let Some((ok, msg)) =
                                             self.key_check_result.get(provider_id)
                                         {
-                                            let color = if *ok { GREEN } else { RED };
+                                            let color = if *ok { accent.base } else { RED };
                                             ui.add_space(4.0);
                                             ui.label(
                                                 egui::RichText::new(msg)
@@ -1314,6 +1420,48 @@ impl JarvisApp {
                                         }
                                     });
                                     }); // end ScrollArea
+                                }
+                                "color" => {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new("Accent Color")
+                                                    .size(11.0)
+                                                    .color(TEXT_MUTED),
+                                            );
+                                            ui.add_space(4.0);
+                                            for choice in accent_options() {
+                                                let selected = self.form_accent_color == choice.id;
+                                                let mut btn = egui::Button::new(
+                                                    egui::RichText::new(choice.name)
+                                                        .size(11.0)
+                                                        .strong()
+                                                        .color(Color32::WHITE),
+                                                )
+                                                .fill(if selected { choice.base } else { BTN_BG })
+                                                .stroke(Stroke::new(
+                                                    1.0,
+                                                    if selected { choice.dark } else { BTN_BORDER },
+                                                ))
+                                                .rounding(6.0)
+                                                .min_size(vec2(ui.available_width(), 24.0));
+                                                if selected {
+                                                    btn = btn.frame(true);
+                                                }
+                                                if ui.add(btn).clicked() {
+                                                    self.form_accent_color = choice.id.to_string();
+                                                }
+                                                ui.add_space(4.0);
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Applies to visualizer, start/settings controls, and accent highlights.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                        });
                                 }
                                 "screenshot" => {
                                     egui::ScrollArea::vertical()
@@ -1649,7 +1797,7 @@ impl JarvisApp {
                                                         s.finals,
                                                     ))
                                                     .size(11.0)
-                                                    .color(GREEN),
+                                                    .color(accent.base),
                                                 );
                                             }
                                         }
@@ -1909,7 +2057,7 @@ impl JarvisApp {
                                                 cols[0].label(
                                                     egui::RichText::new(cmd)
                                                         .size(11.0)
-                                                        .color(GREEN),
+                                                        .color(accent.base),
                                                 );
                                                 cols[1].label(
                                                     egui::RichText::new(desc)
@@ -1987,6 +2135,7 @@ impl JarvisApp {
                                 self.settings_tab.as_str(),
                                 "provider"
                                     | "audio"
+                                    | "color"
                                     | "screenshot"
                                     | "advanced"
                                     | "configurations"
@@ -2013,6 +2162,7 @@ impl JarvisApp {
                                 );
                                 if save.clicked() {
                                     if show_exit {
+                                        self.persist_accent_if_changed();
                                         self.settings_open = false;
                                         self.apply_window_mode(ctx, false);
                                         return;
@@ -2051,6 +2201,8 @@ impl JarvisApp {
                                         self.settings.theme = "dark".to_string();
                                         self.settings.text_size =
                                             self.form_text_size.clone();
+                                        self.settings.accent_color =
+                                            self.form_accent_color.clone();
                                         self.settings.snip_editor_path =
                                             self.form_snip_editor_path.clone();
                                         self.settings.chrome_path =
@@ -2077,6 +2229,8 @@ impl JarvisApp {
                                                         .map(|c| (c.trigger.clone(), c.url.clone()))
                                                         .collect();
                                                 }
+                                                self._tray_icon =
+                                                    setup_tray(self.current_accent());
                                                 self.state.screenshot_enabled.store(
                                                     self.settings.screenshot_enabled,
                                                     Ordering::SeqCst,
@@ -2379,13 +2533,51 @@ impl eframe::App for JarvisApp {
 
 // --- Helpers ---
 
-fn icon_btn(ui: &mut egui::Ui, icon: &str) -> egui::Response {
-    let btn = egui::Button::new(egui::RichText::new(icon).size(14.0).color(Color32::WHITE))
-        .fill(GREEN)
-        .stroke(Stroke::new(1.5, Color32::from_rgb(0x16, 0xa3, 0x4a)))
-        .rounding(14.0)
-        .min_size(vec2(28.0, 28.0));
-    ui.add(btn).on_hover_cursor(CursorIcon::PointingHand)
+fn settings_toggle(
+    ui: &mut egui::Ui,
+    is_recording: bool,
+    accent: AccentPalette,
+) -> egui::Response {
+    let size = 28.0;
+    let radius = size / 2.0;
+    let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let center = rect.center();
+        let hovered = response.hovered();
+        let idle_ring = Color32::from_rgba_unmultiplied(255, 255, 255, 180);
+
+        let (fill, ring, glyph) = if is_recording {
+            let fill = if hovered { accent.hover } else { accent.base };
+            (fill, accent.ring, Color32::WHITE)
+        } else {
+            let gray = Color32::from_rgb(0x3a, 0x3d, 0x45);
+            let gray_hover = Color32::from_rgb(0x4a, 0x4d, 0x55);
+            let fill = if hovered { gray_hover } else { gray };
+            (fill, idle_ring, Color32::WHITE)
+        };
+
+        ui.painter()
+            .circle_stroke(center, radius, Stroke::new(1.5, ring));
+        ui.painter().circle_filled(center, radius - 2.5, fill);
+        // Draw a small cog manually so color is fully controllable across fonts/platforms.
+        let gear_stroke = Stroke::new(1.2, glyph);
+        let r_inner = 2.0;
+        let r_ring = 4.2;
+        let r_tooth_outer = 6.0;
+        for i in 0..8 {
+            let a = i as f32 * std::f32::consts::TAU / 8.0;
+            let dir = vec2(a.cos(), a.sin());
+            let p1 = center + dir * r_ring;
+            let p2 = center + dir * r_tooth_outer;
+            ui.painter().line_segment([p1, p2], gear_stroke);
+        }
+        ui.painter()
+            .circle_stroke(center, r_ring, Stroke::new(1.2, glyph));
+        ui.painter().circle_filled(center, r_inner, glyph);
+    }
+
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Response {
@@ -2413,7 +2605,11 @@ fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Respon
     ui.add(btn)
 }
 
-fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
+fn record_toggle(
+    ui: &mut egui::Ui,
+    is_recording: bool,
+    accent: AccentPalette,
+) -> egui::Response {
     let size = 28.0;
     let radius = size / 2.0;
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
@@ -2423,15 +2619,18 @@ fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
         let hovered = response.hovered();
 
         let (fill, ring) = if is_recording {
-            // Active: green with brighter hover
-            let green = Color32::from_rgb(0x22, 0xc5, 0x5e);
-            let green_hover = Color32::from_rgb(0x16, 0xa3, 0x4a);
-            if hovered { (green_hover, green) } else { (green, green_hover) }
+            // Active: accent color with brighter hover
+            if hovered {
+                (accent.hover, accent.base)
+            } else {
+                (accent.base, accent.ring)
+            }
         } else {
-            // Idle: muted gray with subtle hover lift
+            // Idle: muted gray with white ring
             let gray = Color32::from_rgb(0x3a, 0x3d, 0x45);
             let gray_hover = Color32::from_rgb(0x4a, 0x4d, 0x55);
-            if hovered { (gray_hover, gray) } else { (gray, gray_hover) }
+            let idle_ring = Color32::from_rgba_unmultiplied(255, 255, 255, 180);
+            if hovered { (gray_hover, idle_ring) } else { (gray, idle_ring) }
         };
 
         // Outer ring
@@ -2456,6 +2655,7 @@ fn provider_default_button(
     ui: &mut egui::Ui,
     enabled: bool,
     is_default: bool,
+    accent: AccentPalette,
 ) -> egui::Response {
     let size = vec2(22.0, 22.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -2470,12 +2670,12 @@ fn provider_default_button(
     } else if is_default {
         (
             if hovered {
-                Color32::from_rgb(0x19, 0xb0, 0x62)
+                accent.hover
             } else {
-                Color32::from_rgb(0x16, 0xa3, 0x4a)
+                accent.base
             },
-            Color32::from_rgb(0x0f, 0x76, 0x36),
-            Color32::from_rgb(0xe6, 0xff, 0xf2),
+            accent.ring,
+            Color32::WHITE,
         )
     } else if hovered {
         (
@@ -2509,6 +2709,7 @@ fn provider_validate_button(
     enabled: bool,
     inflight: bool,
     result_ok: Option<bool>,
+    accent: AccentPalette,
 ) -> egui::Response {
     let size = vec2(24.0, 24.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -2535,11 +2736,11 @@ fn provider_validate_button(
     } else if result_ok == Some(true) {
         (
             if hovered {
-                Color32::from_rgb(0x1e, 0xb3, 0x52)
+                accent.hover
             } else {
-                Color32::from_rgb(0x16, 0xa3, 0x4a)
+                accent.base
             },
-            Color32::from_rgb(0x15, 0x86, 0x40),
+            accent.ring,
             "\u{2713}",
             Color32::WHITE,
         )
@@ -2608,6 +2809,7 @@ fn draw_dancing_strings(
     rect: Rect,
     t: f32,
     live_fft: Option<&[f32; 50]>,
+    accent: AccentPalette,
 ) {
     let is_live = live_fft.is_some();
     let lines = 4usize;
@@ -2620,7 +2822,12 @@ fn draw_dancing_strings(
         let phase = t * (1.6 + line as f32 * 0.28) + line as f32 * 0.9;
         let amp = amp_base + (t * 1.2 + line as f32).sin() * 0.35;
         let color = if is_live {
-            Color32::from_rgba_unmultiplied(54, 211, 153, 110 + line as u8 * 24)
+            Color32::from_rgba_unmultiplied(
+                accent.base.r(),
+                accent.base.g(),
+                accent.base.b(),
+                110 + line as u8 * 24,
+            )
         } else {
             Color32::from_rgba_unmultiplied(184, 192, 204, 90 + line as u8 * 20)
         };
@@ -2631,7 +2838,7 @@ fn draw_dancing_strings(
             let nx = (x - rect.min.x) / width;
             // Pin all strings to the same start/end point.
             let envelope = (std::f32::consts::PI * nx).sin().powf(1.15);
-            let wave = (nx * std::f32::consts::TAU * (1.2 + line as f32 * 0.25) + phase).sin();
+            let wave = (nx * std::f32::consts::TAU * (1.2 + line as f32 * 0.25) - phase).sin();
             let y = base_y + wave * amp * envelope;
             points.push(pos2(x, y));
         }
@@ -2657,7 +2864,12 @@ fn draw_dancing_strings(
             painter.rect_filled(
                 Rect::from_min_size(pos2(x, y), vec2(bar_w, h)),
                 1.0,
-                Color32::from_rgba_unmultiplied(54, 211, 153, 195),
+                Color32::from_rgba_unmultiplied(
+                    accent.base.r(),
+                    accent.base.g(),
+                    accent.base.b(),
+                    195,
+                ),
             );
         }
     }
@@ -2750,7 +2962,7 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: &str) {
     });
 }
 
-fn setup_tray() -> Option<tray_icon::TrayIcon> {
+fn setup_tray(accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tray_icon::TrayIconBuilder;
 
@@ -2760,7 +2972,7 @@ fn setup_tray() -> Option<tray_icon::TrayIcon> {
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 
-    let icon = match make_tray_icon(GREEN) {
+    let icon = match make_tray_icon(accent.base) {
         Some(i) => i,
         None => return None,
     };
