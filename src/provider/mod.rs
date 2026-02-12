@@ -90,6 +90,9 @@ pub struct ProviderSettings {
 /// Trait that each STT provider implements.
 pub trait SttProvider: Send + Sync {
     fn name(&self) -> &str;
+    fn sample_rate_hint(&self) -> u32 {
+        16_000
+    }
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig;
     fn parse_event(&self, text: &str) -> Vec<ProviderEvent>;
     /// Called when local VAD detects end of speech. Providers that accumulate

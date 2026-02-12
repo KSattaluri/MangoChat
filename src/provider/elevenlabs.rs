@@ -19,6 +19,10 @@ impl SttProvider for ElevenLabsProvider {
         "ElevenLabs Realtime"
     }
 
+    fn sample_rate_hint(&self) -> u32 {
+        16_000
+    }
+
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig {
         // Use manual commit (we drive commits from local VAD).
         let url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&commit_strategy=manual&audio_format=pcm_16000&language_code=en".to_string();

@@ -15,6 +15,10 @@ impl SttProvider for AssemblyAiProvider {
         "AssemblyAI"
     }
 
+    fn sample_rate_hint(&self) -> u32 {
+        16_000
+    }
+
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig {
         let url = format!(
             "wss://streaming.assemblyai.com/v3/ws?\

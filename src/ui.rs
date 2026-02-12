@@ -391,7 +391,7 @@ impl JarvisApp {
             transcription_model: self.settings.transcription_model.clone(),
             language: self.settings.language.clone(),
         };
-        let config = provider.connection_config(&provider_settings);
+        let sample_rate = provider.sample_rate_hint();
 
         // Always start audio capture (drives the visualizer FFT)
         let mic = if self.settings.mic_device.is_empty() {
@@ -403,7 +403,7 @@ impl JarvisApp {
             mic,
             audio_tx,
             self.state.clone(),
-            config.sample_rate,
+            sample_rate,
         ) {
             Ok(capture) => {
                 println!("[ui] audio capture started");
