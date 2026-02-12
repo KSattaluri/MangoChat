@@ -135,6 +135,7 @@ async fn send_audio_chunk(
     state_send: &Arc<AppState>,
     activity_ms: &Arc<AtomicU64>,
     sample_rate: u32,
+    provider_name: &str,
 ) -> Result<(), ()> {
     if pcm_data.is_empty() {
         return Ok(());
@@ -182,6 +183,11 @@ async fn send_audio_chunk(
             session.ms_sent = session.ms_sent.saturating_add(chunk_ms);
             session.updated_ms = now_ms();
         }
+    }
+    if let Ok(mut pt) = state_send.provider_totals.lock() {
+        let entry = pt.entry(provider_name.to_string()).or_default();
+        entry.bytes_sent = entry.bytes_sent.saturating_add(chunk_bytes);
+        entry.ms_sent = entry.ms_sent.saturating_add(chunk_ms);
     }
     Ok(())
 }
@@ -366,6 +372,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
+                                &pname_send,
                             )
                             .await
                             .is_err()
@@ -385,6 +392,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
+                                &pname_send,
                             )
                             .await
                             .is_err()
@@ -507,6 +515,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
+                                &pname_send,
                             )
                             .await
                             .is_err()
@@ -525,6 +534,7 @@ pub async fn run_session(
                         &state_send,
                         &last_activity_send,
                         sample_rate,
+                        &pname_send,
                     )
                     .await
                     .is_err()
@@ -692,6 +702,18 @@ pub async fn run_session(
                             pname_recv, ts, transcript
                         );
                         emit_transcript(&tx_recv, &transcript, true);
+                        if let Ok(mut usage) = state_recv.usage.lock() {
+                            usage.finals = usage.finals.saturating_add(1);
+                        }
+                        if let Ok(mut session) = state_recv.session_usage.lock() {
+                            if session.started_ms != 0 {
+                                session.finals = session.finals.saturating_add(1);
+                            }
+                        }
+                        if let Ok(mut pt) = state_recv.provider_totals.lock() {
+                            let entry = pt.entry(pname_recv.clone()).or_default();
+                            entry.finals = entry.finals.saturating_add(1);
+                        }
                         if let Ok(mut last) = state_recv.last_transcript.lock() {
                             *last = transcript.clone();
                         }
@@ -729,6 +751,18 @@ pub async fn run_session(
                     pname_recv, ts, transcript
                 );
                 emit_transcript(&tx_recv, &transcript, true);
+                if let Ok(mut usage) = state_recv.usage.lock() {
+                    usage.finals = usage.finals.saturating_add(1);
+                }
+                if let Ok(mut session) = state_recv.session_usage.lock() {
+                    if session.started_ms != 0 {
+                        session.finals = session.finals.saturating_add(1);
+                    }
+                }
+                if let Ok(mut pt) = state_recv.provider_totals.lock() {
+                    let entry = pt.entry(pname_recv.clone()).or_default();
+                    entry.finals = entry.finals.saturating_add(1);
+                }
                 if let Ok(mut last) = state_recv.last_transcript.lock() {
                     *last = transcript.clone();
                 }

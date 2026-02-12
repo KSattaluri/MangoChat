@@ -119,6 +119,8 @@ pub struct JarvisApp {
     pub session_history: Vec<SessionUsage>,
     control_tooltip: Option<ControlTooltipState>,
     recording_limit_token: u64,
+    confirm_reset_totals: bool,
+    confirm_reset_include_sessions: bool,
 }
 
 impl JarvisApp {
@@ -283,6 +285,8 @@ impl JarvisApp {
             session_history: vec![],
             control_tooltip: None,
             recording_limit_token: 0,
+            confirm_reset_totals: false,
+            confirm_reset_include_sessions: false,
         };
         app
     }
@@ -452,6 +456,7 @@ impl JarvisApp {
                 ms_sent: 0,
                 ms_suppressed: 0,
                 commits: 0,
+                finals: 0,
                 started_ms: now,
                 updated_ms: now,
             };
@@ -512,9 +517,9 @@ impl JarvisApp {
 
         self.set_status("Ready", "idle");
 
-        // Persist and reset per-session usage.
+        // Persist and reset per-session usage (skip 0-byte sessions).
         if let Ok(mut session) = self.state.session_usage.lock() {
-            if session.started_ms != 0 {
+            if session.started_ms != 0 && session.bytes_sent > 0 {
                 if let Ok(path) = session_usage_path() {
                     let snapshot = session.clone();
                     let _ = append_usage_line(&path, &snapshot);
@@ -1591,10 +1596,33 @@ impl JarvisApp {
                                             );
                                             stat_card(
                                                 &mut cols[3],
-                                                "Commits",
-                                                &u.commits.to_string(),
+                                                "Transcripts",
+                                                &u.finals.to_string(),
                                             );
                                         });
+                                    }
+                                    // Per-provider breakdown
+                                    if let Ok(pt) = self.state.provider_totals.lock() {
+                                        if !pt.is_empty() {
+                                            ui.add_space(4.0);
+                                            let mut providers: Vec<_> = pt.iter().collect();
+                                            providers.sort_by(|a, b| b.1.ms_sent.cmp(&a.1.ms_sent));
+                                            for (name, pu) in &providers {
+                                                let color = Self::provider_color(name, theme_palette(ui.visuals().dark_mode));
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "{}: {} sent | {} suppressed | {} | {} transcripts",
+                                                        name,
+                                                        fmt_duration_ms(pu.ms_sent),
+                                                        fmt_duration_ms(pu.ms_suppressed),
+                                                        fmt_bytes(pu.bytes_sent),
+                                                        pu.finals,
+                                                    ))
+                                                    .size(10.0)
+                                                    .color(color),
+                                                );
+                                            }
+                                        }
                                     }
                                     // Live session
                                     if self.is_recording {
@@ -1607,10 +1635,10 @@ impl JarvisApp {
                                                 ui.add_space(4.0);
                                                 ui.label(
                                                     egui::RichText::new(format!(
-                                                        "Live: {} | {} | {} commits",
+                                                        "Live: {} | {} | {} transcripts",
                                                         fmt_duration_ms(elapsed),
                                                         fmt_bytes(s.bytes_sent),
-                                                        s.commits,
+                                                        s.finals,
                                                     ))
                                                     .size(11.0)
                                                     .color(GREEN),
@@ -1638,13 +1666,8 @@ impl JarvisApp {
                                             )
                                             .clicked()
                                         {
-                                            if let Ok(mut u) =
-                                                self.state.usage.lock()
-                                            {
-                                                *u = crate::state::UsageTotals::default();
-                                            }
-                                            let _ =
-                                                crate::usage::reset_totals_file();
+                                            self.confirm_reset_totals = true;
+                                            self.confirm_reset_include_sessions = false;
                                         }
                                         if ui
                                             .add(
@@ -1674,6 +1697,64 @@ impl JarvisApp {
                                             }
                                         }
                                     });
+                                    if self.confirm_reset_totals {
+                                        let mut close_dialog = false;
+                                        egui::Window::new("Reset Totals?")
+                                            .collapsible(false)
+                                            .resizable(false)
+                                            .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+                                            .show(ctx, |ui| {
+                                                ui.label(
+                                                    egui::RichText::new(
+                                                        "This deletes usage totals files and clears current totals. Continue?",
+                                                    )
+                                                    .size(11.0)
+                                                    .color(TEXT_COLOR),
+                                                );
+                                                ui.add_space(4.0);
+                                                ui.checkbox(
+                                                    &mut self.confirm_reset_include_sessions,
+                                                    egui::RichText::new(
+                                                        "Also clear recent sessions (usage-session.jsonl)",
+                                                    )
+                                                    .size(11.0)
+                                                    .color(TEXT_COLOR),
+                                                );
+                                                ui.add_space(8.0);
+                                                ui.horizontal(|ui| {
+                                                    if ui.button("Cancel").clicked() {
+                                                        close_dialog = true;
+                                                    }
+                                                    if ui
+                                                        .add(
+                                                            egui::Button::new("Yes, Reset")
+                                                                .fill(RED)
+                                                                .stroke(Stroke::new(1.0, RED)),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        if let Ok(mut u) = self.state.usage.lock() {
+                                                            *u = crate::state::UsageTotals::default();
+                                                        }
+                                                        if let Ok(mut pt) = self.state.provider_totals.lock() {
+                                                            pt.clear();
+                                                        }
+                                                        let _ = crate::usage::reset_totals_file();
+                                                        let _ = crate::usage::reset_provider_totals_file();
+                                                        if self.confirm_reset_include_sessions {
+                                                            let _ = crate::usage::reset_session_file();
+                                                            self.session_history.clear();
+                                                        }
+                                                        self.set_status("Totals reset", "idle");
+                                                        close_dialog = true;
+                                                    }
+                                                });
+                                            });
+                                        if close_dialog {
+                                            self.confirm_reset_totals = false;
+                                            self.confirm_reset_include_sessions = false;
+                                        }
+                                    }
                                     // Session history table
                                     if !self.session_history.is_empty() {
                                         section_header(ui, "Recent Sessions");
@@ -1682,15 +1763,16 @@ impl JarvisApp {
                                             .show(ui, |ui| {
                                                 egui::Grid::new("session_table")
                                                     .striped(true)
-                                                    .num_columns(5)
+                                                    .num_columns(6)
                                                     .spacing([8.0, 2.0])
                                                     .show(ui, |ui| {
                                                         for h in [
                                                             "When",
                                                             "Provider",
                                                             "Duration",
+                                                            "Audio",
                                                             "Data",
-                                                            "Commits",
+                                                            "Transcripts",
                                                         ] {
                                                             ui.label(
                                                                 egui::RichText::new(h)
@@ -1733,6 +1815,15 @@ impl JarvisApp {
                                                             );
                                                             ui.label(
                                                                 egui::RichText::new(
+                                                                    fmt_duration_ms(
+                                                                        s.ms_sent,
+                                                                    ),
+                                                                )
+                                                                .size(10.0)
+                                                                .color(TEXT_COLOR),
+                                                            );
+                                                            ui.label(
+                                                                egui::RichText::new(
                                                                     fmt_bytes(
                                                                         s.bytes_sent,
                                                                     ),
@@ -1742,7 +1833,7 @@ impl JarvisApp {
                                                             );
                                                             ui.label(
                                                                 egui::RichText::new(
-                                                                    s.commits
+                                                                    s.finals
                                                                         .to_string(),
                                                                 )
                                                                 .size(10.0)
