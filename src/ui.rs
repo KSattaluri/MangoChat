@@ -104,6 +104,7 @@ pub struct JarvisApp {
     pub form_mic: String,
     pub form_vad_mode: String,
     pub form_screenshot_enabled: bool,
+    pub form_screenshot_retention_count: u32,
     pub form_start_cue: String,
     pub form_text_size: String,
     pub form_snip_editor_path: String,
@@ -168,6 +169,7 @@ impl JarvisApp {
         self.form_mic = self.settings.mic_device.clone();
         self.form_vad_mode = self.settings.vad_mode.clone();
         self.form_screenshot_enabled = self.settings.screenshot_enabled;
+        self.form_screenshot_retention_count = self.settings.screenshot_retention_count;
         self.form_start_cue = self.settings.start_cue.clone();
         self.form_text_size = self.settings.text_size.clone();
         self.form_snip_editor_path = self.settings.snip_editor_path.clone();
@@ -201,6 +203,7 @@ impl JarvisApp {
         let form_mic = settings.mic_device.clone();
         let form_vad_mode = settings.vad_mode.clone();
         let form_screenshot_enabled = settings.screenshot_enabled;
+        let form_screenshot_retention_count = settings.screenshot_retention_count;
         let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
         let form_snip_editor_path = settings.snip_editor_path.clone();
@@ -265,6 +268,7 @@ impl JarvisApp {
             form_mic,
             form_vad_mode,
             form_screenshot_enabled,
+            form_screenshot_retention_count,
             form_start_cue,
             form_text_size,
             form_snip_editor_path,
@@ -596,7 +600,14 @@ impl JarvisApp {
             guard.take()
         };
         if let Some(img) = img {
-            match snip::crop_and_save(&img, x, y, w, h) {
+            match snip::crop_and_save(
+                &img,
+                x,
+                y,
+                w,
+                h,
+                self.settings.screenshot_retention_count as usize,
+            ) {
                 Ok((path, cropped)) => {
                     if self.snip_copy_image {
                         let _ = snip::copy_image_to_clipboard(&cropped);
@@ -1310,6 +1321,18 @@ impl JarvisApp {
                                             );
                                             ui.add_space(4.0);
                                             ui.label(
+                                                egui::RichText::new("Retention count")
+                                                    .size(11.0)
+                                                    .color(TEXT_MUTED),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.form_screenshot_retention_count,
+                                                    1..=200,
+                                                )
+                                                .text("images"),
+                                            );
+                                            ui.label(
                                                 egui::RichText::new(
                                                     "When enabled, P / I / E buttons are shown and Right Alt triggers screenshot capture.",
                                                 )
@@ -1922,6 +1945,8 @@ impl JarvisApp {
                                             self.form_vad_mode.clone();
                                         self.settings.screenshot_enabled =
                                             self.form_screenshot_enabled;
+                                        self.settings.screenshot_retention_count =
+                                            self.form_screenshot_retention_count.clamp(1, 200);
                                         self.settings.start_cue =
                                             self.form_start_cue.clone();
                                         self.settings.theme = "dark".to_string();
