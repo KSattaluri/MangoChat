@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 // Colors matching the original CSS theme
-const BG_COLOR: Color32 = Color32::from_rgb(0x1a, 0x1d, 0x24);
 const TEXT_COLOR: Color32 = Color32::from_rgb(0xe6, 0xe6, 0xe6);
 const TEXT_MUTED: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 const BTN_BG: Color32 = Color32::from_rgb(0x25, 0x28, 0x30);
@@ -37,7 +36,6 @@ const PROVIDER_ROWS: &[(&str, &str)] = &[
 
 #[derive(Clone, Copy)]
 struct ThemePalette {
-    bg: Color32,
     text: Color32,
     text_muted: Color32,
     btn_bg: Color32,
@@ -54,7 +52,6 @@ struct ControlTooltipState {
 
 fn theme_palette(_dark: bool) -> ThemePalette {
     ThemePalette {
-        bg: BG_COLOR,
         text: TEXT_COLOR,
         text_muted: TEXT_MUTED,
         btn_bg: BTN_BG,
@@ -670,7 +667,7 @@ impl JarvisApp {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
-                    .fill(p.bg)
+                    .fill(Color32::TRANSPARENT)
                     .inner_margin(egui::Margin::symmetric(12.0, 12.0)),
             )
             .show(ctx, |ui| {
@@ -2022,6 +2019,10 @@ impl JarvisApp {
 }
 
 impl eframe::App for JarvisApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
