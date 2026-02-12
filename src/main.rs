@@ -101,6 +101,7 @@ fn main() {
                 if settings.screenshot_enabled { 360.0 } else { 210.0 },
                 80.0,
             ))
+            .with_taskbar(false)
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()

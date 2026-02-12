@@ -110,6 +110,7 @@ async fn send_audio_chunk(
     pcm_data: Vec<u8>,
     audio_encoding: &AudioEncoding,
     state_send: &Arc<AppState>,
+    activity_ms: &Arc<AtomicU64>,
     sample_rate: u32,
 ) -> Result<(), ()> {
     if pcm_data.is_empty() {
@@ -145,6 +146,7 @@ async fn send_audio_chunk(
     if ws_tx.send(ws_msg).await.is_err() {
         return Err(());
     }
+    activity_ms.store(now_ms(), Ordering::SeqCst);
 
     if let Ok(mut usage) = state_send.usage.lock() {
         usage.bytes_sent = usage.bytes_sent.saturating_add(chunk_bytes);
@@ -167,6 +169,7 @@ pub async fn run_session(
     state: Arc<AppState>,
     settings: ProviderSettings,
     audio_rx: mpsc::Receiver<Vec<u8>>,
+    inactivity_timeout_secs: u64,
 ) {
     let audio_rx = Arc::new(Mutex::new(audio_rx));
     let mut attempts: u32 = 0;
@@ -237,6 +240,7 @@ pub async fn run_session(
     emit_status(&event_tx, "live", "Listening");
 
     let tx_send = event_tx.clone();
+    let tx_send_task = tx_send.clone();
     let tx_recv = event_tx.clone();
     let state_recv = state.clone();
     let provider_recv = provider.clone();
@@ -254,17 +258,22 @@ pub async fn run_session(
     let pre_commit_silence_ms = config.pre_commit_silence_ms;
     let commit_flush_timeout_ms = config.commit_flush_timeout_ms.max(100);
     let pname_send = provider_name.to_string();
+    let inactivity_timeout_secs = inactivity_timeout_secs.clamp(5, 300);
+    let inactivity_timeout_ms = inactivity_timeout_secs.saturating_mul(1000);
     let activity_id = Arc::new(AtomicU64::new(0));
+    let last_activity_ms = Arc::new(AtomicU64::new(now_ms()));
     let commit_seq = Arc::new(AtomicU64::new(0));
     let latency_state = Arc::new(std::sync::Mutex::new(CommitLatencyState::default()));
     let state_send = state.clone();
 
     // Task: forward audio from channel to WebSocket.
     let activity_id_send = activity_id.clone();
+    let last_activity_send = last_activity_ms.clone();
     let commit_seq_send = commit_seq.clone();
     let latency_state_send = latency_state.clone();
     let audio_rx_send = audio_rx.clone();
     let send_task = tokio::spawn(async move {
+        let mut timed_out = false;
         let mut frames: u64 = 0;
         let mut bytes: u64 = 0;
         let bytes_per_ms = (sample_rate as usize * 2) / 1000;
@@ -283,6 +292,9 @@ pub async fn run_session(
         keepalive_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // Skip the first immediate tick.
         keepalive_interval.tick().await;
+        let mut inactivity_check = tokio::time::interval(Duration::from_secs(1));
+        inactivity_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        inactivity_check.tick().await;
 
         loop {
             tokio::select! {
@@ -308,6 +320,7 @@ pub async fn run_session(
                                 to_send,
                                 &audio_encoding,
                                 &state_send,
+                                &last_activity_send,
                                 sample_rate,
                             )
                             .await
@@ -326,6 +339,7 @@ pub async fn run_session(
                                 silence,
                                 &audio_encoding,
                                 &state_send,
+                                &last_activity_send,
                                 sample_rate,
                             )
                             .await
@@ -344,6 +358,7 @@ pub async fn run_session(
                                 {
                                     break;
                                 }
+                                last_activity_send.store(now_ms(), Ordering::SeqCst);
                                 let commit_id = commit_seq_send.fetch_add(1, Ordering::SeqCst) + 1;
                                 let committed_at = Instant::now();
                                 if let Ok(mut s) = latency_state_send.lock() {
@@ -446,6 +461,7 @@ pub async fn run_session(
                                 to_send,
                                 &audio_encoding,
                                 &state_send,
+                                &last_activity_send,
                                 sample_rate,
                             )
                             .await
@@ -463,6 +479,7 @@ pub async fn run_session(
                         pcm_data,
                         &audio_encoding,
                         &state_send,
+                        &last_activity_send,
                         sample_rate,
                     )
                     .await
@@ -479,6 +496,7 @@ pub async fn run_session(
                     let _ = ws_tx
                         .send(tungstenite::Message::Text(msg.to_string().into()))
                         .await;
+                    last_activity_send.store(now_ms(), Ordering::SeqCst);
                 }
                 _ = keepalive_interval.tick(), if keepalive_message.is_some() => {
                     if let Some(ref msg) = keepalive_message {
@@ -486,6 +504,22 @@ pub async fn run_session(
                         let _ = ws_tx
                             .send(tungstenite::Message::Text(msg.to_string().into()))
                             .await;
+                        last_activity_send.store(now_ms(), Ordering::SeqCst);
+                    }
+                }
+                _ = inactivity_check.tick() => {
+                    let last = last_activity_send.load(Ordering::SeqCst);
+                    let idle_for_ms = now_ms().saturating_sub(last);
+                    if idle_for_ms >= inactivity_timeout_ms {
+                        println!(
+                            "[{}] inactivity timeout hit: {}s (idle={}ms), stopping session",
+                            pname_send, inactivity_timeout_secs, idle_for_ms
+                        );
+                        let _ = tx_send_task.send(AppEvent::SessionInactivityTimeout {
+                            seconds: inactivity_timeout_secs,
+                        });
+                        timed_out = true;
+                        break;
                     }
                 }
             }
@@ -511,10 +545,12 @@ pub async fn run_session(
         tokio::time::sleep(Duration::from_millis(2000)).await;
         println!("[{}] closing websocket", pname_send);
         let _ = ws_tx.close().await;
+        timed_out
     });
 
     let pname_recv = provider_recv.name().to_string();
     let latency_state_recv = latency_state.clone();
+    let last_activity_recv = last_activity_ms.clone();
 
     // Task: receive events from provider WebSocket.
     let recv_task = tokio::spawn(async move {
@@ -554,6 +590,7 @@ pub async fn run_session(
                         _ => continue,
                     };
 
+                    last_activity_recv.store(now_ms(), Ordering::SeqCst);
                     provider_recv.parse_event(&text)
                 }
                 _ = flush_rx.recv() => {
@@ -660,7 +697,11 @@ pub async fn run_session(
         emit_status(&tx_recv, "idle", "Disconnected");
     });
 
-    let _ = tokio::join!(send_task, recv_task);
+    let (send_result, _) = tokio::join!(send_task, recv_task);
+    let timed_out = send_result.unwrap_or(false);
+    if timed_out {
+        return;
+    }
     emit_status(&tx_send, "idle", "Ready");
     // Retry unless audio channel is closed.
     if audio_rx.lock().await.is_closed() {

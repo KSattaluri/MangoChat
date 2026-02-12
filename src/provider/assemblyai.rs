@@ -19,7 +19,6 @@ impl SttProvider for AssemblyAiProvider {
         let url = format!(
             "wss://streaming.assemblyai.com/v3/ws?\
              sample_rate=16000&encoding=pcm_s16le\
-             &inactivity_timeout=20\
              &format_turns=false\
              &end_of_turn_confidence_threshold=0.42\
              &min_end_of_turn_silence_when_confident=260\

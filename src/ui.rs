@@ -73,14 +73,10 @@ pub struct JarvisApp {
     pub is_recording: bool,
     pub audio_capture: Option<crate::audio::AudioCapture>,
     pub should_quit: bool,
-    pub visible: bool,
     pub mic_devices: Vec<String>,
 
     // Tray icon (must stay alive or the icon disappears)
     pub _tray_icon: Option<tray_icon::TrayIcon>,
-    // Flags set by the tray background thread (works even when window is hidden)
-    pub tray_open_flag: Arc<std::sync::atomic::AtomicBool>,
-    pub tray_click_flag: Arc<std::sync::atomic::AtomicBool>,
 
     // Snip overlay state
     pub snip_overlay_active: bool,
@@ -113,15 +109,36 @@ pub struct JarvisApp {
     pub form_snip_editor_path: String,
     pub form_chrome_path: String,
     pub form_paint_path: String,
+    pub form_provider_inactivity_timeout_secs: u64,
+    pub form_max_session_length_minutes: u64,
     pub form_url_commands: Vec<crate::settings::UrlCommand>,
     pub key_check_inflight: HashSet<String>,
     pub key_check_result: HashMap<String, (bool, String)>,
     pub last_validated_provider: Option<String>,
     pub session_history: Vec<SessionUsage>,
     control_tooltip: Option<ControlTooltipState>,
+    recording_limit_token: u64,
 }
 
 impl JarvisApp {
+    fn provider_form_dirty(&self) -> bool {
+        if self.form_provider != self.settings.provider {
+            return true;
+        }
+        for (provider_id, _) in PROVIDER_ROWS {
+            let form_val = self
+                .form_api_keys
+                .get(*provider_id)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let current_val = self.settings.api_key_for(provider_id);
+            if form_val != current_val {
+                return true;
+            }
+        }
+        false
+    }
+
     fn compact_window_width(&self) -> f32 {
         if self.settings.screenshot_enabled {
             COMPACT_WINDOW_W_WITH_SNIP
@@ -156,6 +173,9 @@ impl JarvisApp {
         self.form_snip_editor_path = self.settings.snip_editor_path.clone();
         self.form_chrome_path = self.settings.chrome_path.clone();
         self.form_paint_path = self.settings.paint_path.clone();
+        self.form_provider_inactivity_timeout_secs =
+            self.settings.provider_inactivity_timeout_secs;
+        self.form_max_session_length_minutes = self.settings.max_session_length_minutes;
         self.form_url_commands = self.settings.url_commands.clone();
         self.key_check_inflight.clear();
         self.key_check_result.clear();
@@ -168,7 +188,7 @@ impl JarvisApp {
         event_rx: EventReceiver<AppEvent>,
         runtime: Arc<tokio::runtime::Runtime>,
         settings: Settings,
-        egui_ctx: egui::Context,
+        _egui_ctx: egui::Context,
     ) -> Self {
         let mic_devices = audio::list_input_devices();
         let form_provider = settings.provider.clone();
@@ -186,20 +206,16 @@ impl JarvisApp {
         let form_snip_editor_path = settings.snip_editor_path.clone();
         let form_chrome_path = settings.chrome_path.clone();
         let form_paint_path = settings.paint_path.clone();
+        let form_provider_inactivity_timeout_secs = settings.provider_inactivity_timeout_secs;
+        let form_max_session_length_minutes = settings.max_session_length_minutes;
         let form_url_commands = settings.url_commands.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
         let tray_icon = setup_tray();
         println!("[tray] icon created: {}", tray_icon.is_some());
 
-        // Background threads to handle tray events independently of the eframe
-        // event loop. When the window is hidden, eframe may stop calling update(),
-        // so tray events (especially quit) must be processed from a separate thread.
-        let tray_open_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let tray_click_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Background thread for tray events so quit is handled even if the UI thread stalls.
         {
-            let open_flag = tray_open_flag.clone();
-            let ctx = egui_ctx.clone();
             std::thread::spawn(move || {
                 while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
                     let id = event.id.0.as_str();
@@ -209,23 +225,7 @@ impl JarvisApp {
                             println!("[tray-thread] quit — calling process::exit");
                             std::process::exit(0);
                         }
-                        "open" => {
-                            open_flag.store(true, Ordering::SeqCst);
-                            ctx.request_repaint();
-                        }
                         _ => {}
-                    }
-                }
-            });
-        }
-        {
-            let click_flag = tray_click_flag.clone();
-            let ctx = egui_ctx;
-            std::thread::spawn(move || {
-                while let Ok(event) = tray_icon::TrayIconEvent::receiver().recv() {
-                    if matches!(event, tray_icon::TrayIconEvent::Click { .. }) {
-                        click_flag.store(true, Ordering::SeqCst);
-                        ctx.request_repaint();
                     }
                 }
             });
@@ -244,11 +244,8 @@ impl JarvisApp {
             is_recording: false,
             audio_capture: None,
             should_quit: false,
-            visible: true,
             mic_devices,
             _tray_icon: tray_icon,
-            tray_open_flag,
-            tray_click_flag,
             positioned: false,
             initial_position_corrected: false,
             compact_anchor_pos: None,
@@ -273,12 +270,15 @@ impl JarvisApp {
             form_snip_editor_path,
             form_chrome_path,
             form_paint_path,
+            form_provider_inactivity_timeout_secs,
+            form_max_session_length_minutes,
             form_url_commands,
             key_check_inflight: HashSet::new(),
             key_check_result: HashMap::new(),
             last_validated_provider: None,
             session_history: vec![],
             control_tooltip: None,
+            recording_limit_token: 0,
         };
         app
     }
@@ -417,6 +417,20 @@ impl JarvisApp {
             }
         }
 
+        // Hard cap session length to prevent runaway costs/noise loops.
+        self.recording_limit_token = self.recording_limit_token.saturating_add(1);
+        let limit_token = self.recording_limit_token;
+        let max_minutes = self.settings.max_session_length_minutes.clamp(1, 120);
+        let max_duration = Duration::from_secs(max_minutes.saturating_mul(60));
+        let max_event_tx = self.event_tx.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(max_duration).await;
+            let _ = max_event_tx.send(AppEvent::SessionMaxDurationReached {
+                token: limit_token,
+                minutes: max_minutes,
+            });
+        });
+
         // Only connect to provider if we have an API key
         if current_key.is_empty() {
             self.set_status("Listening (no API key)", "live");
@@ -441,6 +455,7 @@ impl JarvisApp {
 
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
+        let inactivity_timeout_secs = self.settings.provider_inactivity_timeout_secs;
 
         self.runtime.spawn(async move {
             crate::provider::session::run_session(
@@ -449,6 +464,7 @@ impl JarvisApp {
                 state_clone.clone(),
                 provider_settings,
                 audio_rx,
+                inactivity_timeout_secs,
             )
             .await;
 
@@ -517,6 +533,24 @@ impl JarvisApp {
                     let _ = text;
                 }
                 AppEvent::SnipTrigger => self.trigger_snip(),
+                AppEvent::SessionInactivityTimeout { seconds } => {
+                    if self.is_recording {
+                        self.stop_recording();
+                        self.set_status(
+                            &format!("Stopped after {}s inactivity", seconds),
+                            "idle",
+                        );
+                    }
+                }
+                AppEvent::SessionMaxDurationReached { token, minutes } => {
+                    if self.is_recording && token == self.recording_limit_token {
+                        self.stop_recording();
+                        self.set_status(
+                            &format!("Stopped at max session length ({}m)", minutes),
+                            "idle",
+                        );
+                    }
+                }
                 AppEvent::ApiKeyValidated {
                     provider,
                     ok,
@@ -671,16 +705,6 @@ impl JarvisApp {
                     .inner_margin(egui::Margin::symmetric(12.0, 12.0)),
             )
             .show(ctx, |ui| {
-                // Drag anywhere on window background to move it
-                let bg = ui.interact(
-                    ui.max_rect(),
-                    egui::Id::new("window_drag"),
-                    Sense::click_and_drag(),
-                );
-                if bg.drag_started() || bg.dragged() {
-                    ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-                }
-
                 // --- Top control row ---
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
@@ -852,6 +876,7 @@ impl JarvisApp {
                                             ("audio", "Audio"),
                                             ("screenshot", "Screenshot"),
                                             ("advanced", "Advanced"),
+                                            ("configurations", "Configurations"),
                                             ("commands", "Commands"),
                                             ("usage", "Usage"),
                                             ("faq", "FAQ"),
@@ -937,6 +962,15 @@ impl JarvisApp {
                                         ui.set_width(total_w - row_pad_x * 2.0);
                                         ui.add_space(row_pad_x);
                                         ui.add_sized(
+                                            [default_w, 20.0],
+                                            egui::Label::new(
+                                                egui::RichText::new("Default")
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text_muted),
+                                            ),
+                                        );
+                                        ui.add_sized(
                                             [provider_w, 20.0],
                                             egui::Label::new(
                                                 egui::RichText::new("Provider")
@@ -963,15 +997,6 @@ impl JarvisApp {
                                                     .color(p.text_muted),
                                             ),
                                         );
-                                        ui.add_sized(
-                                            [default_w, 20.0],
-                                            egui::Label::new(
-                                                egui::RichText::new("Default")
-                                                    .size(13.0)
-                                                    .strong()
-                                                    .color(p.text_muted),
-                                            ),
-                                        );
                                     });
                                     ui.add_space(2.0);
 
@@ -985,6 +1010,31 @@ impl JarvisApp {
                                             .show(ui, |ui| {
                                                 ui.set_width(total_w);
                                                 ui.horizontal(|ui| {
+                                                    let key_value = self
+                                                        .form_api_keys
+                                                        .entry(provider_id.clone())
+                                                        .or_default();
+                                                    let can_default = !key_value.trim().is_empty();
+                                                    let is_default = self.form_provider == provider_id;
+                                                    let default_resp = ui
+                                                        .allocate_ui_with_layout(
+                                                            vec2(default_w, 24.0),
+                                                            egui::Layout::centered_and_justified(
+                                                                egui::Direction::LeftToRight,
+                                                            ),
+                                                            |ui| {
+                                                                provider_default_button(
+                                                                    ui,
+                                                                    can_default,
+                                                                    is_default,
+                                                                )
+                                                            },
+                                                        )
+                                                        .inner;
+                                                    if default_resp.clicked() && can_default {
+                                                        self.form_provider = provider_id.clone();
+                                                    }
+
                                                     let provider_color =
                                                         Self::provider_color(&provider_id, p);
                                                     ui.add_sized(
@@ -994,13 +1044,10 @@ impl JarvisApp {
                                                                 .size(13.0)
                                                                 .strong()
                                                                 .color(provider_color),
-                                                        ),
+                                                        )
+                                                        .wrap_mode(egui::TextWrapMode::Truncate),
                                                     );
 
-                                                    let key_value = self
-                                                        .form_api_keys
-                                                        .entry(provider_id.clone())
-                                                        .or_default();
                                                     let key_resp = ui
                                                         .scope(|ui| {
                                                             let dark = ui.visuals().dark_mode;
@@ -1126,29 +1173,16 @@ impl JarvisApp {
                                                             "Enter API key first"
                                                         },
                                                     );
+                                                    default_resp.on_hover_text(if can_default {
+                                                        if is_default {
+                                                            "Default provider"
+                                                        } else {
+                                                            "Set as default provider"
+                                                        }
+                                                    } else {
+                                                        "Enter API key first"
+                                                    });
 
-                                                    let can_default = key_present;
-                                                    let is_default = self.form_provider == provider_id;
-                                                    let radio = ui
-                                                        .allocate_ui_with_layout(
-                                                            vec2(default_w, 24.0),
-                                                            egui::Layout::centered_and_justified(
-                                                                egui::Direction::LeftToRight,
-                                                            ),
-                                                            |ui| {
-                                                                ui.add_enabled(
-                                                                    can_default,
-                                                                    egui::RadioButton::new(
-                                                                        is_default,
-                                                                        "",
-                                                                    ),
-                                                                )
-                                                            },
-                                                        )
-                                                        .inner;
-                                                    if radio.clicked() && can_default {
-                                                        self.form_provider = provider_id.clone();
-                                                    }
                                                 });
                                             });
                                         ui.add_space(6.0);
@@ -1348,6 +1382,62 @@ impl JarvisApp {
                                         .color(TEXT_MUTED),
                                     );
                                     }); // end ScrollArea
+                                }
+                                "configurations" => {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new("Session Timeouts")
+                                                    .size(12.0)
+                                                    .strong()
+                                                    .color(TEXT_COLOR),
+                                            );
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Max session length (minutes)",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.form_max_session_length_minutes,
+                                                    1..=120,
+                                                )
+                                                .text("min"),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Hard cap: recording always stops at this duration, even if activity continues.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.add_space(6.0);
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Provider inactivity timeout (seconds)",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(
+                                                    &mut self.form_provider_inactivity_timeout_secs,
+                                                    5..=300,
+                                                )
+                                                .text("s"),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "When no provider activity is observed, the app closes the live session and stops recording.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                        });
                                 }
                                 "commands" => {
                                     egui::ScrollArea::vertical()
@@ -1773,10 +1863,19 @@ impl JarvisApp {
                             // Save button (only on settings tabs)
                             if matches!(
                                 self.settings_tab.as_str(),
-                                "provider" | "audio" | "screenshot" | "advanced" | "commands"
+                                "provider"
+                                    | "audio"
+                                    | "screenshot"
+                                    | "advanced"
+                                    | "configurations"
+                                    | "commands"
                             ) {
                                 ui.add_space(6.0);
-                                    let save_label = "Save";
+                                    let provider_dirty =
+                                        self.settings_tab == "provider" && self.provider_form_dirty();
+                                    let show_exit =
+                                        self.settings_tab == "provider" && !provider_dirty;
+                                    let save_label = if show_exit { "Exit" } else { "Save" };
                                     let save = ui.add_sized(
                                         [ui.available_width(), 24.0],
                                         egui::Button::new(
@@ -1784,10 +1883,18 @@ impl JarvisApp {
                                                 .size(13.0)
                                                 .color(TEXT_COLOR),
                                         )
-                                        .fill(BTN_PRIMARY)
-                                        .stroke(Stroke::new(1.0, BTN_PRIMARY_HOVER)),
+                                        .fill(if show_exit { BTN_BG } else { BTN_PRIMARY })
+                                        .stroke(Stroke::new(
+                                            1.0,
+                                            if show_exit { BTN_BORDER } else { BTN_PRIMARY_HOVER },
+                                        )),
                                 );
                                 if save.clicked() {
+                                    if show_exit {
+                                        self.settings_open = false;
+                                        self.apply_window_mode(ctx, false);
+                                        return;
+                                    }
                                     let default_key_present = self
                                         .form_api_keys
                                         .get(&self.form_provider)
@@ -1826,6 +1933,10 @@ impl JarvisApp {
                                             self.form_chrome_path.clone();
                                         self.settings.paint_path =
                                             self.form_paint_path.clone();
+                                        self.settings.provider_inactivity_timeout_secs =
+                                            self.form_provider_inactivity_timeout_secs.clamp(5, 300);
+                                        self.settings.max_session_length_minutes =
+                                            self.form_max_session_length_minutes.clamp(1, 120);
                                         self.settings.url_commands =
                                             self.form_url_commands.clone();
                                         match crate::settings::save(&self.settings) {
@@ -1851,9 +1962,10 @@ impl JarvisApp {
                                                     if was_recording {
                                                         self.stop_recording();
                                                         self.start_recording();
-                                                    } else {
-                                                        self.set_status("Saved", "idle");
                                                     }
+                                                    self.set_status("Saved", "idle");
+                                                    self.settings_open = false;
+                                                    self.apply_window_mode(ctx, false);
                                                 } else {
                                                     self.apply_appearance(ctx);
                                                     self.set_status("Saved", "idle");
@@ -2093,29 +2205,9 @@ impl eframe::App for JarvisApp {
             }
         }
 
-        // Tray menu events — flags are set by background threads so quit works
-        // even when the window is hidden and eframe isn't calling update().
-        if self.tray_open_flag.swap(false, Ordering::SeqCst) {
-            self.visible = true;
-            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(ViewportCommand::Focus);
-        }
-        // Tray icon click → show window
-        if self.tray_click_flag.swap(false, Ordering::SeqCst) && !self.visible {
-            self.visible = true;
-            ctx.send_viewport_cmd(ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(ViewportCommand::Focus);
-        }
-
-        // Close → hide to tray (unless quitting)
+        // Close → quit app directly.
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.should_quit {
-                // allow
-            } else {
-                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-                self.visible = false;
-            }
+            self.should_quit = true;
         }
 
         self.render_main_ui(ctx);
@@ -2236,48 +2328,117 @@ fn record_toggle(ui: &mut egui::Ui, is_recording: bool) -> egui::Response {
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
+fn provider_default_button(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    is_default: bool,
+) -> egui::Response {
+    let size = vec2(22.0, 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let hovered = response.hovered();
+
+    let (fill, stroke, dot) = if !enabled {
+        (
+            Color32::from_rgb(0x42, 0x46, 0x52),
+            Color32::from_rgb(0x36, 0x3b, 0x48),
+            Color32::from_rgb(0x6b, 0x72, 0x80),
+        )
+    } else if is_default {
+        (
+            if hovered {
+                Color32::from_rgb(0x19, 0xb0, 0x62)
+            } else {
+                Color32::from_rgb(0x16, 0xa3, 0x4a)
+            },
+            Color32::from_rgb(0x0f, 0x76, 0x36),
+            Color32::from_rgb(0xe6, 0xff, 0xf2),
+        )
+    } else if hovered {
+        (
+            Color32::from_rgb(0x58, 0x62, 0x76),
+            Color32::from_rgb(0x8b, 0x96, 0xab),
+            Color32::from_rgb(0xc7, 0xcf, 0xde),
+        )
+    } else {
+        (
+            Color32::from_rgb(0x4a, 0x50, 0x60),
+            Color32::from_rgb(0x6f, 0x7a, 0x92),
+            Color32::from_rgb(0x9c, 0xa3, 0xaf),
+        )
+    };
+
+    ui.painter()
+        .circle_filled(rect.center(), rect.width() * 0.46, fill);
+    ui.painter().circle_stroke(
+        rect.center(),
+        rect.width() * 0.46,
+        Stroke::new(1.2, stroke),
+    );
+    ui.painter()
+        .circle_filled(rect.center(), rect.width() * 0.16, dot);
+
+    response
+}
+
 fn provider_validate_button(
     ui: &mut egui::Ui,
     enabled: bool,
     inflight: bool,
     result_ok: Option<bool>,
 ) -> egui::Response {
-    let size = vec2(22.0, 22.0);
+    let size = vec2(24.0, 24.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let hovered = response.hovered();
 
     let (fill, stroke, glyph, glyph_color) = if !enabled {
         (
-            Color32::from_rgb(0x52, 0x56, 0x60),
+            Color32::from_rgb(0x4f, 0x55, 0x63),
             Color32::from_rgb(0x3a, 0x3f, 0x4a),
             "",
             TEXT_COLOR,
         )
     } else if inflight {
         (
-            Color32::from_rgb(0x25, 0x63, 0xeb),
+            if hovered {
+                Color32::from_rgb(0x2d, 0x73, 0xff)
+            } else {
+                Color32::from_rgb(0x25, 0x63, 0xeb)
+            },
             Color32::from_rgb(0x1d, 0x4e, 0xd8),
             "...",
             Color32::WHITE,
         )
     } else if result_ok == Some(true) {
         (
-            Color32::from_rgb(0x16, 0xa3, 0x4a),
+            if hovered {
+                Color32::from_rgb(0x1e, 0xb3, 0x52)
+            } else {
+                Color32::from_rgb(0x16, 0xa3, 0x4a)
+            },
             Color32::from_rgb(0x15, 0x86, 0x40),
-            "v",
+            "\u{2713}",
             Color32::WHITE,
         )
     } else if result_ok == Some(false) {
         (
-            Color32::from_rgb(0xdc, 0x26, 0x26),
+            if hovered {
+                Color32::from_rgb(0xe8, 0x34, 0x34)
+            } else {
+                Color32::from_rgb(0xdc, 0x26, 0x26)
+            },
             Color32::from_rgb(0xb9, 0x1c, 0x1c),
             "!",
             Color32::WHITE,
         )
     } else {
         (
-            Color32::from_rgb(0x66, 0x6f, 0x80),
+            if hovered {
+                Color32::from_rgb(0x74, 0x7f, 0x94)
+            } else {
+                Color32::from_rgb(0x66, 0x6f, 0x80)
+            },
             Color32::from_rgb(0x8b, 0x96, 0xab),
-            "",
+            "?",
             Color32::WHITE,
         )
     };
@@ -2289,17 +2450,33 @@ fn provider_validate_button(
         rect.width() * 0.45,
         Stroke::new(1.0, stroke),
     );
-    if !glyph.is_empty() {
+    if result_ok == Some(true) {
+        let c = rect.center();
+        let w = rect.width() * 0.16;
+        let check = Stroke::new(2.0, Color32::WHITE);
+        ui.painter()
+            .line_segment([pos2(c.x - w, c.y), pos2(c.x - w * 0.2, c.y + w * 0.8)], check);
+        ui.painter()
+            .line_segment([pos2(c.x - w * 0.2, c.y + w * 0.8), pos2(c.x + w * 1.2, c.y - w * 0.7)], check);
+    } else if result_ok == Some(false) {
+        let c = rect.center();
+        let w = rect.width() * 0.18;
+        let cross = Stroke::new(2.0, Color32::WHITE);
+        ui.painter()
+            .line_segment([pos2(c.x - w, c.y - w), pos2(c.x + w, c.y + w)], cross);
+        ui.painter()
+            .line_segment([pos2(c.x + w, c.y - w), pos2(c.x - w, c.y + w)], cross);
+    } else if !glyph.is_empty() {
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             glyph,
-            FontId::proportional(11.0),
+            FontId::proportional(12.0),
             glyph_color,
         );
     }
 
-    response
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn draw_dancing_strings(
@@ -2454,10 +2631,8 @@ fn setup_tray() -> Option<tray_icon::TrayIcon> {
     use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
-    let open = MenuItem::with_id("open", "Open Jarvis", true, None);
     let quit = MenuItem::with_id("quit", "Quit", true, None);
 
-    let _ = menu.append(&open);
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 

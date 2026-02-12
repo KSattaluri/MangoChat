@@ -37,6 +37,10 @@ pub struct Settings {
     pub chrome_path: String,
     #[serde(default = "default_paint_path")]
     pub paint_path: String,
+    #[serde(default = "default_provider_inactivity_timeout_secs")]
+    pub provider_inactivity_timeout_secs: u64,
+    #[serde(default = "default_max_session_length_minutes")]
+    pub max_session_length_minutes: u64,
     #[serde(default = "default_url_commands")]
     pub url_commands: Vec<UrlCommand>,
 }
@@ -83,6 +87,8 @@ impl Default for Settings {
             snip_editor_path: String::new(),
             chrome_path: default_chrome_path(),
             paint_path: default_paint_path(),
+            provider_inactivity_timeout_secs: default_provider_inactivity_timeout_secs(),
+            max_session_length_minutes: default_max_session_length_minutes(),
             url_commands: default_url_commands(),
         }
     }
@@ -118,6 +124,12 @@ fn default_chrome_path() -> String {
 }
 fn default_paint_path() -> String {
     r"C:\Windows\System32\mspaint.exe".into()
+}
+fn default_provider_inactivity_timeout_secs() -> u64 {
+    60
+}
+fn default_max_session_length_minutes() -> u64 {
+    15
 }
 fn default_url_commands() -> Vec<UrlCommand> {
     vec![
@@ -174,6 +186,9 @@ pub fn load() -> Settings {
     {
         settings.text_size = default_text_size();
     }
+    settings.provider_inactivity_timeout_secs =
+        settings.provider_inactivity_timeout_secs.clamp(5, 300);
+    settings.max_session_length_minutes = settings.max_session_length_minutes.clamp(1, 120);
     settings
 }
 

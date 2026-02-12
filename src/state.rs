@@ -12,6 +12,8 @@ pub enum AppEvent {
     TranscriptDelta(String),
     TranscriptFinal(String),
     SnipTrigger,
+    SessionInactivityTimeout { seconds: u64 },
+    SessionMaxDurationReached { token: u64, minutes: u64 },
     ApiKeyValidated { provider: String, ok: bool, message: String },
 }
 
