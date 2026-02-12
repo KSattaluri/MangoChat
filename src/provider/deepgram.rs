@@ -86,7 +86,10 @@ impl SttProvider for DeepgramProvider {
                         return vec![ProviderEvent::Ignore];
                     }
                     // Show accumulated segments + current interim for display.
-                    let segments = self.segments.lock().unwrap();
+                    let segments = match self.segments.lock() {
+                        Ok(segments) => segments,
+                        Err(_) => return vec![ProviderEvent::Ignore],
+                    };
                     let preview = if segments.is_empty() {
                         transcript.to_string()
                     } else {
@@ -97,12 +100,17 @@ impl SttProvider for DeepgramProvider {
 
                 // is_final == true: this segment's text is locked in.
                 if !transcript.is_empty() {
-                    self.segments.lock().unwrap().push(transcript.to_string());
+                    if let Ok(mut segments) = self.segments.lock() {
+                        segments.push(transcript.to_string());
+                    }
                 }
 
                 if speech_final {
                     // End of utterance — concatenate all accumulated segments.
-                    let mut segments = self.segments.lock().unwrap();
+                    let mut segments = match self.segments.lock() {
+                        Ok(segments) => segments,
+                        Err(_) => return vec![ProviderEvent::Ignore],
+                    };
                     let full = segments.join(" ");
                     segments.clear();
                     if full.trim().is_empty() {
@@ -129,7 +137,10 @@ impl SttProvider for DeepgramProvider {
     }
 
     fn flush(&self) -> Vec<ProviderEvent> {
-        let mut segments = self.segments.lock().unwrap();
+        let mut segments = match self.segments.lock() {
+            Ok(segments) => segments,
+            Err(_) => return vec![],
+        };
         if segments.is_empty() {
             return vec![];
         }

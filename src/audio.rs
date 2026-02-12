@@ -3,6 +3,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleRate, StreamConfig};
 use num_complex::Complex;
 use rustfft::FftPlanner;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -192,7 +193,7 @@ fn process_audio(
     let mut post_roll_remaining_ms = 0.0f64;
     let mut voiced_ms = 0.0f64;
     let mut silence_ms = 0.0f64;
-    let mut preroll: Vec<Vec<u8>> = Vec::new();
+    let mut preroll: VecDeque<Vec<u8>> = VecDeque::new();
     let mut preroll_ms = 0.0;
     let mut resampler = ResamplerState::default();
     let mut vad_resampler = ResamplerState::default();
@@ -353,13 +354,13 @@ fn process_audio(
         }
 
         // Preroll buffer
-        preroll.push(pcm.clone());
+        preroll.push_back(pcm.clone());
         preroll_ms += chunk_ms;
         while preroll_ms > preroll_target {
-            if let Some(dropped) = preroll.first() {
+            if let Some(dropped) = preroll.front() {
                 let dropped_ms = dropped.len() as f64 / 2.0 / target_rate as f64 * 1000.0;
                 preroll_ms -= dropped_ms;
-                preroll.remove(0);
+                let _ = preroll.pop_front();
             } else {
                 break;
             }
@@ -373,7 +374,7 @@ fn process_audio(
                     "[audio] VAD commit: post_roll_ms={:.1} mode={}",
                     post_roll_ms, vad_label
                 );
-                let _ = audio_tx.try_send(Vec::new());
+                send_commit_signal(&audio_tx, "[audio] commit post-roll");
                 pending_stop = false;
                 is_sending = false;
                 voiced_ms = 0.0;
@@ -407,7 +408,7 @@ fn process_audio(
                     pending_stop = post_roll_ms > 0.0;
                     post_roll_remaining_ms = post_roll_ms;
                     if !pending_stop {
-                        let _ = audio_tx.try_send(Vec::new());
+                        send_commit_signal(&audio_tx, "[audio] commit immediate");
                         is_sending = false;
                         voiced_ms = 0.0;
                         silence_ms = 0.0;
@@ -448,6 +449,27 @@ fn process_audio(
         *data = [0.0; BAR_COUNT];
     }
     println!("[audio] processing thread stopped");
+}
+
+fn send_commit_signal(audio_tx: &mpsc::Sender<Vec<u8>>, context: &str) {
+    for attempt in 1..=25 {
+        match audio_tx.try_send(Vec::new()) {
+            Ok(()) => return,
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                std::thread::sleep(std::time::Duration::from_millis(4));
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                eprintln!("[audio] {} failed: channel closed", context);
+                return;
+            }
+        }
+        if attempt == 25 {
+            eprintln!(
+                "[audio] {} dropped after retries: audio channel remained full",
+                context
+            );
+        }
+    }
 }
 
 #[derive(Default)]

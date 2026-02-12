@@ -105,6 +105,29 @@ fn wall_ts() -> String {
     Local::now().format("%H:%M:%S%.3f").to_string()
 }
 
+const RECONNECT_BASE_MS: u64 = 800;
+const RECONNECT_MAX_MS: u64 = 30_000;
+const RECONNECT_MAX_RETRIES: u32 = 12;
+
+fn reconnect_delay_ms(attempt: u32) -> u64 {
+    let exp = attempt.saturating_sub(1).min(10);
+    let factor = 1u64 << exp;
+    (RECONNECT_BASE_MS.saturating_mul(factor)).min(RECONNECT_MAX_MS)
+}
+
+fn is_permanent_connect_error(err: &tungstenite::Error) -> bool {
+    match err {
+        tungstenite::Error::Http(resp) => {
+            let code = resp.status().as_u16();
+            code == 401 || code == 403
+        }
+        _ => {
+            let text = err.to_string();
+            text.contains("401") || text.contains("403")
+        }
+    }
+}
+
 async fn send_audio_chunk(
     ws_tx: &mut WsSink,
     pcm_data: Vec<u8>,
@@ -208,15 +231,36 @@ pub async fn run_session(
     let ws_stream = match connect_async(request).await {
         Ok((stream, _)) => stream,
         Err(e) => {
+            if is_permanent_connect_error(&e) {
+                emit_status(
+                    &event_tx,
+                    "error",
+                    &format!("Authentication failed: {}", e),
+                );
+                return;
+            }
+            if attempts >= RECONNECT_MAX_RETRIES {
+                emit_status(
+                    &event_tx,
+                    "error",
+                    &format!(
+                        "Connection failed after {} retries: {}",
+                        RECONNECT_MAX_RETRIES, e
+                    ),
+                );
+                return;
+            }
+            let delay_ms = reconnect_delay_ms(attempts);
             emit_status(
                 &event_tx,
                 "error",
-                &format!("Connection failed: {}", e),
+                &format!("Connection failed (retry {}): {}", attempts, e),
             );
-            tokio::time::sleep(Duration::from_millis(800)).await;
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             continue;
         }
     };
+    attempts = 0;
     println!("[{}] websocket connected", provider_name);
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
@@ -273,6 +317,7 @@ pub async fn run_session(
     let latency_state_send = latency_state.clone();
     let audio_rx_send = audio_rx.clone();
     let send_task = tokio::spawn(async move {
+        let mut rx = audio_rx_send.lock().await;
         let mut timed_out = false;
         let mut frames: u64 = 0;
         let mut bytes: u64 = 0;
@@ -299,7 +344,6 @@ pub async fn run_session(
         loop {
             tokio::select! {
                 audio = async {
-                    let mut rx = audio_rx_send.lock().await;
                     rx.recv().await
                 } => {
                     let mut pcm_data = match audio {
@@ -648,7 +692,9 @@ pub async fn run_session(
                             pname_recv, ts, transcript
                         );
                         emit_transcript(&tx_recv, &transcript, true);
-                        *state_recv.last_transcript.lock().unwrap() = transcript.clone();
+                        if let Ok(mut last) = state_recv.last_transcript.lock() {
+                            *last = transcript.clone();
+                        }
                         let chrome = state_recv.chrome_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                         let paint = state_recv.paint_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                         let urls = state_recv.url_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
@@ -683,7 +729,9 @@ pub async fn run_session(
                     pname_recv, ts, transcript
                 );
                 emit_transcript(&tx_recv, &transcript, true);
-                *state_recv.last_transcript.lock().unwrap() = transcript.clone();
+                if let Ok(mut last) = state_recv.last_transcript.lock() {
+                    *last = transcript.clone();
+                }
                 let chrome = state_recv.chrome_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                 let paint = state_recv.paint_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                 let urls = state_recv.url_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
@@ -707,6 +755,6 @@ pub async fn run_session(
     if audio_rx.lock().await.is_closed() {
         return;
     }
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    tokio::time::sleep(Duration::from_millis(RECONNECT_BASE_MS)).await;
     }
 }
