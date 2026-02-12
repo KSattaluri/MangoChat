@@ -128,6 +128,16 @@ fn is_permanent_connect_error(err: &tungstenite::Error) -> bool {
     }
 }
 
+fn provider_id_from_name(name: &str) -> String {
+    match name {
+        "Deepgram" => "deepgram".to_string(),
+        "OpenAI Realtime" => "openai".to_string(),
+        "ElevenLabs Realtime" => "elevenlabs".to_string(),
+        "AssemblyAI" => "assemblyai".to_string(),
+        _ => name.to_lowercase(),
+    }
+}
+
 async fn send_audio_chunk(
     ws_tx: &mut WsSink,
     pcm_data: Vec<u8>,
@@ -219,6 +229,7 @@ pub async fn run_session(
 
     let config = provider.connection_config(&settings);
     let provider_name = provider.name();
+    let provider_id = provider_id_from_name(provider_name);
     println!(
         "[{}] starting session: url={}",
         provider_name, config.url
@@ -315,6 +326,7 @@ pub async fn run_session(
     let commit_seq = Arc::new(AtomicU64::new(0));
     let latency_state = Arc::new(std::sync::Mutex::new(CommitLatencyState::default()));
     let state_send = state.clone();
+    let provider_id_send = provider_id.clone();
 
     // Task: forward audio from channel to WebSocket.
     let activity_id_send = activity_id.clone();
@@ -372,7 +384,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
-                                &pname_send,
+                                &provider_id_send,
                             )
                             .await
                             .is_err()
@@ -392,7 +404,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
-                                &pname_send,
+                                &provider_id_send,
                             )
                             .await
                             .is_err()
@@ -515,7 +527,7 @@ pub async fn run_session(
                                 &state_send,
                                 &last_activity_send,
                                 sample_rate,
-                                &pname_send,
+                                &provider_id_send,
                             )
                             .await
                             .is_err()
@@ -534,7 +546,7 @@ pub async fn run_session(
                         &state_send,
                         &last_activity_send,
                         sample_rate,
-                        &pname_send,
+                        &provider_id_send,
                     )
                     .await
                     .is_err()
@@ -605,6 +617,7 @@ pub async fn run_session(
     let pname_recv = provider_recv.name().to_string();
     let latency_state_recv = latency_state.clone();
     let last_activity_recv = last_activity_ms.clone();
+    let provider_id_recv = provider_id.clone();
 
     // Task: receive events from provider WebSocket.
     let recv_task = tokio::spawn(async move {
@@ -711,7 +724,7 @@ pub async fn run_session(
                             }
                         }
                         if let Ok(mut pt) = state_recv.provider_totals.lock() {
-                            let entry = pt.entry(pname_recv.clone()).or_default();
+                            let entry = pt.entry(provider_id_recv.clone()).or_default();
                             entry.finals = entry.finals.saturating_add(1);
                         }
                         if let Ok(mut last) = state_recv.last_transcript.lock() {
@@ -760,7 +773,7 @@ pub async fn run_session(
                     }
                 }
                 if let Ok(mut pt) = state_recv.provider_totals.lock() {
-                    let entry = pt.entry(pname_recv.clone()).or_default();
+                    let entry = pt.entry(provider_id_recv.clone()).or_default();
                     entry.finals = entry.finals.saturating_add(1);
                 }
                 if let Ok(mut last) = state_recv.last_transcript.lock() {

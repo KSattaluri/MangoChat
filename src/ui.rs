@@ -160,6 +160,14 @@ impl JarvisApp {
         }
     }
 
+    fn provider_display_name(provider_id: &str) -> &str {
+        PROVIDER_ROWS
+            .iter()
+            .find(|(id, _)| *id == provider_id)
+            .map(|(_, name)| *name)
+            .unwrap_or(provider_id)
+    }
+
     fn sync_form_from_settings(&mut self) {
         self.form_provider = self.settings.provider.clone();
         self.form_api_keys = self.settings.api_keys.clone();
@@ -1607,12 +1615,12 @@ impl JarvisApp {
                                             ui.add_space(4.0);
                                             let mut providers: Vec<_> = pt.iter().collect();
                                             providers.sort_by(|a, b| b.1.ms_sent.cmp(&a.1.ms_sent));
-                                            for (name, pu) in &providers {
-                                                let color = Self::provider_color(name, theme_palette(ui.visuals().dark_mode));
+                                            for (provider_id, pu) in &providers {
+                                                let color = Self::provider_color(provider_id, theme_palette(ui.visuals().dark_mode));
                                                 ui.label(
                                                     egui::RichText::new(format!(
                                                         "{}: {} sent | {} suppressed | {} | {} transcripts",
-                                                        name,
+                                                        Self::provider_display_name(provider_id),
                                                         fmt_duration_ms(pu.ms_sent),
                                                         fmt_duration_ms(pu.ms_suppressed),
                                                         fmt_bytes(pu.bytes_sent),
