@@ -25,6 +25,8 @@ pub struct Settings {
     pub vad_mode: String,
     #[serde(default)]
     pub screenshot_enabled: bool,
+    #[serde(default = "default_screenshot_retention_count")]
+    pub screenshot_retention_count: u32,
     #[serde(default = "default_start_cue")]
     pub start_cue: String,
     #[serde(default = "default_theme")]
@@ -81,6 +83,7 @@ impl Default for Settings {
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
             screenshot_enabled: false,
+            screenshot_retention_count: default_screenshot_retention_count(),
             start_cue: default_start_cue(),
             theme: default_theme(),
             text_size: default_text_size(),
@@ -112,6 +115,9 @@ fn default_vad_mode() -> String {
 }
 fn default_start_cue() -> String {
     "audio1.wav".into()
+}
+fn default_screenshot_retention_count() -> u32 {
+    10
 }
 fn default_theme() -> String {
     "dark".into()
@@ -180,6 +186,7 @@ pub fn load() -> Settings {
     if settings.start_cue != "audio1.wav" && settings.start_cue != "audio2.wav" {
         settings.start_cue = default_start_cue();
     }
+    settings.screenshot_retention_count = settings.screenshot_retention_count.clamp(1, 200);
     if settings.text_size != "small"
         && settings.text_size != "medium"
         && settings.text_size != "large"

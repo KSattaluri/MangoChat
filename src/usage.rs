@@ -1,5 +1,6 @@
-use crate::state::{SessionUsage, UsageTotals};
+use crate::state::{ProviderUsage, SessionUsage, UsageTotals};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -126,6 +127,58 @@ pub fn reset_totals_file() -> Result<(), String> {
     let path = usage_path()?;
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("Failed to reset totals: {}", e))?;
+    }
+    Ok(())
+}
+
+pub fn provider_totals_path() -> Result<PathBuf, String> {
+    if let Some(dir) = dirs::data_local_dir() {
+        return Ok(dir.join("Jarvis").join("usage-provider.json"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".jarvis").join("usage-provider.json"));
+    }
+    Err("Failed to resolve data directory for provider totals".into())
+}
+
+pub fn load_provider_totals() -> HashMap<String, ProviderUsage> {
+    let path = match provider_totals_path() {
+        Ok(p) => p,
+        Err(_) => return HashMap::new(),
+    };
+    let text = match fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return HashMap::new(),
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+pub fn save_provider_totals(totals: &HashMap<String, ProviderUsage>) -> Result<(), String> {
+    let path = provider_totals_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create provider totals dir: {}", e))?;
+    }
+    let json = serde_json::to_string(totals)
+        .map_err(|e| format!("Failed to serialize provider totals: {}", e))?;
+    fs::write(&path, json.as_bytes())
+        .map_err(|e| format!("Failed to write provider totals: {}", e))
+}
+
+pub fn reset_provider_totals_file() -> Result<(), String> {
+    let path = provider_totals_path()?;
+    if path.exists() {
+        fs::remove_file(&path)
+            .map_err(|e| format!("Failed to reset provider totals: {}", e))?;
+    }
+    Ok(())
+}
+
+pub fn reset_session_file() -> Result<(), String> {
+    let path = session_usage_path()?;
+    if path.exists() {
+        fs::remove_file(&path)
+            .map_err(|e| format!("Failed to reset session usage: {}", e))?;
     }
     Ok(())
 }

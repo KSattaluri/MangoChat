@@ -19,7 +19,7 @@ use state::{AppEvent, AppState};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS};
+use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS, load_provider_totals, save_provider_totals};
 
 fn main() {
     env_logger::init();
@@ -43,6 +43,13 @@ fn main() {
         let usage = load_usage(&path);
         if let Ok(mut guard) = app_state.usage.lock() {
             *guard = usage;
+        }
+    }
+    // Load per-provider totals from disk
+    {
+        let pt = load_provider_totals();
+        if let Ok(mut guard) = app_state.provider_totals.lock() {
+            *guard = pt;
         }
     }
 
@@ -83,6 +90,9 @@ fn main() {
             };
             if let Ok(path) = usage_path() {
                 let _ = save_usage(&path, &snapshot);
+            }
+            if let Ok(pt) = usage_state.provider_totals.lock() {
+                let _ = save_provider_totals(&pt);
             }
             let hours_sent = snapshot.ms_sent as f64 / 3_600_000.0;
             let hours_suppressed = snapshot.ms_suppressed as f64 / 3_600_000.0;

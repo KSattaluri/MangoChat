@@ -10,6 +10,10 @@ impl SttProvider for OpenAiProvider {
         "OpenAI Realtime"
     }
 
+    fn sample_rate_hint(&self) -> u32 {
+        24_000
+    }
+
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig {
         let url = format!(
             "wss://api.openai.com/v1/realtime?model={}",

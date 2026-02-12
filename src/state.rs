@@ -1,4 +1,5 @@
 use image::RgbaImage;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Mutex;
 use tokio::sync::mpsc;
@@ -23,6 +24,7 @@ pub struct UsageTotals {
     pub ms_sent: u64,
     pub ms_suppressed: u64,
     pub commits: u64,
+    pub finals: u64,
     pub last_update_ms: u64,
 }
 
@@ -34,8 +36,17 @@ pub struct SessionUsage {
     pub ms_sent: u64,
     pub ms_suppressed: u64,
     pub commits: u64,
+    pub finals: u64,
     pub started_ms: u64,
     pub updated_ms: u64,
+}
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
+pub struct ProviderUsage {
+    pub ms_sent: u64,
+    pub ms_suppressed: u64,
+    pub bytes_sent: u64,
+    pub finals: u64,
 }
 
 pub struct AppState {
@@ -53,6 +64,7 @@ pub struct AppState {
     pub screenshot_enabled: AtomicBool,
     pub usage: Mutex<UsageTotals>,
     pub session_usage: Mutex<SessionUsage>,
+    pub provider_totals: Mutex<HashMap<String, ProviderUsage>>,
     /// FFT magnitudes for the visualizer bars (0.0–1.0 range).
     pub fft_data: Mutex<[f32; 50]>,
     /// Configurable app path for Chrome (used by URL commands).
@@ -79,6 +91,7 @@ impl AppState {
             screenshot_enabled: AtomicBool::new(false),
             usage: Mutex::new(UsageTotals::default()),
             session_usage: Mutex::new(SessionUsage::default()),
+            provider_totals: Mutex::new(HashMap::new()),
             fft_data: Mutex::new([0.0; 50]),
             chrome_path: Mutex::new(r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()),
             paint_path: Mutex::new(r"C:\Windows\System32\mspaint.exe".into()),

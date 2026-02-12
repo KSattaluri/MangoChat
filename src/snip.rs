@@ -71,6 +71,7 @@ pub fn crop_and_save(
     y: u32,
     w: u32,
     h: u32,
+    keep_count: usize,
 ) -> Result<(PathBuf, RgbaImage), String> {
     let max_w = img.width();
     let max_h = img.height();
@@ -112,7 +113,7 @@ pub fn crop_and_save(
         .map_err(|e| format!("JPEG encode error: {}", e))?;
     fs::write(&path, jpeg_bytes).map_err(|e| format!("Failed to save snip: {}", e))?;
 
-    let _ = prune_old_snips(&dir, 5);
+    let _ = prune_old_snips(&dir, keep_count.max(1));
 
     Ok((path, cropped))
 }

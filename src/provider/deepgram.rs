@@ -22,6 +22,10 @@ impl SttProvider for DeepgramProvider {
         "Deepgram"
     }
 
+    fn sample_rate_hint(&self) -> u32 {
+        16_000
+    }
+
     fn connection_config(&self, settings: &ProviderSettings) -> ConnectionConfig {
         let sample_rate = 16000;
         let url = format!(
