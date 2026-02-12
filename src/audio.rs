@@ -398,7 +398,7 @@ fn process_audio(
                         session.ms_suppressed = session.ms_suppressed.saturating_add(suppressed_ms);
                         session.updated_ms = now_ms();
                         if !session.provider.is_empty() {
-                            provider_key = Some(provider_label_from_id(&session.provider).to_string());
+                            provider_key = Some(session.provider.clone());
                         }
                     }
                 }
@@ -459,16 +459,6 @@ fn process_audio(
         *data = [0.0; BAR_COUNT];
     }
     println!("[audio] processing thread stopped");
-}
-
-fn provider_label_from_id(provider_id: &str) -> &str {
-    match provider_id {
-        "deepgram" => "Deepgram",
-        "openai" => "OpenAI Realtime",
-        "elevenlabs" => "ElevenLabs Realtime",
-        "assemblyai" => "AssemblyAI",
-        _ => provider_id,
-    }
 }
 
 fn send_commit_signal(audio_tx: &mpsc::Sender<Vec<u8>>, context: &str) {
