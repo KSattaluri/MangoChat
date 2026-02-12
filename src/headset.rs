@@ -1,7 +1,5 @@
-use crate::state::{AppEvent, AppState};
+use crate::state::AppEvent;
 use std::sync::mpsc::Sender as EventSender;
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[cfg(windows)]
@@ -17,10 +15,10 @@ use windows::Win32::System::Com::{
 
 /// Windows-only test watcher:
 /// mute -> stop dictation, unmute -> start dictation.
-pub fn start_mute_watcher(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
+pub fn start_mute_watcher(event_tx: EventSender<AppEvent>) {
     #[cfg(not(windows))]
     {
-        let _ = (state, event_tx);
+        let _ = event_tx;
         return;
     }
 
@@ -48,16 +46,12 @@ pub fn start_mute_watcher(state: Arc<AppState>, event_tx: EventSender<AppEvent>)
                 Ok(muted) => {
                     if let Some(prev) = last_mute {
                         if prev != muted {
-                            if state.armed.load(Ordering::SeqCst) {
-                                if muted {
-                                    println!("[headset] capture muted -> stop");
-                                    let _ = event_tx.send(AppEvent::HotkeyRelease);
-                                } else {
-                                    println!("[headset] capture unmuted -> start");
-                                    let _ = event_tx.send(AppEvent::HotkeyPush);
-                                }
+                            if muted {
+                                println!("[headset] capture muted -> stop");
+                                let _ = event_tx.send(AppEvent::HotkeyRelease);
                             } else {
-                                println!("[headset] mute changed but app is disarmed");
+                                println!("[headset] capture unmuted -> start");
+                                let _ = event_tx.send(AppEvent::HotkeyPush);
                             }
                         }
                     }

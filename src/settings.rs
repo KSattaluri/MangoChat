@@ -23,6 +23,8 @@ pub struct Settings {
     pub mic_device: String,
     #[serde(default = "default_vad_mode")]
     pub vad_mode: String,
+    #[serde(default)]
+    pub screenshot_enabled: bool,
     #[serde(default = "default_start_cue")]
     pub start_cue: String,
     #[serde(default = "default_theme")]
@@ -74,6 +76,7 @@ impl Default for Settings {
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
+            screenshot_enabled: false,
             start_cue: default_start_cue(),
             theme: default_theme(),
             text_size: default_text_size(),

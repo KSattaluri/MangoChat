@@ -37,7 +37,6 @@ pub struct SessionUsage {
 }
 
 pub struct AppState {
-    pub armed: AtomicBool,
     pub audio_tx: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     pub last_transcript: Mutex<String>,
     pub session_active: Mutex<bool>,
@@ -49,6 +48,7 @@ pub struct AppState {
     pub cursor_pos: Mutex<Option<(i32, i32)>>,
     /// 0 = strict, 1 = lenient, 2 = legacy off (not user-selectable)
     pub vad_mode: AtomicU64,
+    pub screenshot_enabled: AtomicBool,
     pub usage: Mutex<UsageTotals>,
     pub session_usage: Mutex<SessionUsage>,
     /// FFT magnitudes for the visualizer bars (0.0–1.0 range).
@@ -64,7 +64,6 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            armed: AtomicBool::new(false),
             audio_tx: Mutex::new(None),
             last_transcript: Mutex::new(String::new()),
             session_active: Mutex::new(false),
@@ -75,6 +74,7 @@ impl AppState {
             snip_started_ms: AtomicU64::new(0),
             cursor_pos: Mutex::new(None),
             vad_mode: AtomicU64::new(0),
+            screenshot_enabled: AtomicBool::new(false),
             usage: Mutex::new(UsageTotals::default()),
             session_usage: Mutex::new(SessionUsage::default()),
             fft_data: Mutex::new([0.0; 50]),
