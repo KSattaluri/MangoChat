@@ -733,9 +733,10 @@ pub async fn run_session(
                         let chrome = state_recv.chrome_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                         let paint = state_recv.paint_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                         let urls = state_recv.url_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                        let aliases = state_recv.alias_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
                         let text = transcript;
                         tokio::task::spawn_blocking(move || {
-                            typing::process_transcript(&text, &chrome, &paint, &urls);
+                            typing::process_transcript(&text, &chrome, &paint, &urls, &aliases);
                         });
                     }
                     ProviderEvent::SendControl(msg) => {
@@ -782,9 +783,10 @@ pub async fn run_session(
                 let chrome = state_recv.chrome_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                 let paint = state_recv.paint_path.lock().ok().map(|g| g.clone()).unwrap_or_default();
                 let urls = state_recv.url_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
+                let aliases = state_recv.alias_commands.lock().ok().map(|g| g.clone()).unwrap_or_default();
                 let text = transcript;
                 tokio::task::spawn_blocking(move || {
-                    typing::process_transcript(&text, &chrome, &paint, &urls);
+                    typing::process_transcript(&text, &chrome, &paint, &urls, &aliases);
                 });
             }
         }

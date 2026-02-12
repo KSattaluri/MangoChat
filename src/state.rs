@@ -73,6 +73,8 @@ pub struct AppState {
     pub paint_path: Mutex<String>,
     /// Dynamic URL voice commands: (trigger, url).
     pub url_commands: Mutex<Vec<(String, String)>>,
+    /// Dynamic alias voice commands: (trigger, replacement text).
+    pub alias_commands: Mutex<Vec<(String, String)>>,
 }
 
 impl AppState {
@@ -96,6 +98,7 @@ impl AppState {
             chrome_path: Mutex::new(r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()),
             paint_path: Mutex::new(r"C:\Windows\System32\mspaint.exe".into()),
             url_commands: Mutex::new(vec![]),
+            alias_commands: Mutex::new(vec![]),
         }
     }
 }

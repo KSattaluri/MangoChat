@@ -93,6 +93,23 @@ pub fn launch_app(path: &str) {
     let _ = std::process::Command::new(path).spawn();
 }
 
+/// Open a path in Windows File Explorer.
+pub fn open_in_explorer(path: &str) {
+    #[cfg(windows)]
+    {
+        let target = path.trim().trim_matches('"');
+        let arg = if target.is_empty() { r"C:\" } else { target };
+        let _ = std::process::Command::new("explorer.exe")
+            .arg(arg)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        println!("[typing] explorer command not supported on this OS");
+    }
+}
+
 fn focus_or_launch_chrome(chrome_path: &str) {
     #[cfg(windows)]
     {
@@ -187,6 +204,7 @@ pub fn process_transcript(
     chrome_path: &str,
     paint_path: &str,
     url_commands: &[(String, String)],
+    alias_commands: &[(String, String)],
 ) {
     let norm = normalize(text);
     let mut parts = norm.split_whitespace();
@@ -207,8 +225,13 @@ pub fn process_transcript(
             || phrase == format!("{} com", t)
             || phrase == format!("open {} com", t)
         {
-            println!("[typing] url command: \"{}\" -> {}", trigger, url);
-            open_url_in_chrome(chrome_path, url);
+            if t == "explorer" {
+                println!("[typing] explorer command: \"{}\" -> {}", trigger, url);
+                open_in_explorer(url);
+            } else {
+                println!("[typing] url command: \"{}\" -> {}", trigger, url);
+                open_url_in_chrome(chrome_path, url);
+            }
             return;
         }
     }
@@ -225,7 +248,17 @@ pub fn process_transcript(
         return;
     }
 
-    // 3. Static commands.
+    // 3. Alias commands (dynamic, from settings): exact match trigger -> type replacement.
+    for (trigger, replacement) in alias_commands {
+        let t = normalize(trigger);
+        if !t.is_empty() && phrase == t {
+            println!("[typing] alias command: \"{}\" -> \"{}\"", trigger, replacement);
+            type_text(replacement);
+            return;
+        }
+    }
+
+    // 4. Static commands.
     if has_wake {
         for (keyword, action) in COMMANDS {
             if phrase == *keyword || phrase.starts_with(&format!("{} ", keyword)) {

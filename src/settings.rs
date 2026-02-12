@@ -8,9 +8,9 @@ pub struct Settings {
     #[serde(default = "default_provider")]
     pub provider: String,
     /// Per-provider API keys: {"openai": "sk-...", "deepgram": "dg-...", ...}
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub api_keys: HashMap<String, String>,
-    /// Legacy single key — migrated to api_keys on load, not saved.
+    /// Legacy single key - migrated to api_keys on load, not saved.
     #[serde(default, skip_serializing)]
     api_key: String,
     #[serde(default = "default_model")]
@@ -47,6 +47,8 @@ pub struct Settings {
     pub max_session_length_minutes: u64,
     #[serde(default = "default_url_commands")]
     pub url_commands: Vec<UrlCommand>,
+    #[serde(default = "default_alias_commands")]
+    pub alias_commands: Vec<AliasCommand>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -55,6 +57,12 @@ pub struct UrlCommand {
     pub url: String,
     #[serde(default)]
     pub builtin: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AliasCommand {
+    pub trigger: String,
+    pub replacement: String,
 }
 
 impl Settings {
@@ -96,6 +104,7 @@ impl Default for Settings {
             provider_inactivity_timeout_secs: default_provider_inactivity_timeout_secs(),
             max_session_length_minutes: default_max_session_length_minutes(),
             url_commands: default_url_commands(),
+            alias_commands: default_alias_commands(),
         }
     }
 }
@@ -137,6 +146,9 @@ fn default_chrome_path() -> String {
 fn default_paint_path() -> String {
     r"C:\Windows\System32\mspaint.exe".into()
 }
+fn default_explorer_path() -> String {
+    r"C:\".into()
+}
 fn default_provider_inactivity_timeout_secs() -> u64 {
     60
 }
@@ -147,7 +159,14 @@ fn default_url_commands() -> Vec<UrlCommand> {
     vec![
         UrlCommand { trigger: "github".into(), url: "https://github.com".into(), builtin: true },
         UrlCommand { trigger: "youtube".into(), url: "https://youtube.com".into(), builtin: true },
+        UrlCommand { trigger: "explorer".into(), url: default_explorer_path(), builtin: true },
     ]
+}
+fn default_alias_commands() -> Vec<AliasCommand> {
+    vec![AliasCommand {
+        trigger: "codex".into(),
+        replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+    }]
 }
 
 pub fn settings_path() -> Result<PathBuf, String> {
@@ -169,13 +188,41 @@ pub fn load() -> Settings {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => return Settings::default(),
     };
-    // Migrate legacy single api_key → per-provider map.
+
+    let had_plaintext_keys = !settings.api_keys.is_empty() || !settings.api_key.is_empty();
+
+    // Migrate legacy single api_key to per-provider map.
     if !settings.api_key.is_empty() && !settings.api_keys.contains_key("openai") {
         settings
             .api_keys
             .insert("openai".into(), settings.api_key.clone());
         settings.api_key.clear();
     }
+
+    let mut resolved_api_keys = settings.api_keys.clone();
+    match crate::secrets::load_api_keys() {
+        Ok(secure_keys) => {
+            for (provider, key) in secure_keys {
+                if !key.trim().is_empty() {
+                    resolved_api_keys.insert(provider, key);
+                }
+            }
+        }
+        Err(e) => eprintln!("[settings] secure key load failed: {}", e),
+    }
+
+    if had_plaintext_keys {
+        match crate::secrets::save_api_keys(&resolved_api_keys) {
+            Ok(()) => {
+                settings.api_keys.clear();
+                settings.api_key.clear();
+                let _ = save_settings_without_api_keys(&settings);
+            }
+            Err(e) => eprintln!("[settings] secure key migration failed: {}", e),
+        }
+    }
+    settings.api_keys = resolved_api_keys;
+
     // Migrate deprecated provider id.
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
@@ -191,6 +238,24 @@ pub fn load() -> Settings {
     }
     if settings.start_cue != "audio1.wav" && settings.start_cue != "audio2.wav" {
         settings.start_cue = default_start_cue();
+    }
+    let mut has_explorer = false;
+    for cmd in settings.url_commands.iter_mut() {
+        if cmd.trigger.trim().eq_ignore_ascii_case("explorer") {
+            cmd.builtin = true;
+            if cmd.url.trim().is_empty() {
+                cmd.url = default_explorer_path();
+            }
+            has_explorer = true;
+            break;
+        }
+    }
+    if !has_explorer {
+        settings.url_commands.push(UrlCommand {
+            trigger: "explorer".into(),
+            url: default_explorer_path(),
+            builtin: true,
+        });
     }
     settings.screenshot_retention_count = settings.screenshot_retention_count.clamp(1, 200);
     if settings.text_size != "small"
@@ -214,12 +279,20 @@ pub fn load() -> Settings {
 }
 
 pub fn save(settings: &Settings) -> Result<(), String> {
+    crate::secrets::save_api_keys(&settings.api_keys)?;
+    save_settings_without_api_keys(settings)
+}
+
+fn save_settings_without_api_keys(settings: &Settings) -> Result<(), String> {
     let path = settings_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create settings dir: {}", e))?;
     }
-    let json = serde_json::to_string_pretty(settings)
+    let mut clean = settings.clone();
+    clean.api_keys.clear();
+    clean.api_key.clear();
+    let json = serde_json::to_string_pretty(&clean)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
     Ok(())
