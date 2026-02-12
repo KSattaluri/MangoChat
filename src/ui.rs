@@ -20,7 +20,6 @@ const TEXT_MUTED: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 const BTN_BG: Color32 = Color32::from_rgb(0x25, 0x28, 0x30);
 const BTN_BORDER: Color32 = Color32::from_rgb(0x2c, 0x2f, 0x36);
 const BTN_PRIMARY: Color32 = Color32::from_rgb(0x25, 0x63, 0xeb);
-const BTN_PRIMARY_HOVER: Color32 = Color32::from_rgb(0x1d, 0x4e, 0xd8);
 const SETTINGS_BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x21);
 const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
@@ -49,7 +48,6 @@ struct AccentPalette {
     base: Color32,
     hover: Color32,
     ring: Color32,
-    dark: Color32,
     tint_bg: Color32,
 }
 
@@ -78,7 +76,6 @@ fn accent_palette(id: &str) -> AccentPalette {
             base: Color32::from_rgb(0xa8, 0x55, 0xf7),
             hover: Color32::from_rgb(0x93, 0x3d, 0xe8),
             ring: Color32::from_rgb(0x7e, 0x22, 0xce),
-            dark: Color32::from_rgb(0x58, 0x34, 0x84),
             tint_bg: Color32::from_rgb(0xdb, 0xbf, 0xff),
         },
         "blue" => AccentPalette {
@@ -87,7 +84,6 @@ fn accent_palette(id: &str) -> AccentPalette {
             base: Color32::from_rgb(0x3b, 0x82, 0xf6),
             hover: Color32::from_rgb(0x25, 0x63, 0xeb),
             ring: Color32::from_rgb(0x1d, 0x4e, 0xd8),
-            dark: Color32::from_rgb(0x2f, 0x44, 0x77),
             tint_bg: Color32::from_rgb(0xbf, 0xdb, 0xfe),
         },
         "orange" => AccentPalette {
@@ -96,7 +92,6 @@ fn accent_palette(id: &str) -> AccentPalette {
             base: Color32::from_rgb(0xf5, 0x9e, 0x0b),
             hover: Color32::from_rgb(0xea, 0x8a, 0x00),
             ring: Color32::from_rgb(0xc2, 0x41, 0x0c),
-            dark: Color32::from_rgb(0x73, 0x4c, 0x27),
             tint_bg: Color32::from_rgb(0xfe, 0xd7, 0xaa),
         },
         "pink" => AccentPalette {
@@ -105,7 +100,6 @@ fn accent_palette(id: &str) -> AccentPalette {
             base: Color32::from_rgb(0xec, 0x48, 0x99),
             hover: Color32::from_rgb(0xdb, 0x27, 0x7d),
             ring: Color32::from_rgb(0xbe, 0x18, 0x5d),
-            dark: Color32::from_rgb(0x7b, 0x32, 0x54),
             tint_bg: Color32::from_rgb(0xfb, 0xbf, 0xdc),
         },
         _ => AccentPalette {
@@ -114,7 +108,6 @@ fn accent_palette(id: &str) -> AccentPalette {
             base: Color32::from_rgb(0x36, 0xd3, 0x99),
             hover: Color32::from_rgb(0x16, 0xa3, 0x4a),
             ring: Color32::from_rgb(0x16, 0xa3, 0x4a),
-            dark: Color32::from_rgb(0x2f, 0x56, 0x48),
             tint_bg: Color32::from_rgb(0x9f, 0xef, 0xcd),
         },
     }
@@ -184,6 +177,7 @@ pub struct JarvisApp {
     pub form_provider_inactivity_timeout_secs: u64,
     pub form_max_session_length_minutes: u64,
     pub form_url_commands: Vec<crate::settings::UrlCommand>,
+    pub form_alias_commands: Vec<crate::settings::AliasCommand>,
     pub key_check_inflight: HashSet<String>,
     pub key_check_result: HashMap<String, (bool, String)>,
     pub last_validated_provider: Option<String>,
@@ -284,6 +278,7 @@ impl JarvisApp {
             self.settings.provider_inactivity_timeout_secs;
         self.form_max_session_length_minutes = self.settings.max_session_length_minutes;
         self.form_url_commands = self.settings.url_commands.clone();
+        self.form_alias_commands = self.settings.alias_commands.clone();
         self.key_check_inflight.clear();
         self.key_check_result.clear();
         self.last_validated_provider = None;
@@ -318,6 +313,7 @@ impl JarvisApp {
         let form_provider_inactivity_timeout_secs = settings.provider_inactivity_timeout_secs;
         let form_max_session_length_minutes = settings.max_session_length_minutes;
         let form_url_commands = settings.url_commands.clone();
+        let form_alias_commands = settings.alias_commands.clone();
 
         // Create tray icon here (inside the event loop) so it stays alive
         let tray_icon = setup_tray(accent_palette(&settings.accent_color));
@@ -384,6 +380,7 @@ impl JarvisApp {
             form_provider_inactivity_timeout_secs,
             form_max_session_length_minutes,
             form_url_commands,
+            form_alias_commands,
             key_check_inflight: HashSet::new(),
             key_check_result: HashMap::new(),
             last_validated_provider: None,
@@ -1023,11 +1020,14 @@ impl JarvisApp {
                                             };
                                             let btn = egui::Button::new(text)
                                                 .fill(if active {
-                                                    BTN_PRIMARY
+                                                    accent.base
                                                 } else {
                                                     Color32::TRANSPARENT
                                                 })
-                                                .stroke(Stroke::new(1.0, p.btn_border))
+                                                .stroke(Stroke::new(
+                                                    1.0,
+                                                    if active { accent.ring } else { p.btn_border },
+                                                ))
                                                 .rounding(6.0)
                                                 .min_size(vec2(nav_w - 8.0, 28.0));
                                             if ui.add(btn).clicked() {
@@ -1425,34 +1425,79 @@ impl JarvisApp {
                                     egui::ScrollArea::vertical()
                                         .max_height(ui.available_height())
                                         .show(ui, |ui| {
-                                            ui.label(
-                                                egui::RichText::new("Accent Color")
-                                                    .size(11.0)
-                                                    .color(TEXT_MUTED),
-                                            );
-                                            ui.add_space(4.0);
+                                            let total_w = ui.available_width();
+                                            let select_w = 56.0;
+                                            let color_w = (total_w - select_w - 16.0).max(120.0);
+
+                                            ui.horizontal(|ui| {
+                                                ui.add_sized(
+                                                    [select_w, 20.0],
+                                                    egui::Label::new(
+                                                        egui::RichText::new("Select")
+                                                            .size(13.0)
+                                                            .strong()
+                                                            .color(TEXT_MUTED),
+                                                    ),
+                                                );
+                                                ui.add_sized(
+                                                    [color_w, 20.0],
+                                                    egui::Label::new(
+                                                        egui::RichText::new("Color")
+                                                            .size(13.0)
+                                                            .strong()
+                                                            .color(TEXT_MUTED),
+                                                    ),
+                                                );
+                                            });
+                                            ui.add_space(2.0);
+
                                             for choice in accent_options() {
-                                                let selected = self.form_accent_color == choice.id;
-                                                let mut btn = egui::Button::new(
-                                                    egui::RichText::new(choice.name)
-                                                        .size(11.0)
-                                                        .strong()
-                                                        .color(Color32::WHITE),
-                                                )
-                                                .fill(if selected { choice.base } else { BTN_BG })
-                                                .stroke(Stroke::new(
-                                                    1.0,
-                                                    if selected { choice.dark } else { BTN_BORDER },
-                                                ))
-                                                .rounding(6.0)
-                                                .min_size(vec2(ui.available_width(), 24.0));
-                                                if selected {
-                                                    btn = btn.frame(true);
-                                                }
-                                                if ui.add(btn).clicked() {
-                                                    self.form_accent_color = choice.id.to_string();
-                                                }
-                                                ui.add_space(4.0);
+                                                let is_selected =
+                                                    self.form_accent_color == choice.id;
+                                                egui::Frame::none()
+                                                    .fill(p.btn_bg)
+                                                    .stroke(Stroke::new(1.0, p.btn_border))
+                                                    .rounding(6.0)
+                                                    .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                                                    .show(ui, |ui| {
+                                                        ui.set_width(total_w);
+                                                        ui.horizontal(|ui| {
+                                                            let selector = ui
+                                                                .allocate_ui_with_layout(
+                                                                    vec2(select_w, 24.0),
+                                                                    egui::Layout::centered_and_justified(
+                                                                        egui::Direction::LeftToRight,
+                                                                    ),
+                                                                    |ui| {
+                                                                        provider_default_button(
+                                                                            ui,
+                                                                            true,
+                                                                            is_selected,
+                                                                            accent,
+                                                                        )
+                                                                    },
+                                                                )
+                                                                .inner;
+                                                            if selector.clicked() {
+                                                                self.form_accent_color =
+                                                                    choice.id.to_string();
+                                                            }
+                                                            ui.add_sized(
+                                                                [color_w, 24.0],
+                                                                egui::Label::new(
+                                                                    egui::RichText::new(choice.name)
+                                                                        .size(13.0)
+                                                                        .strong()
+                                                                        .color(if is_selected {
+                                                                            accent.base
+                                                                        } else {
+                                                                            TEXT_COLOR
+                                                                        }),
+                                                                ),
+                                                            );
+                                                        });
+                                                    });
+                                                ui.add_space(2.0);
                                             }
                                             ui.label(
                                                 egui::RichText::new(
@@ -1507,6 +1552,92 @@ impl JarvisApp {
                                                 .size(11.0)
                                                 .color(TEXT_MUTED),
                                             );
+                                            ui.add_space(10.0);
+                                            section_header(ui, "Aliases");
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Experimental aliases: when trigger is heard, type replacement text.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.add_space(2.0);
+
+                                            let mut delete_alias_idx: Option<usize> = None;
+                                            for (i, cmd) in
+                                                self.form_alias_commands.iter_mut().enumerate()
+                                            {
+                                                let row_w = ui.available_width();
+                                                let trigger_w = 120.0;
+                                                let delete_w = 20.0;
+                                                let spacing = ui.spacing().item_spacing.x;
+                                                let replacement_w =
+                                                    (row_w - trigger_w - delete_w - spacing * 2.0)
+                                                        .max(180.0);
+
+                                                ui.horizontal(|ui| {
+                                                    ui.set_width(row_w);
+                                                    ui.visuals_mut().extreme_bg_color =
+                                                        Color32::from_rgb(0x1a, 0x1d, 0x24);
+                                                    ui.add_sized(
+                                                        [trigger_w, 18.0],
+                                                        egui::TextEdit::singleline(
+                                                            &mut cmd.trigger,
+                                                        )
+                                                        .font(FontId::proportional(11.0))
+                                                        .text_color(TEXT_COLOR),
+                                                    );
+                                                    ui.visuals_mut().extreme_bg_color =
+                                                        Color32::from_rgb(0x1a, 0x1d, 0x24);
+                                                    ui.add_sized(
+                                                        [replacement_w, 18.0],
+                                                        egui::TextEdit::singleline(
+                                                            &mut cmd.replacement,
+                                                        )
+                                                        .font(FontId::proportional(11.0))
+                                                        .text_color(TEXT_COLOR),
+                                                    );
+                                                    if ui
+                                                        .add_sized(
+                                                            [delete_w, 18.0],
+                                                            egui::Button::new(
+                                                                egui::RichText::new("x")
+                                                                    .size(11.0)
+                                                                    .color(RED),
+                                                            )
+                                                            .fill(BTN_BG)
+                                                            .stroke(Stroke::new(0.5, BTN_BORDER)),
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        delete_alias_idx = Some(i);
+                                                    }
+                                                });
+                                            }
+                                            if let Some(idx) = delete_alias_idx {
+                                                self.form_alias_commands.remove(idx);
+                                            }
+
+                                            if ui
+                                                .add_sized(
+                                                    [ui.available_width(), 20.0],
+                                                    egui::Button::new(
+                                                        egui::RichText::new("+ Add Alias")
+                                                            .size(11.0)
+                                                            .color(TEXT_COLOR),
+                                                    )
+                                                    .fill(BTN_BG)
+                                                    .stroke(Stroke::new(0.5, BTN_BORDER)),
+                                                )
+                                                .clicked()
+                                            {
+                                                self.form_alias_commands.push(
+                                                    crate::settings::AliasCommand {
+                                                        trigger: String::new(),
+                                                        replacement: String::new(),
+                                                    },
+                                                );
+                                            }
                                         });
                                 }
                                 "advanced" => {
@@ -1629,14 +1760,23 @@ impl JarvisApp {
                                         .show(ui, |ui| {
                                     ui.label(
                                         egui::RichText::new(
-                                            "Voice URL commands, say the trigger word to open the URL in Chrome.",
+                                            "Configure browser commands and text aliases.",
+                                        )
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                    );
+                                    ui.add_space(2.0);
+                                    section_header(ui, "Browser Commands");
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "URL/browser commands: say the trigger to open in Chrome. 'explorer' opens File Explorer at configured path.",
                                         )
                                         .size(11.0)
                                         .color(TEXT_MUTED),
                                     );
                                     ui.add_space(2.0);
 
-                                    let mut delete_idx: Option<usize> = None;
+                                    let mut delete_url_idx: Option<usize> = None;
                                     for (i, cmd) in
                                         self.form_url_commands.iter_mut().enumerate()
                                     {
@@ -1684,7 +1824,7 @@ impl JarvisApp {
                                                     )
                                                     .clicked()
                                                 {
-                                                    delete_idx = Some(i);
+                                                    delete_url_idx = Some(i);
                                                 }
                                             }
                                             if cmd.builtin {
@@ -1695,7 +1835,7 @@ impl JarvisApp {
                                             }
                                         });
                                     }
-                                    if let Some(idx) = delete_idx {
+                                    if let Some(idx) = delete_url_idx {
                                         self.form_url_commands.remove(idx);
                                     }
 
@@ -2154,10 +2294,10 @@ impl JarvisApp {
                                                 .size(13.0)
                                                 .color(TEXT_COLOR),
                                         )
-                                        .fill(if show_exit { BTN_BG } else { BTN_PRIMARY })
+                                        .fill(if show_exit { BTN_BG } else { accent.base })
                                         .stroke(Stroke::new(
                                             1.0,
-                                            if show_exit { BTN_BORDER } else { BTN_PRIMARY_HOVER },
+                                            if show_exit { BTN_BORDER } else { accent.ring },
                                         )),
                                 );
                                 if save.clicked() {
@@ -2215,6 +2355,8 @@ impl JarvisApp {
                                             self.form_max_session_length_minutes.clamp(1, 120);
                                         self.settings.url_commands =
                                             self.form_url_commands.clone();
+                                        self.settings.alias_commands =
+                                            self.form_alias_commands.clone();
                                         match crate::settings::save(&self.settings) {
                                             Ok(()) => {
                                                 // Update AppState so background threads pick up changes
@@ -2227,6 +2369,11 @@ impl JarvisApp {
                                                 if let Ok(mut v) = self.state.url_commands.lock() {
                                                     *v = self.settings.url_commands.iter()
                                                         .map(|c| (c.trigger.clone(), c.url.clone()))
+                                                        .collect();
+                                                }
+                                                if let Ok(mut v) = self.state.alias_commands.lock() {
+                                                    *v = self.settings.alias_commands.iter()
+                                                        .map(|c| (c.trigger.clone(), c.replacement.clone()))
                                                         .collect();
                                                 }
                                                 self._tray_icon =

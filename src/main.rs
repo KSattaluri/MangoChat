@@ -5,6 +5,7 @@ mod hotkey;
 mod headset;
 mod provider;
 mod settings;
+mod secrets;
 mod single_instance;
 mod snip;
 mod start_cue;
@@ -65,6 +66,13 @@ fn main() {
             .url_commands
             .iter()
             .map(|c| (c.trigger.clone(), c.url.clone()))
+            .collect();
+    }
+    if let Ok(mut v) = app_state.alias_commands.lock() {
+        *v = settings
+            .alias_commands
+            .iter()
+            .map(|c| (c.trigger.clone(), c.replacement.clone()))
             .collect();
     }
 

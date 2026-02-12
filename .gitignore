@@ -29,6 +29,7 @@ Thumbs.db
 
 # Local artifacts
 Screenshot 2026-02-05 195523.png
+secrets.json
 
 # Tauri / Rust
 target/
