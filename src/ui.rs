@@ -3191,25 +3191,64 @@ fn clamp_window_pos(ctx: &egui::Context, pos: Pos2, size: egui::Vec2) -> Pos2 {
 }
 
 fn work_area_rect_logical(ctx: &egui::Context) -> Option<Rect> {
-    use windows::Win32::Foundation::RECT;
+    use std::mem::size_of;
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+        GetCursorPos, SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     };
 
+    let ppp = ctx.pixels_per_point().max(0.1);
+
+    // Prefer the monitor nearest the current app window.
+    let mut sample_pt: Option<POINT> = None;
+    if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
+        let center = outer.center();
+        sample_pt = Some(POINT {
+            x: (center.x * ppp).round() as i32,
+            y: (center.y * ppp).round() as i32,
+        });
+    } else {
+        let mut cursor = POINT::default();
+        if unsafe { GetCursorPos(&mut cursor) }.is_ok() {
+            sample_pt = Some(cursor);
+        }
+    }
+
+    if let Some(pt) = sample_pt {
+        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+        if !monitor.is_invalid() {
+            let mut mi = MONITORINFO {
+                cbSize: size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if unsafe { GetMonitorInfoW(monitor, &mut mi as *mut MONITORINFO as *mut _) }.as_bool()
+            {
+                return Some(Rect::from_min_max(
+                    pos2(mi.rcWork.left as f32 / ppp, mi.rcWork.top as f32 / ppp),
+                    pos2(mi.rcWork.right as f32 / ppp, mi.rcWork.bottom as f32 / ppp),
+                ));
+            }
+        }
+    }
+
+    // Final fallback: primary monitor work area.
     let mut rect = RECT::default();
-    let ok = unsafe {
+    if unsafe {
         SystemParametersInfoW(
             SPI_GETWORKAREA,
             0,
             Some((&mut rect as *mut RECT).cast()),
             SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
         )
-    };
-    if ok.is_err() {
+    }
+    .is_err()
+    {
         return None;
     }
 
-    let ppp = ctx.pixels_per_point().max(0.1);
     Some(Rect::from_min_max(
         pos2(rect.left as f32 / ppp, rect.top as f32 / ppp),
         pos2(rect.right as f32 / ppp, rect.bottom as f32 / ppp),
