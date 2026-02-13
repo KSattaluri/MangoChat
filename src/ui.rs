@@ -31,6 +31,19 @@ const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("elevenlabs", "ElevenLabs Realtime"),
     ("assemblyai", "AssemblyAI"),
 ];
+const WINDOW_MONITOR_MODE_FIXED: &str = "fixed";
+const WINDOW_ANCHOR_TOP_LEFT: &str = "top_left";
+const WINDOW_ANCHOR_TOP_CENTER: &str = "top_center";
+const WINDOW_ANCHOR_TOP_RIGHT: &str = "top_right";
+const WINDOW_ANCHOR_BOTTOM_LEFT: &str = "bottom_left";
+const WINDOW_ANCHOR_BOTTOM_CENTER: &str = "bottom_center";
+const WINDOW_ANCHOR_BOTTOM_RIGHT: &str = "bottom_right";
+
+#[derive(Clone)]
+struct MonitorChoice {
+    id: String,
+    label: String,
+}
 
 #[derive(Clone, Copy)]
 struct ThemePalette {
@@ -171,6 +184,9 @@ pub struct JarvisApp {
     pub form_start_cue: String,
     pub form_text_size: String,
     pub form_accent_color: String,
+    pub form_window_monitor_mode: String,
+    pub form_window_monitor_id: String,
+    pub form_window_anchor: String,
     pub form_snip_editor_path: String,
     pub form_chrome_path: String,
     pub form_paint_path: String,
@@ -238,6 +254,32 @@ impl JarvisApp {
         }
     }
 
+    fn monitor_choices(&self) -> Vec<MonitorChoice> {
+        available_monitor_choices()
+    }
+
+    fn monitor_label_for_id(&self, id: &str) -> String {
+        if id.trim().is_empty() {
+            return "Auto (cursor monitor)".into();
+        }
+        self.monitor_choices()
+            .into_iter()
+            .find(|m| m.id == id)
+            .map(|m| m.label)
+            .unwrap_or_else(|| format!("{} (disconnected)", id))
+    }
+
+    fn anchor_label(anchor: &str) -> &'static str {
+        match anchor {
+            WINDOW_ANCHOR_TOP_LEFT => "Top Left",
+            WINDOW_ANCHOR_TOP_CENTER => "Top Center",
+            WINDOW_ANCHOR_TOP_RIGHT => "Top Right",
+            WINDOW_ANCHOR_BOTTOM_LEFT => "Bottom Left",
+            WINDOW_ANCHOR_BOTTOM_CENTER => "Bottom Center",
+            _ => "Bottom Right",
+        }
+    }
+
     fn provider_color(provider_id: &str, p: ThemePalette) -> Color32 {
         match provider_id {
             "openai" => Color32::from_rgb(0x10, 0xb9, 0x81),
@@ -271,6 +313,9 @@ impl JarvisApp {
         self.form_start_cue = self.settings.start_cue.clone();
         self.form_text_size = self.settings.text_size.clone();
         self.form_accent_color = self.settings.accent_color.clone();
+        self.form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
+        self.form_window_monitor_id = self.settings.window_monitor_id.clone();
+        self.form_window_anchor = self.settings.window_anchor.clone();
         self.form_snip_editor_path = self.settings.snip_editor_path.clone();
         self.form_chrome_path = self.settings.chrome_path.clone();
         self.form_paint_path = self.settings.paint_path.clone();
@@ -307,6 +352,9 @@ impl JarvisApp {
         let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
         let form_accent_color = settings.accent_color.clone();
+        let form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
+        let form_window_monitor_id = settings.window_monitor_id.clone();
+        let form_window_anchor = settings.window_anchor.clone();
         let form_snip_editor_path = settings.snip_editor_path.clone();
         let form_chrome_path = settings.chrome_path.clone();
         let form_paint_path = settings.paint_path.clone();
@@ -374,6 +422,9 @@ impl JarvisApp {
             form_start_cue,
             form_text_size,
             form_accent_color,
+            form_window_monitor_mode,
+            form_window_monitor_id,
+            form_window_anchor,
             form_snip_editor_path,
             form_chrome_path,
             form_paint_path,
@@ -413,12 +464,18 @@ impl JarvisApp {
     }
 
     fn expanded_window_size(&self, ctx: &egui::Context) -> egui::Vec2 {
-        if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
+        if let Some(work) = work_area_rect_logical(
+            ctx,
+            &self.settings.window_monitor_mode,
+            &self.settings.window_monitor_id,
+        ) {
             let margin = 24.0;
-            let max_w = (monitor.x - margin * 2.0).max(COMPACT_WINDOW_W_WITH_SNIP);
-            let max_h = (monitor.y - margin * 2.0).max(420.0);
-            let w = (monitor.x * 0.5).max(820.0).min(max_w);
-            let h = (monitor.y * 0.82).max(620.0).min(max_h);
+            let monitor_w = work.width().max(COMPACT_WINDOW_W_WITH_SNIP + margin * 2.0);
+            let monitor_h = work.height().max(420.0 + margin * 2.0);
+            let max_w = (monitor_w - margin * 2.0).max(COMPACT_WINDOW_W_WITH_SNIP);
+            let max_h = (monitor_h - margin * 2.0).max(420.0);
+            let w = (monitor_w * 0.5).max(820.0).min(max_w);
+            let h = (monitor_h * 0.82).max(620.0).min(max_h);
             return vec2(w, h);
         }
         vec2(980.0, 720.0)
@@ -430,7 +487,6 @@ impl JarvisApp {
         } else {
             vec2(self.compact_window_width(), COMPACT_WINDOW_H)
         };
-
         if settings_open {
             // Remember exact compact location so collapse can restore pixel-perfect.
             if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
@@ -440,19 +496,43 @@ impl JarvisApp {
                 let compact_h = outer.height();
                 let new_x = outer.min.x + compact_w - target.x;
                 let new_y = outer.min.y + compact_h - target.y;
-                let pos = clamp_window_pos(ctx, pos2(new_x, new_y), target);
+                let pos = clamp_window_pos(
+                    ctx,
+                    pos2(new_x, new_y),
+                    target,
+                    &self.settings.window_monitor_mode,
+                    &self.settings.window_monitor_id,
+                );
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
             }
+        } else if self.settings.window_monitor_mode == WINDOW_MONITOR_MODE_FIXED {
+            let _ = place_compact_fixed_native(
+                target,
+                &self.settings.window_monitor_id,
+                &self.settings.window_anchor,
+            );
         } else if let Some(anchor) = self.compact_anchor_pos {
             // Restore to the exact compact position where expansion started.
-            let pos = clamp_window_pos(ctx, anchor, target);
+            let pos = clamp_window_pos(
+                ctx,
+                anchor,
+                target,
+                &self.settings.window_monitor_mode,
+                &self.settings.window_monitor_id,
+            );
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
         } else if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
             // Fallback if no anchor was captured yet.
             let br = outer.max;
             let new_x = br.x - target.x;
             let new_y = br.y - target.y;
-            let pos = clamp_window_pos(ctx, pos2(new_x, new_y), target);
+            let pos = clamp_window_pos(
+                ctx,
+                pos2(new_x, new_y),
+                target,
+                &self.settings.window_monitor_mode,
+                &self.settings.window_monitor_id,
+            );
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
         }
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(target));
@@ -1674,6 +1754,83 @@ impl JarvisApp {
                                             );
                                         });
                                     ui.add_space(8.0);
+                                    section_header(ui, "Window Placement");
+                                    ui.label(
+                                        egui::RichText::new("Monitor")
+                                            .size(11.0)
+                                            .color(TEXT_MUTED),
+                                    );
+                                    let choices = self.monitor_choices();
+                                    egui::ComboBox::from_id_salt("window_monitor_id_select")
+                                        .selected_text(if self.form_window_monitor_id.trim().is_empty() {
+                                            "Primary monitor".to_string()
+                                        } else {
+                                            self.monitor_label_for_id(&self.form_window_monitor_id)
+                                        })
+                                        .width(ui.available_width())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut self.form_window_monitor_id,
+                                                String::new(),
+                                                "Primary monitor",
+                                            );
+                                            for m in choices {
+                                                ui.selectable_value(
+                                                    &mut self.form_window_monitor_id,
+                                                    m.id.clone(),
+                                                    m.label,
+                                                );
+                                            }
+                                        });
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        egui::RichText::new("Anchor")
+                                            .size(11.0)
+                                            .color(TEXT_MUTED),
+                                    );
+                                    egui::ComboBox::from_id_salt("window_anchor_select")
+                                        .selected_text(Self::anchor_label(&self.form_window_anchor))
+                                        .width(ui.available_width())
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_TOP_LEFT.to_string(),
+                                                "Top Left",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_TOP_CENTER.to_string(),
+                                                "Top Center",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_TOP_RIGHT.to_string(),
+                                                "Top Right",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_BOTTOM_LEFT.to_string(),
+                                                "Bottom Left",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_BOTTOM_CENTER.to_string(),
+                                                "Bottom Center",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.form_window_anchor,
+                                                WINDOW_ANCHOR_BOTTOM_RIGHT.to_string(),
+                                                "Bottom Right",
+                                            );
+                                        });
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Choose monitor + anchor for compact mode startup/collapse placement.",
+                                        )
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                    );
+                                    ui.add_space(10.0);
                                     section_header(ui, "App Paths");
                                     field(
                                         ui,
@@ -2343,6 +2500,12 @@ impl JarvisApp {
                                             self.form_text_size.clone();
                                         self.settings.accent_color =
                                             self.form_accent_color.clone();
+                                        self.settings.window_monitor_mode =
+                                            WINDOW_MONITOR_MODE_FIXED.to_string();
+                                        self.settings.window_monitor_id =
+                                            self.form_window_monitor_id.clone();
+                                        self.settings.window_anchor =
+                                            self.form_window_anchor.clone();
                                         self.settings.snip_editor_path =
                                             self.form_snip_editor_path.clone();
                                         self.settings.chrome_path =
@@ -2388,11 +2551,13 @@ impl JarvisApp {
                                                         self.stop_recording();
                                                         self.start_recording();
                                                     }
+                                                    self.compact_anchor_pos = None;
                                                     self.set_status("Saved", "idle");
                                                     self.settings_open = false;
                                                     self.apply_window_mode(ctx, false);
                                                 } else {
                                                     self.apply_appearance(ctx);
+                                                    self.compact_anchor_pos = None;
                                                     self.set_status("Saved", "idle");
                                                     self.settings_open = false;
                                                     self.apply_window_mode(ctx, false);
@@ -2568,36 +2733,43 @@ impl eframe::App for JarvisApp {
         if !self.positioned {
             let compact_size = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
             ctx.send_viewport_cmd(ViewportCommand::InnerSize(compact_size));
-            if let Some(pos) = default_compact_position_for_size(ctx, compact_size) {
-                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
-                self.compact_anchor_pos = Some(pos);
-                self.positioned = true;
-            } else if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
-                let win = outer.size();
-                if let Some(pos) = default_compact_position_for_size(ctx, win) {
+            if self.settings.window_monitor_mode == WINDOW_MONITOR_MODE_FIXED {
+                let placed = place_compact_fixed_native(
+                    compact_size,
+                    &self.settings.window_monitor_id,
+                    &self.settings.window_anchor,
+                );
+                self.positioned = placed;
+                self.initial_position_corrected = placed;
+                if !placed {
+                }
+            }
+            if !self.positioned {
+                if let Some(pos) = default_compact_position_for_size(
+                    ctx,
+                    compact_size,
+                    &self.settings.window_monitor_mode,
+                    &self.settings.window_monitor_id,
+                    &self.settings.window_anchor,
+                ) {
                     ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
                     self.compact_anchor_pos = Some(pos);
                     self.positioned = true;
-                    self.initial_position_corrected = true;
-                } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                    let pos = pos2(
-                        monitor.x - win.x - 16.0,
-                        monitor.y - win.y - 64.0,
-                    );
+                } else if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
+                let win = outer.size();
+                if let Some(pos) = default_compact_position_for_size(
+                    ctx,
+                    win,
+                    &self.settings.window_monitor_mode,
+                    &self.settings.window_monitor_id,
+                    &self.settings.window_anchor,
+                ) {
                     ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
                     self.compact_anchor_pos = Some(pos);
                     self.positioned = true;
                     self.initial_position_corrected = true;
                 }
-            } else if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
-                let win = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
-                let pos = pos2(
-                    monitor.x - win.x - 16.0,
-                    monitor.y - win.y - 64.0, // stay above taskbar in compact mode
-                );
-                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
-                self.compact_anchor_pos = Some(pos);
-                self.positioned = true;
+                }
             }
         }
         // Compact mode should never maximize/snap-maximize.
@@ -2611,10 +2783,20 @@ impl eframe::App for JarvisApp {
         }
         // One-time startup correction using the actual first rendered outer size.
         // This prevents initial tray overlap on some DPI/taskbar layouts.
-        if self.positioned && !self.initial_position_corrected && !self.settings_open {
+        if self.positioned
+            && !self.initial_position_corrected
+            && !self.settings_open
+            && self.settings.window_monitor_mode != WINDOW_MONITOR_MODE_FIXED
+        {
             if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
                 let size = outer.size();
-                let clamped = clamp_window_pos(ctx, outer.min, size);
+                let clamped = clamp_window_pos(
+                    ctx,
+                    outer.min,
+                    size,
+                    &self.settings.window_monitor_mode,
+                    &self.settings.window_monitor_id,
+                );
                 if (clamped.x - outer.min.x).abs() > 0.5 || (clamped.y - outer.min.y).abs() > 0.5 {
                     ctx.send_viewport_cmd(ViewportCommand::OuterPosition(clamped));
                     self.compact_anchor_pos = Some(clamped);
@@ -3168,16 +3350,50 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn default_compact_position_for_size(ctx: &egui::Context, size: egui::Vec2) -> Option<Pos2> {
-    let work = work_area_rect_logical(ctx)?;
-    let margin = 10.0;
-    let x = work.max.x - size.x - margin;
-    let y = work.max.y - size.y - margin;
-    Some(pos2(x.max(work.min.x), y.max(work.min.y)))
+fn default_compact_position_for_size(
+    ctx: &egui::Context,
+    size: egui::Vec2,
+    monitor_mode: &str,
+    monitor_id: &str,
+    anchor: &str,
+) -> Option<Pos2> {
+    let work = work_area_rect_logical(ctx, monitor_mode, monitor_id)?;
+    anchored_position_in_work_area(work, size, anchor)
 }
 
-fn clamp_window_pos(ctx: &egui::Context, pos: Pos2, size: egui::Vec2) -> Pos2 {
-    let Some(work) = work_area_rect_logical(ctx) else {
+fn anchored_position_in_work_area(work: Rect, size: egui::Vec2, anchor: &str) -> Option<Pos2> {
+    let margin = 10.0;
+    let min_x = work.min.x + margin;
+    let min_y = work.min.y + margin;
+    let max_x = work.max.x - size.x - margin;
+    let max_y = work.max.y - size.y - margin;
+
+    if min_x > max_x || min_y > max_y {
+        return None;
+    }
+
+    let (x, y) = match anchor {
+        WINDOW_ANCHOR_TOP_LEFT => (min_x, min_y),
+        WINDOW_ANCHOR_TOP_CENTER => ((work.center().x - size.x * 0.5).clamp(min_x, max_x), min_y),
+        WINDOW_ANCHOR_TOP_RIGHT => (max_x, min_y),
+        WINDOW_ANCHOR_BOTTOM_LEFT => (min_x, max_y),
+        WINDOW_ANCHOR_BOTTOM_CENTER => {
+            ((work.center().x - size.x * 0.5).clamp(min_x, max_x), max_y)
+        }
+        _ => (max_x, max_y),
+    };
+
+    Some(pos2(x, y))
+}
+
+fn clamp_window_pos(
+    ctx: &egui::Context,
+    pos: Pos2,
+    size: egui::Vec2,
+    monitor_mode: &str,
+    monitor_id: &str,
+) -> Pos2 {
+    let Some(work) = work_area_rect_logical(ctx, monitor_mode, monitor_id) else {
         return pos;
     };
     let margin = 8.0;
@@ -3190,67 +3406,201 @@ fn clamp_window_pos(ctx: &egui::Context, pos: Pos2, size: egui::Vec2) -> Pos2 {
     pos2(x, y)
 }
 
-fn work_area_rect_logical(ctx: &egui::Context) -> Option<Rect> {
+#[derive(Clone)]
+struct MonitorWorkArea {
+    id: String,
+    work_px: windows::Win32::Foundation::RECT,
+    is_primary: bool,
+    scale_factor: f32,
+}
+
+#[cfg(windows)]
+fn enumerate_monitor_work_areas() -> Vec<MonitorWorkArea> {
     use std::mem::size_of;
-    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
     };
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+
+    unsafe extern "system" fn enum_proc(
+        monitor: HMONITOR,
+        _hdc: HDC,
+        _rect: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let out = &mut *(lparam.0 as *mut Vec<MonitorWorkArea>);
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
+
+        if GetMonitorInfoW(monitor, &mut info as *mut _ as *mut _).as_bool() {
+            let nul = info
+                .szDevice
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(info.szDevice.len());
+            let id = String::from_utf16_lossy(&info.szDevice[..nul]);
+            let mut dpi_x = 96u32;
+            let mut dpi_y = 96u32;
+            let scale_factor =
+                if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y).is_ok() {
+                    (dpi_x as f32 / 96.0).max(0.5)
+                } else {
+                    1.0
+                };
+            out.push(MonitorWorkArea {
+                id,
+                work_px: info.monitorInfo.rcWork,
+                is_primary: (info.monitorInfo.dwFlags & 1) != 0,
+                scale_factor,
+            });
+        }
+
+        BOOL(1)
+    }
+
+    let mut out: Vec<MonitorWorkArea> = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(enum_proc),
+            LPARAM(&mut out as *mut Vec<MonitorWorkArea> as isize),
+        );
+    }
+    out
+}
+
+#[cfg(not(windows))]
+fn enumerate_monitor_work_areas() -> Vec<MonitorWorkArea> {
+    Vec::new()
+}
+
+fn available_monitor_choices() -> Vec<MonitorChoice> {
+    enumerate_monitor_work_areas()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, m)| MonitorChoice {
+            id: m.id.clone(),
+            label: format!(
+                "{}{}",
+                m.id,
+                if m.is_primary {
+                    " (primary)".into()
+                } else {
+                    format!(" (monitor {})", idx + 1)
+                }
+            ),
+        })
+        .collect()
+}
+
+fn resolve_target_monitor(monitor_id: &str) -> Option<MonitorWorkArea> {
+    use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     };
 
-    let ppp = ctx.pixels_per_point().max(0.1);
-
-    // Prefer the monitor nearest the current app window.
-    let mut sample_pt: Option<POINT> = None;
-    if let Some(outer) = ctx.input(|i| i.viewport().outer_rect) {
-        let center = outer.center();
-        sample_pt = Some(POINT {
-            x: (center.x * ppp).round() as i32,
-            y: (center.y * ppp).round() as i32,
-        });
-    } else {
-        let mut cursor = POINT::default();
-        if unsafe { GetCursorPos(&mut cursor) }.is_ok() {
-            sample_pt = Some(cursor);
-        }
-    }
-
-    if let Some(pt) = sample_pt {
-        let monitor = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
-        if !monitor.is_invalid() {
-            let mut mi = MONITORINFO {
-                cbSize: size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            if unsafe { GetMonitorInfoW(monitor, &mut mi as *mut MONITORINFO as *mut _) }.as_bool()
-            {
-                return Some(Rect::from_min_max(
-                    pos2(mi.rcWork.left as f32 / ppp, mi.rcWork.top as f32 / ppp),
-                    pos2(mi.rcWork.right as f32 / ppp, mi.rcWork.bottom as f32 / ppp),
-                ));
-            }
-        }
-    }
-
-    // Final fallback: primary monitor work area.
-    let mut rect = RECT::default();
-    if unsafe {
-        SystemParametersInfoW(
-            SPI_GETWORKAREA,
-            0,
-            Some((&mut rect as *mut RECT).cast()),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-    }
-    .is_err()
-    {
+    let monitors = enumerate_monitor_work_areas();
+    if monitors.is_empty() {
         return None;
     }
 
-    Some(Rect::from_min_max(
-        pos2(rect.left as f32 / ppp, rect.top as f32 / ppp),
-        pos2(rect.right as f32 / ppp, rect.bottom as f32 / ppp),
-    ))
+    let mut primary_work = RECT::default();
+    let have_primary_work = unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some((&mut primary_work as *mut RECT).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .is_ok();
+
+    if !monitor_id.trim().is_empty() {
+        if let Some(m) = monitors.iter().find(|m| m.id == monitor_id) {
+            return Some(m.clone());
+        }
+    }
+
+    if have_primary_work {
+        if let Some(m) = monitors.iter().find(|m| {
+            m.work_px.left == primary_work.left
+                && m.work_px.top == primary_work.top
+                && m.work_px.right == primary_work.right
+                && m.work_px.bottom == primary_work.bottom
+        }) {
+            return Some(m.clone());
+        }
+    }
+
+    monitors
+        .iter()
+        .find(|m| m.is_primary)
+        .cloned()
+        .or_else(|| monitors.first().cloned())
+}
+
+#[cfg(windows)]
+fn move_window_physical(x: i32, y: i32) {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetWindowPos, SWP_NOSIZE, SWP_NOZORDER,
+    };
+
+    let title: Vec<u16> = "Jarvis\0".encode_utf16().collect();
+    if let Ok(hwnd) = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) } {
+        if !hwnd.is_invalid() {
+            let _ = unsafe { SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn move_window_physical(_x: i32, _y: i32) {}
+
+fn anchored_pos_physical(work: windows::Win32::Foundation::RECT, size_px: (i32, i32), anchor: &str) -> (i32, i32) {
+    let margin = 10;
+    let w = size_px.0.max(1);
+    let h = size_px.1.max(1);
+    let min_x = work.left + margin;
+    let min_y = work.top + margin;
+    let max_x = (work.right - w - margin).max(min_x);
+    let max_y = (work.bottom - h - margin).max(min_y);
+    match anchor {
+        WINDOW_ANCHOR_TOP_LEFT => (min_x, min_y),
+        WINDOW_ANCHOR_TOP_CENTER => ((work.left + work.right - w) / 2, min_y),
+        WINDOW_ANCHOR_TOP_RIGHT => (max_x, min_y),
+        WINDOW_ANCHOR_BOTTOM_LEFT => (min_x, max_y),
+        WINDOW_ANCHOR_BOTTOM_CENTER => ((work.left + work.right - w) / 2, max_y),
+        _ => (max_x, max_y),
+    }
+}
+
+fn place_compact_fixed_native(size_logical: egui::Vec2, monitor_id: &str, anchor: &str) -> bool {
+    let Some(m) = resolve_target_monitor(monitor_id) else {
+        return false;
+    };
+    let sf = m.scale_factor.max(0.5);
+    let size_px = (
+        (size_logical.x * sf).round() as i32,
+        (size_logical.y * sf).round() as i32,
+    );
+    let (x, y) = anchored_pos_physical(m.work_px, size_px, anchor);
+    move_window_physical(x, y);
+    true
+}
+
+fn work_area_rect_logical(_ctx: &egui::Context, monitor_mode: &str, monitor_id: &str) -> Option<Rect> {
+    let _ = monitor_mode;
+    let chosen = resolve_target_monitor(monitor_id);
+
+    if let Some(m) = chosen {
+        return Some(Rect::from_min_max(
+            pos2(m.work_px.left as f32, m.work_px.top as f32),
+            pos2(m.work_px.right as f32, m.work_px.bottom as f32),
+        ));
+    }
+
+    None
 }

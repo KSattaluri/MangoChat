@@ -35,6 +35,12 @@ pub struct Settings {
     pub text_size: String, // small | medium | large
     #[serde(default = "default_accent_color")]
     pub accent_color: String, // green | purple | blue | orange | pink
+    #[serde(default = "default_window_monitor_mode")]
+    pub window_monitor_mode: String, // follow_cursor | fixed
+    #[serde(default)]
+    pub window_monitor_id: String, // Win32 monitor device id (e.g. \\.\DISPLAY1) when mode=fixed
+    #[serde(default = "default_window_anchor")]
+    pub window_anchor: String, // top_left | top_center | top_right | bottom_left | bottom_center | bottom_right
     #[serde(default)]
     pub snip_editor_path: String,
     #[serde(default = "default_chrome_path")]
@@ -98,6 +104,9 @@ impl Default for Settings {
             theme: default_theme(),
             text_size: default_text_size(),
             accent_color: default_accent_color(),
+            window_monitor_mode: default_window_monitor_mode(),
+            window_monitor_id: String::new(),
+            window_anchor: default_window_anchor(),
             snip_editor_path: String::new(),
             chrome_path: default_chrome_path(),
             paint_path: default_paint_path(),
@@ -139,6 +148,12 @@ fn default_text_size() -> String {
 }
 fn default_accent_color() -> String {
     "green".into()
+}
+fn default_window_monitor_mode() -> String {
+    "fixed".into()
+}
+fn default_window_anchor() -> String {
+    "bottom_right".into()
 }
 fn default_chrome_path() -> String {
     r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()
@@ -271,6 +286,18 @@ pub fn load() -> Settings {
         && settings.accent_color != "pink"
     {
         settings.accent_color = default_accent_color();
+    }
+    if settings.window_monitor_mode != "fixed" {
+        settings.window_monitor_mode = default_window_monitor_mode();
+    }
+    if settings.window_anchor != "top_left"
+        && settings.window_anchor != "top_center"
+        && settings.window_anchor != "top_right"
+        && settings.window_anchor != "bottom_left"
+        && settings.window_anchor != "bottom_center"
+        && settings.window_anchor != "bottom_right"
+    {
+        settings.window_anchor = default_window_anchor();
     }
     settings.provider_inactivity_timeout_secs =
         settings.provider_inactivity_timeout_secs.clamp(5, 300);
