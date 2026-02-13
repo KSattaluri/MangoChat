@@ -207,6 +207,8 @@ pub struct JarvisApp {
     last_diag_window_sig: String,
     last_diag_audio_sig: String,
     last_pin_tick: f64,
+    last_mic_check_tick: f64,
+    selected_mic_unavailable: bool,
 }
 
 impl JarvisApp {
@@ -450,8 +452,40 @@ impl JarvisApp {
             last_diag_window_sig: String::new(),
             last_diag_audio_sig: String::new(),
             last_pin_tick: 0.0,
+            last_mic_check_tick: 0.0,
+            selected_mic_unavailable: false,
         };
         app
+    }
+
+    fn selected_mic_unavailable_now(&self) -> bool {
+        if self.settings.mic_device.trim().is_empty() {
+            return false;
+        }
+        let devices = crate::audio::list_input_devices();
+        !devices.iter().any(|d| d == &self.settings.mic_device)
+    }
+
+    fn refresh_selected_mic_status(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        if now - self.last_mic_check_tick < 1.0 {
+            return;
+        }
+        self.last_mic_check_tick = now;
+
+        let devices = crate::audio::list_input_devices();
+        self.mic_devices = devices.clone();
+        let unavailable = if self.settings.mic_device.trim().is_empty() {
+            false
+        } else {
+            !devices.iter().any(|d| d == &self.settings.mic_device)
+        };
+        self.selected_mic_unavailable = unavailable;
+
+        if unavailable && self.is_recording {
+            self.stop_recording();
+            self.set_status("Device unavailable. Change in Settings.", "error");
+        }
     }
 
     fn emit_runtime_diagnostics(&mut self, ctx: &egui::Context) {
@@ -559,7 +593,8 @@ impl JarvisApp {
             let max_w = (monitor_w - margin * 2.0).max(COMPACT_WINDOW_W_WITH_SNIP);
             let max_h = (monitor_h - margin * 2.0).max(420.0);
             let w = (monitor_w * 0.5).max(820.0).min(max_w);
-            let h = (monitor_h * 0.82).max(620.0).min(max_h);
+            // Hard cap expanded height so settings never grow into taskbar on smaller displays.
+            let h = (monitor_h * 0.72).max(520.0).min(max_h.min(760.0));
             return vec2(w, h);
         }
         vec2(980.0, 720.0)
@@ -634,6 +669,11 @@ impl JarvisApp {
 
     fn start_recording(&mut self) {
         if self.is_recording {
+            return;
+        }
+        if self.selected_mic_unavailable || self.selected_mic_unavailable_now() {
+            self.selected_mic_unavailable = true;
+            self.set_status("Device unavailable. Change in Settings.", "error");
             return;
         }
 
@@ -982,10 +1022,15 @@ impl JarvisApp {
     fn render_main_ui(&mut self, ctx: &egui::Context) {
         let p = theme_palette(true);
         let accent = self.current_accent();
+        let panel_fill = if self.settings_open {
+            p.settings_bg
+        } else {
+            Color32::TRANSPARENT
+        };
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
-                    .fill(Color32::TRANSPARENT)
+                    .fill(panel_fill)
                     .inner_margin(egui::Margin::symmetric(12.0, 12.0)),
             )
             .show(ctx, |ui| {
@@ -1051,6 +1096,18 @@ impl JarvisApp {
                         if self.is_recording { Some(&fft) } else { None },
                         accent,
                     );
+                    if self.selected_mic_unavailable {
+                        let icon_size = vec2(20.0, 22.0);
+                        let icon_rect = Rect::from_center_size(viz_rect.center(), icon_size);
+                        let mic_resp = mic_unavailable_badge(ui, icon_rect);
+                        self.paint_control_tooltip(
+                            ctx,
+                            &mic_resp,
+                            "mic_unavailable",
+                            "Device unavailable. Open Settings.",
+                            false,
+                        );
+                    }
 
                     if show_screenshot_controls {
                         let p_resp = preset_btn(
@@ -2806,12 +2863,17 @@ impl JarvisApp {
 
 impl eframe::App for JarvisApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        Color32::TRANSPARENT.to_normalized_gamma_f32()
+        if self.settings_open {
+            SETTINGS_BG.to_normalized_gamma_f32()
+        } else {
+            Color32::TRANSPARENT.to_normalized_gamma_f32()
+        }
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
+        self.refresh_selected_mic_status(ctx);
         self.emit_runtime_diagnostics(ctx);
 
         // In fixed monitor mode, keep compact window pinned to saved anchor.
@@ -3007,6 +3069,32 @@ fn settings_toggle(
     }
 
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+fn mic_unavailable_badge(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+    let response = ui.interact(rect, egui::Id::new("mic_unavailable_badge"), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let center = rect.center();
+        let ring = Color32::from_rgb(0xef, 0x44, 0x44);
+        let icon = Color32::from_rgb(0xf3, 0xf4, 0xf6);
+
+        // Simple mic glyph (capsule + stem + base) with a diagonal strike-through.
+        let capsule = Rect::from_center_size(center + vec2(0.0, -2.0), vec2(5.0, 8.0));
+        ui.painter().rect_filled(capsule, 2.0, icon);
+        ui.painter().line_segment(
+            [center + vec2(0.0, 2.0), center + vec2(0.0, 5.5)],
+            Stroke::new(1.4, icon),
+        );
+        ui.painter().line_segment(
+            [center + vec2(-3.0, 6.0), center + vec2(3.0, 6.0)],
+            Stroke::new(1.4, icon),
+        );
+        ui.painter().line_segment(
+            [rect.left_top() + vec2(3.0, 3.0), rect.right_bottom() - vec2(3.0, 3.0)],
+            Stroke::new(1.8, ring),
+        );
+    }
+    response
 }
 
 fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Response {
@@ -3727,9 +3815,10 @@ fn work_area_rect_logical(_ctx: &egui::Context, monitor_mode: &str, monitor_id: 
     let chosen = resolve_target_monitor(monitor_id);
 
     if let Some(m) = chosen {
+        let sf = m.scale_factor.max(0.5);
         return Some(Rect::from_min_max(
-            pos2(m.work_px.left as f32, m.work_px.top as f32),
-            pos2(m.work_px.right as f32, m.work_px.bottom as f32),
+            pos2(m.work_px.left as f32 / sf, m.work_px.top as f32 / sf),
+            pos2(m.work_px.right as f32 / sf, m.work_px.bottom as f32 / sf),
         ));
     }
 
