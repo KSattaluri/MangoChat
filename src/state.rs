@@ -16,6 +16,7 @@ pub enum AppEvent {
     SessionInactivityTimeout { seconds: u64 },
     SessionMaxDurationReached { token: u64, minutes: u64 },
     ApiKeyValidated { provider: String, ok: bool, message: String },
+    AudioInputLost { message: String },
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]

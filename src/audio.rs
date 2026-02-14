@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{AppEvent, AppState};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleRate, StreamConfig};
 use num_complex::Complex;
@@ -35,6 +35,7 @@ impl AudioCapture {
     pub fn start(
         device_name: Option<&str>,
         audio_tx: mpsc::Sender<Vec<u8>>,
+        ui_event_tx: std::sync::mpsc::Sender<AppEvent>,
         state: Arc<AppState>,
         target_rate: u32,
     ) -> Result<Self, String> {
@@ -101,6 +102,7 @@ impl AudioCapture {
         let (raw_tx, raw_rx) = std::sync::mpsc::sync_channel::<Vec<f32>>(128);
 
         let channels = config.channels as usize;
+        let err_event_tx = ui_event_tx.clone();
         let stream = device
             .build_input_stream(
                 &config,
@@ -121,8 +123,11 @@ impl AudioCapture {
                     };
                     let _ = raw_tx.try_send(samples);
                 },
-                |err| {
+                move |err| {
                     eprintln!("[audio] stream error: {}", err);
+                    let _ = err_event_tx.send(AppEvent::AudioInputLost {
+                        message: err.to_string(),
+                    });
                 },
                 None,
             )

@@ -202,12 +202,6 @@ pub struct JarvisApp {
     recording_limit_token: u64,
     confirm_reset_totals: bool,
     confirm_reset_include_sessions: bool,
-    last_diag_tick: f64,
-    last_diag_monitors_sig: String,
-    last_diag_window_sig: String,
-    last_diag_audio_sig: String,
-    last_pin_tick: f64,
-    last_mic_check_tick: f64,
     selected_mic_unavailable: bool,
 }
 
@@ -447,12 +441,6 @@ impl JarvisApp {
             recording_limit_token: 0,
             confirm_reset_totals: false,
             confirm_reset_include_sessions: false,
-            last_diag_tick: 0.0,
-            last_diag_monitors_sig: String::new(),
-            last_diag_window_sig: String::new(),
-            last_diag_audio_sig: String::new(),
-            last_pin_tick: 0.0,
-            last_mic_check_tick: 0.0,
             selected_mic_unavailable: false,
         };
         app
@@ -466,101 +454,7 @@ impl JarvisApp {
         !devices.iter().any(|d| d == &self.settings.mic_device)
     }
 
-    fn refresh_selected_mic_status(&mut self, ctx: &egui::Context) {
-        let now = ctx.input(|i| i.time);
-        if now - self.last_mic_check_tick < 1.0 {
-            return;
-        }
-        self.last_mic_check_tick = now;
-
-        let devices = crate::audio::list_input_devices();
-        self.mic_devices = devices.clone();
-        let unavailable = if self.settings.mic_device.trim().is_empty() {
-            false
-        } else {
-            !devices.iter().any(|d| d == &self.settings.mic_device)
-        };
-        self.selected_mic_unavailable = unavailable;
-
-        if unavailable && self.is_recording {
-            self.stop_recording();
-            self.set_status("Device unavailable. Change in Settings.", "error");
-        }
-    }
-
-    fn emit_runtime_diagnostics(&mut self, ctx: &egui::Context) {
-        let now = ctx.input(|i| i.time);
-        if now - self.last_diag_tick < 1.0 {
-            return;
-        }
-        self.last_diag_tick = now;
-
-        let monitors = enumerate_monitor_work_areas();
-        let monitors_sig = monitors
-            .iter()
-            .map(|m| {
-                format!(
-                    "{}:{}:{}:{}:{}:{}:{:.3}",
-                    m.id,
-                    if m.is_primary { 1 } else { 0 },
-                    m.work_px.left,
-                    m.work_px.top,
-                    m.work_px.right,
-                    m.work_px.bottom,
-                    m.scale_factor
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("|");
-        if monitors_sig != self.last_diag_monitors_sig {
-            println!("[diag] monitors {}", monitors_sig);
-            self.last_diag_monitors_sig = monitors_sig;
-        }
-
-        if let Some((l, t, r, b)) = current_window_rect_physical() {
-            let cx = (l + r) / 2;
-            let cy = (t + b) / 2;
-            let monitor = monitors.iter().find(|m| {
-                cx >= m.work_px.left
-                    && cx < m.work_px.right
-                    && cy >= m.work_px.top
-                    && cy < m.work_px.bottom
-            });
-            let win_sig = if let Some(m) = monitor {
-                format!(
-                    "rect=({},{},{},{}) center=({}, {}) monitor={} anchor={} requested={}",
-                    l, t, r, b, cx, cy, m.id, self.settings.window_anchor, self.settings.window_monitor_id
-                )
-            } else {
-                format!(
-                    "rect=({},{},{},{}) center=({}, {}) monitor=<none> anchor={} requested={}",
-                    l, t, r, b, cx, cy, self.settings.window_anchor, self.settings.window_monitor_id
-                )
-            };
-            if win_sig != self.last_diag_window_sig {
-                println!("[diag] window {}", win_sig);
-                self.last_diag_window_sig = win_sig;
-            }
-        }
-
-        let default_input = current_default_input_device_name().unwrap_or_else(|| "<none>".into());
-        let selected = if self.settings.mic_device.trim().is_empty() {
-            "<default>".to_string()
-        } else {
-            self.settings.mic_device.clone()
-        };
-        let audio_sig = format!(
-            "selected={} default={} recording={} capture_active={}",
-            selected,
-            default_input,
-            self.is_recording,
-            self.audio_capture.is_some()
-        );
-        if audio_sig != self.last_diag_audio_sig {
-            println!("[diag] audio {}", audio_sig);
-            self.last_diag_audio_sig = audio_sig;
-        }
-    }
+    
 
     fn apply_appearance(&self, ctx: &egui::Context) {
         // Only apply global appearance settings on the root viewport.
@@ -671,8 +565,9 @@ impl JarvisApp {
         if self.is_recording {
             return;
         }
-        if self.selected_mic_unavailable || self.selected_mic_unavailable_now() {
-            self.selected_mic_unavailable = true;
+        let unavailable_now = self.selected_mic_unavailable_now();
+        self.selected_mic_unavailable = unavailable_now;
+        if unavailable_now {
             self.set_status("Device unavailable. Change in Settings.", "error");
             return;
         }
@@ -716,6 +611,7 @@ impl JarvisApp {
         match audio::AudioCapture::start(
             mic,
             audio_tx,
+            self.event_tx.clone(),
             self.state.clone(),
             sample_rate,
         ) {
@@ -874,6 +770,18 @@ impl JarvisApp {
                     self.key_check_inflight.remove(&provider);
                     self.last_validated_provider = Some(provider.clone());
                     self.key_check_result.insert(provider, (ok, message));
+                }
+                AppEvent::AudioInputLost { message } => {
+                    eprintln!("[ui] audio input lost: {}", message);
+                    if self.is_recording {
+                        self.stop_recording();
+                    }
+                    if !self.settings.mic_device.trim().is_empty() {
+                        self.selected_mic_unavailable = true;
+                        self.set_status("Device unavailable. Change in Settings.", "error");
+                    } else {
+                        self.set_status("Mic disconnected", "error");
+                    }
                 }
             }
         }
@@ -2628,6 +2536,7 @@ impl JarvisApp {
                                         }
                                         self.settings.mic_device =
                                             self.form_mic.clone();
+                                        self.selected_mic_unavailable = self.selected_mic_unavailable_now();
                                         self.settings.vad_mode =
                                             self.form_vad_mode.clone();
                                         self.settings.screenshot_enabled =
@@ -2873,23 +2782,6 @@ impl eframe::App for JarvisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
-        self.refresh_selected_mic_status(ctx);
-        self.emit_runtime_diagnostics(ctx);
-
-        // In fixed monitor mode, keep compact window pinned to saved anchor.
-        // This smooths monitor hotplug/reconnect and DPI transition drift.
-        if !self.settings_open && self.settings.window_monitor_mode == WINDOW_MONITOR_MODE_FIXED {
-            let now = ctx.input(|i| i.time);
-            if now - self.last_pin_tick >= 0.5 {
-                self.last_pin_tick = now;
-                let compact_size = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
-                let _ = place_compact_fixed_native(
-                    compact_size,
-                    &self.settings.window_monitor_id,
-                    &self.settings.window_anchor,
-                );
-            }
-        }
 
         // Position bottom-right on first frame
         if !self.positioned {
@@ -3777,37 +3669,6 @@ fn place_compact_fixed_native(size_logical: egui::Vec2, monitor_id: &str, anchor
     let (x, y) = anchored_pos_physical(m.work_px, size_px, anchor);
     move_window_physical(x, y);
     true
-}
-
-#[cfg(windows)]
-fn current_window_rect_physical() -> Option<(i32, i32, i32, i32)> {
-    use windows::core::PCWSTR;
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowRect};
-
-    let title: Vec<u16> = "Jarvis\0".encode_utf16().collect();
-    let hwnd = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) }.ok()?;
-    if hwnd.is_invalid() {
-        return None;
-    }
-    let mut rect = RECT::default();
-    if unsafe { GetWindowRect(hwnd, &mut rect) }.is_ok() {
-        Some((rect.left, rect.top, rect.right, rect.bottom))
-    } else {
-        None
-    }
-}
-
-#[cfg(not(windows))]
-fn current_window_rect_physical() -> Option<(i32, i32, i32, i32)> {
-    None
-}
-
-fn current_default_input_device_name() -> Option<String> {
-    use cpal::traits::{DeviceTrait, HostTrait};
-    let host = cpal::default_host();
-    let dev = host.default_input_device()?;
-    dev.name().ok()
 }
 
 fn work_area_rect_logical(_ctx: &egui::Context, monitor_mode: &str, monitor_id: &str) -> Option<Rect> {
