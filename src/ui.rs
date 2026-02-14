@@ -19,7 +19,6 @@ const TEXT_COLOR: Color32 = Color32::from_rgb(0xe6, 0xe6, 0xe6);
 const TEXT_MUTED: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 const BTN_BG: Color32 = Color32::from_rgb(0x25, 0x28, 0x30);
 const BTN_BORDER: Color32 = Color32::from_rgb(0x2c, 0x2f, 0x36);
-const BTN_PRIMARY: Color32 = Color32::from_rgb(0x25, 0x63, 0xeb);
 const SETTINGS_BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x21);
 const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
@@ -941,6 +940,7 @@ impl JarvisApp {
         let accent = self.current_accent();
         let show_screenshot_controls = self.settings.screenshot_enabled;
         let preset_btn = |ui: &mut egui::Ui, label: &str, active: bool, p: ThemePalette| {
+            let inactive_fill = Color32::from_rgb(0x3a, 0x3d, 0x45);
             ui.add(
                 egui::Button::new(
                     egui::RichText::new(label)
@@ -948,8 +948,11 @@ impl JarvisApp {
                         .strong()
                         .color(if active { Color32::WHITE } else { p.text }),
                 )
-                .fill(if active { BTN_PRIMARY } else { p.btn_bg })
-                .stroke(Stroke::new(1.0, p.btn_border))
+                .fill(if active { accent.base } else { inactive_fill })
+                .stroke(Stroke::new(
+                    1.0,
+                    if active { accent.ring } else { p.btn_border },
+                ))
                 .rounding(4.0)
                 .min_size(vec2(20.0, 22.0)),
             )
@@ -1049,7 +1052,7 @@ impl JarvisApp {
                             ctx,
                             &p_resp,
                             "preset_path",
-                            "Preset: Path (copy file path)",
+                            "Right Alt copies Path of screenshot",
                             true,
                         );
                         if p_resp.clicked() {
@@ -1066,7 +1069,7 @@ impl JarvisApp {
                             ctx,
                             &i_resp,
                             "preset_image",
-                            "Preset: Image (copy image)",
+                            "Right Alt copies image",
                             true,
                         );
                         if i_resp.clicked() {
@@ -1083,7 +1086,7 @@ impl JarvisApp {
                             ctx,
                             &e_resp,
                             "preset_edit",
-                            "Preset: Image + Edit",
+                            "Right Alt opens image in Paint",
                             true,
                         );
                         if e_resp.clicked() {
