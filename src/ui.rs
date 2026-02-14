@@ -1016,7 +1016,7 @@ impl JarvisApp {
                     }
 
                     if self.settings_open {
-                        if window_ctrl_btn(ui, "-", false).clicked() {
+                        if collapse_toggle(ui, accent).clicked() {
                             self.persist_accent_if_changed();
                             self.settings_open = false;
                             self.apply_window_mode(ctx, false);
@@ -2987,29 +2987,39 @@ fn mic_unavailable_badge(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
     response
 }
 
-fn window_ctrl_btn(ui: &mut egui::Ui, label: &str, danger: bool) -> egui::Response {
-    let p = theme_palette(ui.visuals().dark_mode);
-    let fill = if danger {
-        Color32::from_rgb(0x2d, 0x1f, 0x22)
-    } else {
-        p.btn_bg
-    };
-    let stroke = if danger {
-        Color32::from_rgb(0x5b, 0x2a, 0x32)
-    } else {
-        p.btn_border
-    };
-    let btn = egui::Button::new(
-        egui::RichText::new(label)
-            .size(11.0)
-            .strong()
-            .color(p.text),
-    )
-    .fill(fill)
-    .stroke(Stroke::new(1.0, stroke))
-    .rounding(4.0)
-    .min_size(vec2(24.0, 18.0));
-    ui.add(btn)
+fn collapse_toggle(ui: &mut egui::Ui, accent: AccentPalette) -> egui::Response {
+    let size = vec2(30.0, 30.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let hovered = response.hovered();
+        let fill = if hovered {
+            Color32::from_rgb(0x2d, 0x31, 0x3c)
+        } else {
+            BTN_BG
+        };
+        ui.painter().rect(
+            rect,
+            6.0,
+            fill,
+            Stroke::new(1.0, BTN_BORDER),
+        );
+
+        // Draw a larger inverted triangle (font-independent).
+        let c = rect.center();
+        let w = 14.0;
+        let h = 9.8;
+        let points = vec![
+            pos2(c.x - w * 0.5, c.y - h * 0.4),
+            pos2(c.x + w * 0.5, c.y - h * 0.4),
+            pos2(c.x, c.y + h * 0.6),
+        ];
+        ui.painter().add(egui::Shape::convex_polygon(
+            points,
+            accent.base,
+            Stroke::NONE,
+        ));
+    }
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 fn record_toggle(
