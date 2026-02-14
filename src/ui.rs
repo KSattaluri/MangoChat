@@ -25,6 +25,7 @@ const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
 const COMPACT_WINDOW_W_NO_SNIP: f32 = 176.0;
 const COMPACT_WINDOW_H: f32 = 54.0;
+const COMPACT_WINDOW_H_WITH_SNIP: f32 = 84.0;
 const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
     ("openai", "OpenAI Realtime"),
@@ -252,6 +253,14 @@ impl JarvisApp {
             COMPACT_WINDOW_W_WITH_SNIP
         } else {
             COMPACT_WINDOW_W_NO_SNIP
+        }
+    }
+
+    fn compact_window_height(&self) -> f32 {
+        if self.settings.screenshot_enabled {
+            COMPACT_WINDOW_H_WITH_SNIP
+        } else {
+            COMPACT_WINDOW_H
         }
     }
 
@@ -498,7 +507,7 @@ impl JarvisApp {
         let target = if settings_open {
             self.expanded_window_size(ctx)
         } else {
-            vec2(self.compact_window_width(), COMPACT_WINDOW_H)
+            vec2(self.compact_window_width(), self.compact_window_height())
         };
         if settings_open {
             // Remember exact compact location so collapse can restore pixel-perfect.
@@ -930,6 +939,21 @@ impl JarvisApp {
     fn render_main_ui(&mut self, ctx: &egui::Context) {
         let p = theme_palette(true);
         let accent = self.current_accent();
+        let show_screenshot_controls = self.settings.screenshot_enabled;
+        let preset_btn = |ui: &mut egui::Ui, label: &str, active: bool, p: ThemePalette| {
+            ui.add(
+                egui::Button::new(
+                    egui::RichText::new(label)
+                        .size(11.0)
+                        .strong()
+                        .color(if active { Color32::WHITE } else { p.text }),
+                )
+                .fill(if active { BTN_PRIMARY } else { p.btn_bg })
+                .stroke(Stroke::new(1.0, p.btn_border))
+                .rounding(4.0)
+                .min_size(vec2(20.0, 22.0)),
+            )
+        };
         let panel_fill = if self.settings_open {
             p.settings_bg
         } else {
@@ -957,36 +981,10 @@ impl JarvisApp {
                             self.start_recording();
                         }
                     }
-                    // Manual preset picker (no popup, no cycling):
-                    // P = Path, I = Image, E = Image + Edit.
-                    let preset_btn = |ui: &mut egui::Ui,
-                                      label: &str,
-                                      active: bool,
-                                      p: ThemePalette| {
-                        ui.add(
-                            egui::Button::new(
-                                egui::RichText::new(label)
-                                    .size(11.0)
-                                    .strong()
-                                    .color(if active { Color32::WHITE } else { p.text }),
-                            )
-                            .fill(if active { BTN_PRIMARY } else { p.btn_bg })
-                            .stroke(Stroke::new(1.0, p.btn_border))
-                            .rounding(4.0)
-                            .min_size(vec2(20.0, 22.0)),
-                        )
-                    };
-
-                    let show_screenshot_controls = self.settings.screenshot_enabled;
                     let settings_w = 28.0;
-                    let row_gap = 4.0;
                     let right_edge_pad = 6.0;
-                    let right_controls_w = if show_screenshot_controls {
-                        20.0 * 3.0 + settings_w + row_gap * 3.0 + right_edge_pad
-                    } else {
-                        settings_w + right_edge_pad
-                    };
-                    let min_viz_w = if show_screenshot_controls { 36.0 } else { 56.0 };
+                    let right_controls_w = settings_w + right_edge_pad;
+                    let min_viz_w = 56.0;
                     let viz_w = (ui.available_width() - right_controls_w).max(min_viz_w);
                     let fft = self
                         .state
@@ -1017,13 +1015,36 @@ impl JarvisApp {
                         );
                     }
 
-                    if show_screenshot_controls {
-                        let p_resp = preset_btn(
-                            ui,
-                            "P",
-                            !self.snip_copy_image,
-                            p,
+                    if self.settings_open {
+                        if window_ctrl_btn(ui, "-", false).clicked() {
+                            self.persist_accent_if_changed();
+                            self.settings_open = false;
+                            self.apply_window_mode(ctx, false);
+                        }
+                    } else {
+                        let settings_resp = settings_toggle(ui, self.is_recording, accent);
+                        self.paint_control_tooltip(
+                            ctx,
+                            &settings_resp,
+                            "settings",
+                            "Settings",
+                            false,
                         );
+                        if settings_resp.clicked() {
+                            self.settings_open = true;
+                            self.sync_form_from_settings();
+                            self.session_history = crate::usage::load_recent_sessions(20);
+                            self.apply_window_mode(ctx, true);
+                        }
+                    }
+                    ui.add_space(right_edge_pad);
+                });
+
+                if show_screenshot_controls && !self.settings_open {
+                    ui.add_space(4.0);
+                    ui.horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let p_resp = preset_btn(ui, "P", !self.snip_copy_image, p);
                         self.paint_control_tooltip(
                             ctx,
                             &p_resp,
@@ -1069,31 +1090,8 @@ impl JarvisApp {
                             self.snip_copy_image = true;
                             self.snip_edit_after = true;
                         }
-                    }
-                    if self.settings_open {
-                        if window_ctrl_btn(ui, "-", false).clicked() {
-                            self.persist_accent_if_changed();
-                            self.settings_open = false;
-                            self.apply_window_mode(ctx, false);
-                        }
-                    } else {
-                        let settings_resp = settings_toggle(ui, self.is_recording, accent);
-                        self.paint_control_tooltip(
-                            ctx,
-                            &settings_resp,
-                            "settings",
-                            "Settings",
-                            false,
-                        );
-                        if settings_resp.clicked() {
-                            self.settings_open = true;
-                            self.sync_form_from_settings();
-                            self.session_history = crate::usage::load_recent_sessions(20);
-                            self.apply_window_mode(ctx, true);
-                        }
-                    }
-                    ui.add_space(right_edge_pad);
-                });
+                    });
+                }
 
                 ui.add_space(if self.settings_open { 6.0 } else { 2.0 });
 
@@ -1480,7 +1478,7 @@ impl JarvisApp {
                                 }
                                 "audio" => {
                                   egui::ScrollArea::vertical()
-                                    .max_height(ui.available_height())
+                                    .max_height(ui.available_height().max(260.0))
                                     .show(ui, |ui| {
                                     ui.label(
                                         egui::RichText::new("VAD Mode")
@@ -1552,7 +1550,7 @@ impl JarvisApp {
                                 }
                                 "color" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                             let total_w = ui.available_width();
                                             let select_w = 56.0;
@@ -1639,7 +1637,7 @@ impl JarvisApp {
                                 }
                                 "screenshot" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                             ui.label(
                                                 egui::RichText::new("Screenshot")
@@ -1771,7 +1769,7 @@ impl JarvisApp {
                                 }
                                 "advanced" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                     ui.label(
                                         egui::RichText::new("Text Size")
@@ -1906,7 +1904,7 @@ impl JarvisApp {
                                 }
                                 "configurations" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                             ui.label(
                                                 egui::RichText::new("Session Timeouts")
@@ -1962,7 +1960,7 @@ impl JarvisApp {
                                 }
                                 "commands" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                     ui.label(
                                         egui::RichText::new(
@@ -2261,7 +2259,7 @@ impl JarvisApp {
                                     if !self.session_history.is_empty() {
                                         section_header(ui, "Recent Sessions");
                                         egui::ScrollArea::vertical()
-                                            .max_height(ui.available_height())
+                                            .max_height(ui.available_height().max(260.0))
                                             .show(ui, |ui| {
                                                 egui::Grid::new("session_table")
                                                     .striped(true)
@@ -2358,7 +2356,7 @@ impl JarvisApp {
                                 }
                                 "about" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                         ui.set_min_width(ui.available_width());
                                         ui.label(
@@ -2416,7 +2414,7 @@ impl JarvisApp {
                                 }
                                 "faq" => {
                                     egui::ScrollArea::vertical()
-                                        .max_height(ui.available_height())
+                                        .max_height(ui.available_height().max(260.0))
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
@@ -2785,7 +2783,7 @@ impl eframe::App for JarvisApp {
 
         // Position bottom-right on first frame
         if !self.positioned {
-            let compact_size = vec2(self.compact_window_width(), COMPACT_WINDOW_H);
+            let compact_size = vec2(self.compact_window_width(), self.compact_window_height());
             ctx.send_viewport_cmd(ViewportCommand::InnerSize(compact_size));
             if self.settings.window_monitor_mode == WINDOW_MONITOR_MODE_FIXED {
                 let placed = place_compact_fixed_native(
