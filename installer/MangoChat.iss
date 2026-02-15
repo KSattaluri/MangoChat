@@ -1,27 +1,27 @@
-#define MyAppName "Jarvis"
+#define MyAppName "Mango Chat"
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0-dev"
 #endif
 #ifndef MyAppExe
-  #define MyAppExe "..\\target\\release\\jarvis.exe"
+  #define MyAppExe "..\\target\\release\\mangochat.exe"
 #endif
 #ifndef BuildName
   #define BuildName ""
 #endif
 
 #if BuildName != ""
-  #define OutputFile "Jarvis-Setup-" + MyAppVersion + "-" + BuildName
+  #define OutputFile "MangoChat-Setup-" + MyAppVersion + "-" + BuildName
 #else
-  #define OutputFile "Jarvis-Setup-" + MyAppVersion
+  #define OutputFile "MangoChat-Setup-" + MyAppVersion
 #endif
 
 [Setup]
 AppId={{8E220C8E-3F32-44A9-9C56-70A43F2EEA0D}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=Jarvis
-DefaultDirName={localappdata}\Programs\Jarvis
-DefaultGroupName=Jarvis
+AppPublisher=Mango Chat
+DefaultDirName={localappdata}\Programs\MangoChat
+DefaultGroupName=Mango Chat
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
@@ -31,7 +31,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\jarvis.exe
+UninstallDisplayIcon={app}\mangochat.exe
 SetupIconFile=..\\icons\\icon.ico
 
 [Languages]
@@ -44,9 +44,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#MyAppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Jarvis"; Filename: "{app}\jarvis.exe"
-Name: "{autodesktop}\Jarvis"; Filename: "{app}\jarvis.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Mango Chat"; Filename: "{app}\mangochat.exe"
+Name: "{autodesktop}\Mango Chat"; Filename: "{app}\mangochat.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\jarvis.exe"; Description: "Launch Jarvis"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\mangochat.exe"; Description: "Launch Mango Chat"; Flags: nowait postinstall skipifsilent
+
+
 

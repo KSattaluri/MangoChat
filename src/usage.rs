@@ -13,20 +13,20 @@ const MAX_TOTALS_LOG_LINES: usize = 100;
 
 pub fn usage_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Jarvis").join("usage.jsonl"));
+        return Ok(dir.join("MangoChat").join("usage.jsonl"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".jarvis").join("usage.jsonl"));
+        return Ok(home.join(".mangochat").join("usage.jsonl"));
     }
     Err("Failed to resolve data directory for usage logs".into())
 }
 
 pub fn session_usage_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Jarvis").join("usage-session.jsonl"));
+        return Ok(dir.join("MangoChat").join("usage-session.jsonl"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".jarvis").join("usage-session.jsonl"));
+        return Ok(home.join(".mangochat").join("usage-session.jsonl"));
     }
     Err("Failed to resolve data directory for usage logs".into())
 }
@@ -111,13 +111,13 @@ pub fn load_recent_sessions(max: usize) -> Vec<SessionUsage> {
         .collect()
 }
 
-/// Return the Jarvis data directory path.
+/// Return the Mango Chat data directory path.
 pub fn data_dir() -> Option<PathBuf> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Some(dir.join("Jarvis"));
+        return Some(dir.join("MangoChat"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Some(home.join(".jarvis"));
+        return Some(home.join(".mangochat"));
     }
     None
 }
@@ -133,10 +133,10 @@ pub fn reset_totals_file() -> Result<(), String> {
 
 pub fn provider_totals_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Jarvis").join("usage-provider.json"));
+        return Ok(dir.join("MangoChat").join("usage-provider.json"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".jarvis").join("usage-provider.json"));
+        return Ok(home.join(".mangochat").join("usage-provider.json"));
     }
     Err("Failed to resolve data directory for provider totals".into())
 }

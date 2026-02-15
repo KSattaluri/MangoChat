@@ -146,7 +146,7 @@ Current workflow file:
 - `.github/workflows/release-windows.yml`
 
 Current installer script:
-- `installer/Jarvis.iss`
+- `installer/MangoChat.iss`
 
 To productionize fully, ensure this workflow includes signing before checksum/release publish.
 
@@ -154,3 +154,4 @@ To productionize fully, ensure this workflow includes signing before checksum/re
 - Azure Trusted Signing Action: https://github.com/Azure/trusted-signing-action
 - GitHub OIDC with Azure: https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-azure
 - Azure OIDC login action: https://github.com/Azure/login
+

@@ -149,10 +149,10 @@ pub fn copy_image_to_clipboard(img: &RgbaImage) -> Result<(), String> {
 
 pub fn snip_dir() -> Result<PathBuf, String> {
     if let Some(pictures) = dirs::picture_dir() {
-        return Ok(pictures.join("Jarvis"));
+        return Ok(pictures.join("MangoChat"));
     }
     if let Some(home) = dirs::home_dir() {
-        return Ok(home.join("Pictures").join("Jarvis"));
+        return Ok(home.join("Pictures").join("MangoChat"));
     }
     Err("Failed to resolve Pictures directory".into())
 }

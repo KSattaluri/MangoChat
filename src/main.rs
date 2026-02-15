@@ -25,10 +25,10 @@ use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS, load_p
 fn main() {
     env_logger::init();
 
-    let _single_instance_guard = match single_instance::acquire("Jarvis.App.Singleton") {
+    let _single_instance_guard = match single_instance::acquire("MangoChat.App.Singleton") {
         Some(g) => g,
         None => {
-            eprintln!("[jarvis] another instance is already running; exiting");
+            eprintln!("[mangochat] another instance is already running; exiting");
             return;
         }
     };
@@ -85,7 +85,7 @@ fn main() {
     hotkey::start_listener(app_state.clone(), event_tx.clone());
     // Windows-only test hook for headset mic stem mute/unmute.
     headset::start_mute_watcher(event_tx.clone());
-    println!("[jarvis] hotkeys active, hold Right Ctrl to dictate");
+    println!("[mangochat] hotkeys active, hold Right Ctrl to dictate");
 
     // Periodic usage logging thread
     {
@@ -114,7 +114,7 @@ fn main() {
 
     let native_options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_title("Jarvis")
+            .with_title("Mango Chat")
             .with_inner_size(vec2(
                 if settings.screenshot_enabled { 360.0 } else { 210.0 },
                 if settings.compact_background_enabled { 92.0 } else { 80.0 },
@@ -127,10 +127,10 @@ fn main() {
         ..Default::default()
     };
 
-    println!("[jarvis] starting eframe...");
+    println!("[mangochat] starting eframe...");
 
     eframe::run_native(
-        "Jarvis",
+        "Mango Chat",
         native_options,
         Box::new(move |cc| {
             if settings.theme == "light" {
@@ -138,8 +138,8 @@ fn main() {
             } else {
                 cc.egui_ctx.set_visuals(egui::Visuals::dark());
             }
-            println!("[jarvis] eframe app created");
-            Ok(Box::new(ui::JarvisApp::new(
+            println!("[mangochat] eframe app created");
+            Ok(Box::new(ui::MangoChatApp::new(
                 app_state,
                 event_tx,
                 event_rx,

@@ -1,4 +1,4 @@
-# Jarvis (Windows Desktop, Rust)
+# Mango Chat (Windows Desktop, Rust)
 
 ## Prerequisites (Windows)
 
@@ -42,7 +42,7 @@ cargo build --release
 ```
 
 Output:
-- `target\release\jarvis.exe`
+- `target\release\mangochat.exe`
 
 ## Build installer (Inno Setup)
 
@@ -51,10 +51,10 @@ Output:
 ```
 
 Output:
-- `dist\Jarvis-Setup-<version>-<buildname>.exe`
+- `dist\MangoChat-Setup-<version>-<buildname>.exe`
 
 Default install path:
-- `%LOCALAPPDATA%\Programs\Jarvis`
+- `%LOCALAPPDATA%\Programs\MangoChat`
 
 Uninstall behavior:
 - removes app binaries/shortcuts
@@ -71,3 +71,4 @@ Trigger:
 Release assets:
 - installer `.exe`
 - `SHA256SUMS.txt`
+
