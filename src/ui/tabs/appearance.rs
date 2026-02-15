@@ -2,7 +2,7 @@ use eframe::egui;
 use egui::{Stroke, vec2};
 
 use crate::ui::theme::*;
-use crate::ui::widgets::*;
+use crate::ui::widgets::provider_default_button;
 use crate::ui::MangoChatApp;
 
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
@@ -12,7 +12,8 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
             // --- Accent Color Picker (from Color tab) ---
-            let total_w = ui.available_width();
+            let frame_overhead = 34.0;
+            let total_w = ui.available_width() - frame_overhead;
             let select_w = 56.0;
             let color_w = (total_w - select_w - 16.0).max(120.0);
 
@@ -92,54 +93,28 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 .color(TEXT_MUTED),
             );
 
-            // --- Display section (text size + compact bg) ---
+            // --- Transparent background ---
             ui.add_space(8.0);
-            section_header(ui, "Display");
-
-            ui.label(
-                egui::RichText::new("Text Size")
-                    .size(11.0)
-                    .color(TEXT_MUTED),
-            );
-            egui::ComboBox::from_id_salt("text_size_select")
-                .selected_text(match app.form.text_size.as_str() {
-                    "small" => "Small",
-                    "large" => "Large",
-                    _ => "Medium",
-                })
-                .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut app.form.text_size,
-                        "small".to_string(),
-                        "Small",
-                    );
-                    ui.selectable_value(
-                        &mut app.form.text_size,
-                        "medium".to_string(),
-                        "Medium",
-                    );
-                    ui.selectable_value(
-                        &mut app.form.text_size,
-                        "large".to_string(),
-                        "Large",
-                    );
-                });
-
+            ui.separator();
             ui.add_space(8.0);
-            ui.checkbox(
-                &mut app.form.compact_background_enabled,
-                egui::RichText::new("Show compact background")
-                    .size(12.0)
-                    .color(TEXT_COLOR),
-            );
-            ui.label(
-                egui::RichText::new(
-                    "Draws a dark rounded background behind the compact controls.",
-                )
-                .size(11.0)
-                .color(TEXT_MUTED),
-            );
+
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Transparent background")
+                        .size(13.0)
+                        .color(TEXT_COLOR),
+                );
+                ui.add_space(32.0);
+                let mut transparent = !app.form.compact_background_enabled;
+                egui::ComboBox::from_id_salt("transparent_bg_select")
+                    .selected_text(if transparent { "Yes" } else { "No" })
+                    .width(120.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut transparent, true, "Yes");
+                        ui.selectable_value(&mut transparent, false, "No");
+                    });
+                app.form.compact_background_enabled = !transparent;
+            });
         });
 }
 
