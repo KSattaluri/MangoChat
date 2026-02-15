@@ -30,6 +30,9 @@ Thumbs.db
 # Local artifacts
 Screenshot 2026-02-05 195523.png
 secrets.json
+RELEASE_RUNBOOK.local.md
+release-process.local.md
+*.local.md
 
 # Tauri / Rust
 target/
