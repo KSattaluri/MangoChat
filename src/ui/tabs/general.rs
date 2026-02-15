@@ -2,7 +2,7 @@ use eframe::egui;
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
 use crate::ui::window::*;
-use crate::ui::MangoChatApp;
+use crate::ui::{MangoChatApp, UpdateUiState};
 
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     egui::ScrollArea::vertical()
@@ -144,6 +144,105 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             field(ui, "Chrome", &mut app.form.chrome_path, false);
             ui.add_space(2.0);
             field(ui, "Paint", &mut app.form.paint_path, false);
+
+            // --- Updates ---
+            ui.add_space(10.0);
+            section_header(ui, "Updates");
+            ui.label(
+                egui::RichText::new(format!(
+                    "Current version: {}",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .size(11.0)
+                .color(TEXT_MUTED),
+            );
+            ui.add_space(4.0);
+            ui.checkbox(
+                &mut app.form.auto_update_enabled,
+                egui::RichText::new("Auto-check for updates")
+                    .size(12.0)
+                    .color(TEXT_COLOR),
+            );
+            ui.checkbox(
+                &mut app.form.update_include_prerelease,
+                egui::RichText::new("Include pre-release builds")
+                    .size(12.0)
+                    .color(TEXT_COLOR),
+            );
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        !app.update_check_inflight && !app.update_install_inflight,
+                        egui::Button::new(
+                            egui::RichText::new("Check now")
+                                .size(11.0)
+                                .color(TEXT_COLOR),
+                        ),
+                    )
+                    .clicked()
+                {
+                    app.trigger_update_check();
+                }
+
+                if ui
+                    .add_enabled(
+                        matches!(app.update_state, UpdateUiState::Available { .. })
+                            && !app.update_install_inflight,
+                        egui::Button::new(
+                            egui::RichText::new("Download & Install")
+                                .size(11.0)
+                                .color(TEXT_COLOR),
+                        ),
+                    )
+                    .clicked()
+                {
+                    app.trigger_update_install();
+                }
+
+                if ui
+                    .add_enabled(
+                        matches!(app.update_state, UpdateUiState::Available { .. }),
+                        egui::Button::new(
+                            egui::RichText::new("Open release page")
+                                .size(11.0)
+                                .color(TEXT_COLOR),
+                        ),
+                    )
+                    .clicked()
+                {
+                    app.open_update_release_page();
+                }
+            });
+
+            let status_text = match &app.update_state {
+                UpdateUiState::NotChecked => "Update status: not checked".to_string(),
+                UpdateUiState::Checking => "Update status: checking...".to_string(),
+                UpdateUiState::UpToDate { current } => {
+                    format!("Update status: up to date ({current})")
+                }
+                UpdateUiState::Available { current, latest } => format!(
+                    "Update available: {} -> {} (tag {}){}",
+                    current,
+                    latest.version,
+                    latest.tag,
+                    if latest.prerelease { " (pre-release)" } else { "" }
+                ),
+                UpdateUiState::Installing => {
+                    "Update status: downloading installer...".to_string()
+                }
+                UpdateUiState::InstallLaunched { path } => format!(
+                    "Installer launched: {} (app will close)",
+                    path
+                ),
+                UpdateUiState::Error(e) => format!("Update status: error ({e})"),
+            };
+            ui.label(
+                egui::RichText::new(status_text)
+                    .size(11.0)
+                    .color(TEXT_MUTED),
+            );
         });
 }
 
