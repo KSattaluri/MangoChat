@@ -25,6 +25,8 @@ const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
 const COMPACT_WINDOW_W_NO_SNIP: f32 = 176.0;
 const COMPACT_WINDOW_H: f32 = 54.0;
 const COMPACT_WINDOW_H_WITH_SNIP: f32 = 84.0;
+const COMPACT_BG_EXTRA_W: f32 = 36.0;
+const COMPACT_BG_EXTRA_H: f32 = 12.0;
 const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
     ("openai", "OpenAI Realtime"),
@@ -184,6 +186,7 @@ pub struct JarvisApp {
     pub form_start_cue: String,
     pub form_text_size: String,
     pub form_accent_color: String,
+    pub form_compact_background_enabled: bool,
     pub form_window_monitor_mode: String,
     pub form_window_monitor_id: String,
     pub form_window_anchor: String,
@@ -248,18 +251,28 @@ impl JarvisApp {
     }
 
     fn compact_window_width(&self) -> f32 {
-        if self.settings.screenshot_enabled {
+        let base = if self.settings.screenshot_enabled {
             COMPACT_WINDOW_W_WITH_SNIP
         } else {
             COMPACT_WINDOW_W_NO_SNIP
+        };
+        if self.settings.compact_background_enabled {
+            base + COMPACT_BG_EXTRA_W
+        } else {
+            base
         }
     }
 
     fn compact_window_height(&self) -> f32 {
-        if self.settings.screenshot_enabled {
+        let base = if self.settings.screenshot_enabled {
             COMPACT_WINDOW_H_WITH_SNIP
         } else {
             COMPACT_WINDOW_H
+        };
+        if self.settings.compact_background_enabled {
+            base + COMPACT_BG_EXTRA_H
+        } else {
+            base
         }
     }
 
@@ -322,6 +335,7 @@ impl JarvisApp {
         self.form_start_cue = self.settings.start_cue.clone();
         self.form_text_size = self.settings.text_size.clone();
         self.form_accent_color = self.settings.accent_color.clone();
+        self.form_compact_background_enabled = self.settings.compact_background_enabled;
         self.form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         self.form_window_monitor_id = self.settings.window_monitor_id.clone();
         self.form_window_anchor = self.settings.window_anchor.clone();
@@ -361,6 +375,7 @@ impl JarvisApp {
         let form_start_cue = settings.start_cue.clone();
         let form_text_size = settings.text_size.clone();
         let form_accent_color = settings.accent_color.clone();
+        let form_compact_background_enabled = settings.compact_background_enabled;
         let form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         let form_window_monitor_id = settings.window_monitor_id.clone();
         let form_window_anchor = settings.window_anchor.clone();
@@ -431,6 +446,7 @@ impl JarvisApp {
             form_start_cue,
             form_text_size,
             form_accent_color,
+            form_compact_background_enabled,
             form_window_monitor_mode,
             form_window_monitor_id,
             form_window_anchor,
@@ -882,6 +898,7 @@ impl JarvisApp {
         key: &str,
         text: &str,
         persist_on_click: bool,
+        tooltip_pos: Option<Pos2>,
     ) {
         let accent = self.current_accent();
         let now = ctx.input(|i| i.time);
@@ -909,12 +926,12 @@ impl JarvisApp {
             text.to_string()
         };
 
-        let pos = pos2(response.rect.center().x, response.rect.min.y - 6.0);
+        let pos = tooltip_pos.unwrap_or(pos2(response.rect.center().x, response.rect.min.y - 6.0));
         egui::Area::new(egui::Id::new(format!("control_tooltip_{key}")))
             .order(egui::Order::Foreground)
             .interactable(false)
             .constrain(false)
-            .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, 0.0))
+            .pivot(egui::Align2::CENTER_BOTTOM)
             .fixed_pos(pos)
             .show(ctx, |ui| {
                 egui::Frame::none()
@@ -939,8 +956,7 @@ impl JarvisApp {
         let p = theme_palette(true);
         let accent = self.current_accent();
         let show_screenshot_controls = self.settings.screenshot_enabled;
-        let preset_btn = |ui: &mut egui::Ui, label: &str, active: bool, p: ThemePalette| {
-            let inactive_fill = Color32::from_rgb(0x3a, 0x3d, 0x45);
+        let preset_btn = |ui: &mut egui::Ui, label: &str, active: bool, p: ThemePalette, accent: AccentPalette| {
             ui.add(
                 egui::Button::new(
                     egui::RichText::new(label)
@@ -948,35 +964,41 @@ impl JarvisApp {
                         .strong()
                         .color(if active { Color32::WHITE } else { p.text }),
                 )
-                .fill(if active { accent.base } else { inactive_fill })
-                .stroke(Stroke::new(
-                    1.0,
-                    if active { accent.ring } else { p.btn_border },
-                ))
+                .fill(if active { accent.base } else { p.btn_bg })
+                .stroke(Stroke::new(1.0, if active { accent.ring } else { p.btn_border }))
                 .rounding(4.0)
                 .min_size(vec2(20.0, 22.0)),
             )
         };
+        let compact_mode = !self.settings_open;
+        let compact_bg = compact_mode && self.settings.compact_background_enabled;
         let panel_fill = if self.settings_open {
             p.settings_bg
         } else {
             Color32::TRANSPARENT
         };
+        let panel_margin = if compact_bg { 16.0 } else { 12.0 };
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(panel_fill)
-                    .inner_margin(egui::Margin::symmetric(12.0, 12.0)),
+                    .inner_margin(egui::Margin::symmetric(panel_margin, panel_margin)),
             )
             .show(ctx, |ui| {
+                if compact_bg {
+                    let bg_rect = ui.max_rect().expand2(vec2(12.0, 8.0));
+                    ui.painter().rect(
+                        bg_rect,
+                        12.0,
+                        p.settings_bg,
+                        Stroke::new(1.0, p.btn_border),
+                    );
+                }
                 // --- Top control row ---
-                ui.horizontal(|ui| {
+                let viz_center = ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
 
                     let record_resp = record_toggle(ui, self.is_recording, accent);
-                    let record_tip =
-                        if self.is_recording { "Stop recording" } else { "Start recording" };
-                    self.paint_control_tooltip(ctx, &record_resp, "record", record_tip, true);
                     if record_resp.clicked() {
                         if self.is_recording {
                             self.stop_recording();
@@ -1005,6 +1027,10 @@ impl JarvisApp {
                         if self.is_recording { Some(&fft) } else { None },
                         accent,
                     );
+                    let viz_center = viz_rect.center();
+                    let record_tip =
+                        if self.is_recording { "Stop" } else { "Start" };
+                    self.paint_control_tooltip(ctx, &record_resp, "record", record_tip, true, Some(viz_center));
                     if self.selected_mic_unavailable {
                         let icon_size = vec2(20.0, 22.0);
                         let icon_rect = Rect::from_center_size(viz_rect.center(), icon_size);
@@ -1015,6 +1041,7 @@ impl JarvisApp {
                             "mic_unavailable",
                             "Device unavailable. Open Settings.",
                             false,
+                            Some(viz_center),
                         );
                     }
 
@@ -1032,6 +1059,7 @@ impl JarvisApp {
                             "settings",
                             "Settings",
                             false,
+                            Some(viz_center),
                         );
                         if settings_resp.clicked() {
                             self.settings_open = true;
@@ -1041,19 +1069,24 @@ impl JarvisApp {
                         }
                     }
                     ui.add_space(right_edge_pad);
-                });
+                    viz_center
+                }).inner;
 
                 if show_screenshot_controls && !self.settings_open {
-                    ui.add_space(4.0);
-                    ui.horizontal_centered(|ui| {
+                    ui.add_space(1.0);
+                    ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        let p_resp = preset_btn(ui, "P", !self.snip_copy_image, p);
+                        let btns_w = 3.0 * 28.0 + 2.0 * 6.0;
+                        let pad = ((ui.available_width() - btns_w) * 0.5).max(0.0);
+                        ui.add_space(pad);
+                        let p_resp = preset_btn(ui, "P", !self.snip_copy_image, p, accent);
                         self.paint_control_tooltip(
                             ctx,
                             &p_resp,
                             "preset_path",
-                            "Right Alt copies Path of screenshot",
+                            "Preset: Path (copy file path)",
                             true,
+                            Some(viz_center),
                         );
                         if p_resp.clicked() {
                             self.snip_copy_image = false;
@@ -1064,13 +1097,15 @@ impl JarvisApp {
                             "I",
                             self.snip_copy_image && !self.snip_edit_after,
                             p,
+                            accent,
                         );
                         self.paint_control_tooltip(
                             ctx,
                             &i_resp,
                             "preset_image",
-                            "Right Alt copies image",
+                            "Preset: Image (copy image)",
                             true,
+                            Some(viz_center),
                         );
                         if i_resp.clicked() {
                             self.snip_copy_image = true;
@@ -1081,13 +1116,15 @@ impl JarvisApp {
                             "E",
                             self.snip_copy_image && self.snip_edit_after,
                             p,
+                            accent,
                         );
                         self.paint_control_tooltip(
                             ctx,
                             &e_resp,
                             "preset_edit",
-                            "Right Alt opens image in Paint",
+                            "Preset: Image + Edit",
                             true,
+                            Some(viz_center),
                         );
                         if e_resp.clicked() {
                             self.snip_copy_image = true;
@@ -1632,6 +1669,20 @@ impl JarvisApp {
                                             ui.label(
                                                 egui::RichText::new(
                                                     "Applies to visualizer, start/settings controls, and accent highlights.",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                            ui.add_space(8.0);
+                                            ui.checkbox(
+                                                &mut self.form_compact_background_enabled,
+                                                egui::RichText::new("Show compact background")
+                                                    .size(12.0)
+                                                    .color(TEXT_COLOR),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Draws a dark rounded background behind the compact controls.",
                                                 )
                                                 .size(11.0)
                                                 .color(TEXT_MUTED),
@@ -2551,6 +2602,8 @@ impl JarvisApp {
                                             self.form_text_size.clone();
                                         self.settings.accent_color =
                                             self.form_accent_color.clone();
+                                        self.settings.compact_background_enabled =
+                                            self.form_compact_background_enabled;
                                         self.settings.window_monitor_mode =
                                             WINDOW_MONITOR_MODE_FIXED.to_string();
                                         self.settings.window_monitor_id =
