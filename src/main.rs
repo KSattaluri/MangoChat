@@ -117,7 +117,7 @@ fn main() {
             .with_title("Jarvis")
             .with_inner_size(vec2(
                 if settings.screenshot_enabled { 360.0 } else { 210.0 },
-                80.0,
+                if settings.compact_background_enabled { 92.0 } else { 80.0 },
             ))
             .with_taskbar(false)
             .with_transparent(true)
