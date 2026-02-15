@@ -11,6 +11,7 @@ use crate::audio;
 use crate::settings::Settings;
 use crate::usage::{append_usage_line, session_usage_path};
 use crate::state::{AppEvent, AppState, SessionUsage};
+use crate::updater::{self, CheckOutcome, ReleaseInfo, WorkerMessage};
 use eframe::egui;
 use egui::{
     pos2, vec2, Color32, Pos2, Rect, Sense, Stroke, TextureHandle,
@@ -18,7 +19,7 @@ use egui::{
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver as EventReceiver, Sender as EventSender};
+use std::sync::mpsc::{self, Receiver as EventReceiver, Sender as EventSender};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +29,17 @@ use window::*;
 use widgets::*;
 use tray::*;
 use form_state::FormState;
+
+#[derive(Debug, Clone)]
+pub enum UpdateUiState {
+    NotChecked,
+    Checking,
+    UpToDate { current: String },
+    Available { current: String, latest: ReleaseInfo },
+    Installing,
+    InstallLaunched { path: String },
+    Error(String),
+}
 
 pub struct MangoChatApp {
     pub state: Arc<AppState>,
@@ -76,6 +88,12 @@ pub struct MangoChatApp {
     pub confirm_reset_totals: bool,
     pub confirm_reset_include_sessions: bool,
     pub selected_mic_unavailable: bool,
+    pub update_state: UpdateUiState,
+    pub update_worker_tx: mpsc::Sender<WorkerMessage>,
+    pub update_worker_rx: mpsc::Receiver<WorkerMessage>,
+    pub update_last_check: Option<std::time::Instant>,
+    pub update_check_inflight: bool,
+    pub update_install_inflight: bool,
 }
 
 impl MangoChatApp {
@@ -209,6 +227,8 @@ impl MangoChatApp {
         let mic_devices = audio::list_input_devices();
         let form = FormState::from_settings(&settings);
 
+        let (update_worker_tx, update_worker_rx) = mpsc::channel::<WorkerMessage>();
+
         // Create tray icon here (inside the event loop) so it stays alive
         let tray_icon = setup_tray(accent_palette(&settings.accent_color));
         println!("[tray] icon created: {}", tray_icon.is_some());
@@ -267,6 +287,45 @@ impl MangoChatApp {
             confirm_reset_totals: false,
             confirm_reset_include_sessions: false,
             selected_mic_unavailable: false,
+            update_state: UpdateUiState::NotChecked,
+            update_worker_tx,
+            update_worker_rx,
+            update_last_check: None,
+            update_check_inflight: false,
+            update_install_inflight: false,
+        }
+    }
+
+    pub fn trigger_update_check(&mut self) {
+        if self.update_check_inflight {
+            return;
+        }
+        self.update_check_inflight = true;
+        self.update_state = UpdateUiState::Checking;
+        updater::spawn_check(
+            self.update_worker_tx.clone(),
+            self.form.update_include_prerelease,
+        );
+    }
+
+    pub fn trigger_update_install(&mut self) {
+        if self.update_install_inflight {
+            return;
+        }
+        let release = match &self.update_state {
+            UpdateUiState::Available { latest, .. } => latest.clone(),
+            _ => return,
+        };
+        self.update_install_inflight = true;
+        self.update_state = UpdateUiState::Installing;
+        updater::spawn_install(self.update_worker_tx.clone(), release);
+    }
+
+    pub fn open_update_release_page(&mut self) {
+        if let UpdateUiState::Available { latest, .. } = &self.update_state {
+            if let Err(e) = updater::open_release_page(&latest.html_url) {
+                self.set_status(&e, "error");
+            }
         }
     }
 
@@ -594,6 +653,51 @@ impl MangoChatApp {
                 }
             }
         }
+
+        while let Ok(msg) = self.update_worker_rx.try_recv() {
+            match msg {
+                WorkerMessage::CheckFinished(result) => {
+                    self.update_check_inflight = false;
+                    self.update_last_check = Some(std::time::Instant::now());
+                    match result {
+                        Ok(CheckOutcome::UpToDate { current }) => {
+                            self.update_state = UpdateUiState::UpToDate {
+                                current: current.to_string(),
+                            };
+                        }
+                        Ok(CheckOutcome::UpdateAvailable { current, latest }) => {
+                            self.update_state = UpdateUiState::Available {
+                                current: current.to_string(),
+                                latest,
+                            };
+                        }
+                        Err(e) => {
+                            self.update_state = UpdateUiState::Error(e.clone());
+                            self.set_status(&e, "error");
+                        }
+                    }
+                }
+                WorkerMessage::InstallFinished(result) => {
+                    self.update_install_inflight = false;
+                    match result {
+                        Ok(path) => {
+                            self.update_state = UpdateUiState::InstallLaunched {
+                                path: path.clone(),
+                            };
+                            self.set_status(
+                                "Installer launched. Closing app for upgrade...",
+                                "idle",
+                            );
+                            self.should_quit = true;
+                        }
+                        Err(e) => {
+                            self.update_state = UpdateUiState::Error(e.clone());
+                            self.set_status(&e, "error");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn paint_control_tooltip(
@@ -709,9 +813,15 @@ impl MangoChatApp {
                     );
                 }
                 // --- Top control row ---
+                if self.settings_open {
+                    ui.add_space(8.0);
+                }
                 let viz_center = ui
                     .horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
+                        if self.settings_open {
+                            ui.add_space(16.0);
+                        }
 
                         let record_resp = record_toggle(ui, self.is_recording, accent);
                         if record_resp.clicked() {
@@ -901,9 +1011,9 @@ impl MangoChatApp {
                                             let active = self.settings_tab == id;
                                             let text = if active {
                                                 egui::RichText::new(label)
-                                                    .size(12.0)
+                                                    .size(14.0)
                                                     .strong()
-                                                    .color(p.text)
+                                                    .color(Color32::BLACK)
                                             } else {
                                                 egui::RichText::new(label)
                                                     .size(12.0)
@@ -943,36 +1053,74 @@ impl MangoChatApp {
                                     }
                                     ui.add_space(2.0);
 
+                                    // Reserve vertical space for the Save button so
+                                    // tab content doesn't push it off-screen on
+                                    // smaller monitors.
+                                    let has_save = matches!(
+                                        self.settings_tab.as_str(),
+                                        "provider"
+                                            | "dictation"
+                                            | "commands"
+                                            | "appearance"
+                                            | "general"
+                                    );
+                                    let save_reserve =
+                                        if has_save { 38.0 } else { 0.0 };
+                                    let content_size = vec2(
+                                        ui.available_width(),
+                                        (ui.available_height() - save_reserve)
+                                            .max(200.0),
+                                    );
+
                                     // ── Tab content ──
-                                    match self.settings_tab.as_str() {
-                                        "provider" => {
-                                            tabs::provider::render(self, ui, ctx);
+                                    ui.allocate_ui(content_size, |ui| {
+                                        match self.settings_tab.as_str() {
+                                            "provider" => {
+                                                tabs::provider::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "dictation" => {
+                                                tabs::dictation::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "commands" => {
+                                                tabs::commands::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "appearance" => {
+                                                tabs::appearance::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "general" => {
+                                                tabs::general::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "usage" => {
+                                                tabs::usage::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "about" => {
+                                                tabs::about::render_about(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "faq" => {
+                                                tabs::about::render_faq(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            _ => {}
                                         }
-                                        "dictation" => {
-                                            tabs::dictation::render(self, ui, ctx);
-                                        }
-                                        "commands" => {
-                                            tabs::commands::render(self, ui, ctx);
-                                        }
-                                        "appearance" => {
-                                            tabs::appearance::render(self, ui, ctx);
-                                        }
-                                        "general" => {
-                                            tabs::general::render(self, ui, ctx);
-                                        }
-                                        "usage" => {
-                                            tabs::usage::render(self, ui, ctx);
-                                        }
-                                        "about" => {
-                                            tabs::about::render_about(self, ui, ctx);
-                                        }
-                                        "faq" => {
-                                            tabs::about::render_faq(self, ui, ctx);
-                                        }
-                                        _ => {}
-                                    }
+                                    });
 
                                     // Save button (only on settings tabs)
+                                    ui.add_space(10.0);
                                     if matches!(
                                         self.settings_tab.as_str(),
                                         "provider"
@@ -995,8 +1143,13 @@ impl MangoChatApp {
                                             [save_w, 24.0],
                                             egui::Button::new(
                                                 egui::RichText::new(save_label)
-                                                    .size(13.0)
-                                                    .color(TEXT_COLOR),
+                                                    .size(15.0)
+                                                    .strong()
+                                                    .color(if show_exit {
+                                                        TEXT_COLOR
+                                                    } else {
+                                                        Color32::BLACK
+                                                    }),
                                             )
                                             .fill(if show_exit {
                                                 BTN_BG
@@ -1162,6 +1315,19 @@ impl eframe::App for MangoChatApp {
         self.apply_appearance(ctx);
         self.process_events();
 
+        if self.settings.auto_update_enabled
+            && !self.update_check_inflight
+            && !self.update_install_inflight
+        {
+            let should_check = self
+                .update_last_check
+                .map(|t| t.elapsed() >= std::time::Duration::from_secs(6 * 60 * 60))
+                .unwrap_or(true);
+            if should_check {
+                self.trigger_update_check();
+            }
+        }
+
         // Position bottom-right on first frame
         if !self.positioned {
             let compact_size = vec2(self.compact_window_width(), self.compact_window_height());
@@ -1247,6 +1413,9 @@ impl eframe::App for MangoChatApp {
         // Close → quit app directly.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.should_quit = true;
+        }
+        if self.should_quit {
+            std::process::exit(0);
         }
 
         if self.settings_open && self.settings.auto_minimize {

@@ -12,6 +12,7 @@ mod start_cue;
 mod state;
 mod typing;
 mod ui;
+mod updater;
 mod usage;
 
 use eframe::egui;

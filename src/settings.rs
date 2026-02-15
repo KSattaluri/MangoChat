@@ -39,6 +39,10 @@ pub struct Settings {
     pub compact_background_enabled: bool,
     #[serde(default)]
     pub auto_minimize: bool,
+    #[serde(default)]
+    pub auto_update_enabled: bool,
+    #[serde(default)]
+    pub update_include_prerelease: bool,
     #[serde(default = "default_window_monitor_mode")]
     pub window_monitor_mode: String, // follow_cursor | fixed
     #[serde(default)]
@@ -110,6 +114,8 @@ impl Default for Settings {
             accent_color: default_accent_color(),
             compact_background_enabled: false,
             auto_minimize: false,
+            auto_update_enabled: false,
+            update_include_prerelease: false,
             window_monitor_mode: default_window_monitor_mode(),
             window_monitor_id: String::new(),
             window_anchor: default_window_anchor(),

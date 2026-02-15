@@ -19,6 +19,8 @@ pub struct FormState {
     pub accent_color: String,
     pub compact_background_enabled: bool,
     pub auto_minimize: bool,
+    pub auto_update_enabled: bool,
+    pub update_include_prerelease: bool,
     pub window_monitor_mode: String,
     pub window_monitor_id: String,
     pub window_anchor: String,
@@ -51,6 +53,8 @@ impl FormState {
             accent_color: settings.accent_color.clone(),
             compact_background_enabled: settings.compact_background_enabled,
             auto_minimize: settings.auto_minimize,
+            auto_update_enabled: settings.auto_update_enabled,
+            update_include_prerelease: settings.update_include_prerelease,
             window_monitor_mode: WINDOW_MONITOR_MODE_FIXED.to_string(),
             window_monitor_id: settings.window_monitor_id.clone(),
             window_anchor: settings.window_anchor.clone(),
@@ -84,6 +88,8 @@ impl FormState {
         settings.accent_color = self.accent_color.clone();
         settings.compact_background_enabled = self.compact_background_enabled;
         settings.auto_minimize = self.auto_minimize;
+        settings.auto_update_enabled = self.auto_update_enabled;
+        settings.update_include_prerelease = self.update_include_prerelease;
         settings.window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         settings.window_monitor_id = self.window_monitor_id.clone();
         settings.window_anchor = self.window_anchor.clone();
