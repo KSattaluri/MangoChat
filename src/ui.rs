@@ -138,7 +138,7 @@ fn accent_options() -> [AccentPalette; 5] {
     ]
 }
 
-pub struct JarvisApp {
+pub struct MangoChatApp {
     pub state: Arc<AppState>,
     pub event_tx: EventSender<AppEvent>,
     pub event_rx: EventReceiver<AppEvent>,
@@ -209,7 +209,7 @@ pub struct JarvisApp {
     selected_mic_unavailable: bool,
 }
 
-impl JarvisApp {
+impl MangoChatApp {
     fn current_accent(&self) -> AccentPalette {
         if self.settings_open {
             accent_palette(&self.form_accent_color)
@@ -2433,7 +2433,7 @@ impl JarvisApp {
                                         ui.set_min_width(ui.available_width());
                                         ui.label(
                                             egui::RichText::new(
-                                                "Jarvis \u{2014} Voice Dictation",
+                                                "Mango Chat \u{2014} Voice Dictation",
                                             )
                                             .size(13.0)
                                             .strong()
@@ -2512,11 +2512,11 @@ impl JarvisApp {
                                                 ),
                                                 (
                                                     "Where are settings stored?",
-                                                    "In AppData/Local/Jarvis/settings.json on Windows. Usage logs are in the same folder.",
+                                                    "In AppData/Local/MangoChat/settings.json on Windows. Usage logs are in the same folder.",
                                                 ),
                                                 (
                                                     "Can I use this with any app?",
-                                                    "Yes \u{2014} Jarvis types into whatever window has focus when you release the hotkey.",
+                                                    "Yes \u{2014} Mango Chat types into whatever window has focus when you release the hotkey.",
                                                 ),
                                                 (
                                                     "How do I change the hotkey?",
@@ -2844,7 +2844,7 @@ impl JarvisApp {
     }
 }
 
-impl eframe::App for JarvisApp {
+impl eframe::App for MangoChatApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         if self.settings_open {
             SETTINGS_BG.to_normalized_gamma_f32()
@@ -3481,7 +3481,7 @@ fn setup_tray(accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
 
     let tray = match TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("Jarvis")
+        .with_tooltip("Mango Chat")
         .with_icon(icon)
         .build()
     {
@@ -3721,7 +3721,7 @@ fn move_window_physical(x: i32, y: i32) {
         FindWindowW, SetWindowPos, SWP_NOSIZE, SWP_NOZORDER,
     };
 
-    let title: Vec<u16> = "Jarvis\0".encode_utf16().collect();
+    let title: Vec<u16> = "Mango Chat\0".encode_utf16().collect();
     if let Ok(hwnd) = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) } {
         if !hwnd.is_invalid() {
             let _ = unsafe { SetWindowPos(hwnd, None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
@@ -3778,3 +3778,6 @@ fn work_area_rect_logical(_ctx: &egui::Context, monitor_mode: &str, monitor_id: 
 
     None
 }
+
+
+

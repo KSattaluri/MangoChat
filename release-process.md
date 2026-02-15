@@ -1,6 +1,6 @@
-# Jarvis Release Process
+# Mango Chat Release Process
 
-This document explains how Jarvis gets built, packaged into an installer,
+This document explains how Mango Chat gets built, packaged into an installer,
 published on GitHub, and downloaded by users.
 
 ---
@@ -11,7 +11,7 @@ The release pipeline has three stages:
 
 ```
 Source code  -->  Compiled binary  -->  Windows installer  -->  GitHub Release
-  (Rust)         (jarvis.exe)       (Jarvis-Setup-x.y.z.exe)   (public download page)
+  (Rust)         (mangochat.exe)       (MangoChat-Setup-x.y.z.exe)   (public download page)
 ```
 
 Everything is already wired up. The workflow file, build script, and installer
@@ -21,10 +21,10 @@ config all exist in the repo today.
 
 ## Stage 1: Build the Binary
 
-Rust compiles all your source code into a single `jarvis.exe`.
+Rust compiles all your source code into a single `mangochat.exe`.
 
 - **Command:** `cargo build --release`
-- **Output:** `target/release/jarvis.exe`
+- **Output:** `target/release/mangochat.exe`
 - **What happens:** Cargo resolves all dependencies (egui, tokio, cpal, etc.),
   compiles them along with your `src/` code, and produces one standalone `.exe`.
 - Release mode enables optimizations and strips the console window.
@@ -36,15 +36,15 @@ Rust compiles all your source code into a single `jarvis.exe`.
 [Inno Setup 6](https://jrsoftware.org/isinfo.php) takes the compiled `.exe`
 and wraps it in a traditional Windows installer.
 
-- **Config file:** `installer/Jarvis.iss`
+- **Config file:** `installer/MangoChat.iss`
 - **Build script:** `scripts/build-installer.ps1`
-- **Output:** `dist/Jarvis-Setup-<version>.exe`
+- **Output:** `dist/MangoChat-Setup-<version>.exe`
 
 What the installer does for end users:
 
 | Step | Detail |
 |------|--------|
-| Install location | `%LOCALAPPDATA%\Programs\Jarvis` (per-user, no admin needed) |
+| Install location | `%LOCALAPPDATA%\Programs\MangoChat` (per-user, no admin needed) |
 | Start Menu shortcut | Created automatically |
 | Desktop shortcut | Optional (user chooses during install) |
 | Post-install | Launches the app immediately |
@@ -118,12 +118,12 @@ https://github.com/<your-username>/diction-wt-assemblyai/releases/tag/v0.2.0
 ### What the release page looks like to users
 
 ```
-Jarvis v0.2.0
+Mango Chat v0.2.0
 ─────────────────────────────
 [auto-generated changelog: list of commits since v0.1.0]
 
 Assets:
-  Jarvis-Setup-0.2.0.exe    (12 MB)   <-- users click this to download
+  MangoChat-Setup-0.2.0.exe    (12 MB)   <-- users click this to download
   SHA256SUMS.txt             (1 KB)    <-- for verification
   Source code (zip)                     <-- auto-included by GitHub
   Source code (tar.gz)                  <-- auto-included by GitHub
@@ -142,7 +142,7 @@ Users click the `.exe`, run the installer, done.
 - **README link:** You can add a "Download" badge or link in your README
   pointing to the latest release.
 - **Direct link to installer:** Each release asset has a permanent URL like
-  `https://github.com/<you>/diction-wt-assemblyai/releases/download/v0.2.0/Jarvis-Setup-0.2.0.exe`
+  `https://github.com/<you>/diction-wt-assemblyai/releases/download/v0.2.0/MangoChat-Setup-0.2.0.exe`
 
 ---
 
@@ -187,3 +187,4 @@ the todo item that are not yet implemented:
 
 These in-app features are enhancements you can decide on later. The core
 release pipeline is functional today.
+

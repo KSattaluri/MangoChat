@@ -112,7 +112,7 @@ Once a `TranscriptFinal` arrives, `process_transcript` runs on a blocking thread
 
 1. **URL commands** (dynamic, from settings): If the phrase matches a configured trigger (e.g. "github", "youtube"), opens that URL in Chrome via `Ctrl+T → Ctrl+L → type URL → Enter`.
 2. **App-launch commands**: "chrome" / "open chrome" focuses or launches Chrome. "paint" / "open paint" launches mspaint.
-3. **Static keyboard commands** (with wake word "Jarvis"):
+3. **Static keyboard commands** (with wake word "Mango Chat"):
    - `enter` / `new line` / `line break` → press Enter
    - `new paragraph` → double Enter
    - `back` → delete previous word (Ctrl+Shift+Left then Backspace)
@@ -122,7 +122,7 @@ Once a `TranscriptFinal` arrives, `process_transcript` runs on a blocking thread
 4. **Standalone commands** (no wake word): exact match only — bare "enter", "back", etc.
 5. **Fallback**: If nothing matches, the full original transcript is typed into the focused window via `enigo`, with a trailing space appended.
 
-Wake word recognition includes phonetic variants: "jarvis", "jarvi", "jarbi", "jarbis", "jarviss".
+Wake word recognition includes phonetic variants: "mangochat", "mangochat", "mango", "Mango Chat", "jarvi".
 
 ---
 
@@ -133,3 +133,4 @@ Files: `src/settings.rs`, `src/ui.rs`
 - API keys are stored per provider in `settings.api_keys` (`HashMap<String, String>`).
 - When the user changes provider in the settings UI, the current key is saved back to the map and the new provider's key is loaded into the form field. This prevents cross-provider key mixups.
 - Provider, model, transcription model, language, mic device, VAD mode, theme, and text size are all persisted to `settings.json` in the local app data directory.
+

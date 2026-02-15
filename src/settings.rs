@@ -192,6 +192,16 @@ fn default_alias_commands() -> Vec<AliasCommand> {
 
 pub fn settings_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
+        return Ok(dir.join("MangoChat").join("settings.json"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".mangochat").join("settings.json"));
+    }
+    Err("Failed to resolve data directory".into())
+}
+
+fn legacy_settings_path() -> Result<PathBuf, String> {
+    if let Some(dir) = dirs::data_local_dir() {
         return Ok(dir.join("Jarvis").join("settings.json"));
     }
     if let Some(home) = dirs::home_dir() {
@@ -205,7 +215,15 @@ pub fn load() -> Settings {
         Ok(p) => p,
         Err(_) => return Settings::default(),
     };
-    let mut settings: Settings = match fs::read_to_string(&path) {
+    let read_path = if path.exists() {
+        path
+    } else {
+        match legacy_settings_path() {
+            Ok(p) => p,
+            Err(_) => return Settings::default(),
+        }
+    };
+    let mut settings: Settings = match fs::read_to_string(&read_path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => return Settings::default(),
     };
