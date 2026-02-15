@@ -37,6 +37,8 @@ pub struct Settings {
     pub accent_color: String, // green | purple | blue | orange | pink
     #[serde(default)]
     pub compact_background_enabled: bool,
+    #[serde(default)]
+    pub auto_minimize: bool,
     #[serde(default = "default_window_monitor_mode")]
     pub window_monitor_mode: String, // follow_cursor | fixed
     #[serde(default)]
@@ -107,6 +109,7 @@ impl Default for Settings {
             text_size: default_text_size(),
             accent_color: default_accent_color(),
             compact_background_enabled: false,
+            auto_minimize: false,
             window_monitor_mode: default_window_monitor_mode(),
             window_monitor_id: String::new(),
             window_anchor: default_window_anchor(),

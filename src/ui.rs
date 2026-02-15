@@ -187,6 +187,7 @@ pub struct JarvisApp {
     pub form_text_size: String,
     pub form_accent_color: String,
     pub form_compact_background_enabled: bool,
+    pub form_auto_minimize: bool,
     pub form_window_monitor_mode: String,
     pub form_window_monitor_id: String,
     pub form_window_anchor: String,
@@ -336,6 +337,7 @@ impl JarvisApp {
         self.form_text_size = self.settings.text_size.clone();
         self.form_accent_color = self.settings.accent_color.clone();
         self.form_compact_background_enabled = self.settings.compact_background_enabled;
+        self.form_auto_minimize = self.settings.auto_minimize;
         self.form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         self.form_window_monitor_id = self.settings.window_monitor_id.clone();
         self.form_window_anchor = self.settings.window_anchor.clone();
@@ -376,6 +378,7 @@ impl JarvisApp {
         let form_text_size = settings.text_size.clone();
         let form_accent_color = settings.accent_color.clone();
         let form_compact_background_enabled = settings.compact_background_enabled;
+        let form_auto_minimize = settings.auto_minimize;
         let form_window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         let form_window_monitor_id = settings.window_monitor_id.clone();
         let form_window_anchor = settings.window_anchor.clone();
@@ -447,6 +450,7 @@ impl JarvisApp {
             form_text_size,
             form_accent_color,
             form_compact_background_enabled,
+            form_auto_minimize,
             form_window_monitor_mode,
             form_window_monitor_id,
             form_window_anchor,
@@ -1931,6 +1935,20 @@ impl JarvisApp {
                                         .size(11.0)
                                         .color(TEXT_MUTED),
                                     );
+                                    ui.add_space(8.0);
+                                    ui.checkbox(
+                                        &mut self.form_auto_minimize,
+                                        egui::RichText::new("Auto-minimize on focus loss")
+                                            .size(12.0)
+                                            .color(TEXT_COLOR),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Collapse settings when the app loses focus.",
+                                        )
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                    );
                                     ui.add_space(10.0);
                                     section_header(ui, "App Paths");
                                     field(
@@ -2604,6 +2622,8 @@ impl JarvisApp {
                                             self.form_accent_color.clone();
                                         self.settings.compact_background_enabled =
                                             self.form_compact_background_enabled;
+                                        self.settings.auto_minimize =
+                                            self.form_auto_minimize;
                                         self.settings.window_monitor_mode =
                                             WINDOW_MONITOR_MODE_FIXED.to_string();
                                         self.settings.window_monitor_id =
@@ -2923,6 +2943,15 @@ impl eframe::App for JarvisApp {
         // Close → quit app directly.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.should_quit = true;
+        }
+
+        if self.settings_open && self.settings.auto_minimize {
+            let focused = ctx.input(|i| i.viewport().focused);
+            if focused == Some(false) {
+                self.persist_accent_if_changed();
+                self.settings_open = false;
+                self.apply_window_mode(ctx, false);
+            }
         }
 
         self.render_main_ui(ctx);
