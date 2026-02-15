@@ -24,7 +24,7 @@ if (-not $BuildName -or $BuildName.Trim().Length -eq 0) {
 # Inno preprocessor macro safe value
 $BuildName = ($BuildName -replace '[^A-Za-z0-9._-]', '-')
 
-Write-Host "Building jarvis.exe (release)..." -ForegroundColor Cyan
+Write-Host "Building mangochat.exe (release)..." -ForegroundColor Cyan
 cargo build --release
 
 $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -32,15 +32,16 @@ if (-not (Test-Path $iscc)) {
     throw "Inno Setup not found at '$iscc'. Install Inno Setup 6 first."
 }
 
-$exePath = Join-Path $root "target\release\jarvis.exe"
+$exePath = Join-Path $root "target\release\mangochat.exe"
 if (-not (Test-Path $exePath)) {
     throw "Missing $exePath"
 }
 
 Write-Host "Packaging installer v$Version ($BuildName)..." -ForegroundColor Cyan
-& $iscc "$root\installer\Jarvis.iss" "/DMyAppVersion=$Version" "/DBuildName=$BuildName" "/DMyAppExe=$exePath"
+& $iscc "$root\installer\MangoChat.iss" "/DMyAppVersion=$Version" "/DBuildName=$BuildName" "/DMyAppExe=$exePath"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
 
 Write-Host "Done. Installer output is in $root\dist" -ForegroundColor Green
+
 
 

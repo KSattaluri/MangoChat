@@ -12,6 +12,16 @@ struct SecretsFile {
 
 fn secrets_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
+        return Ok(dir.join("MangoChat").join("secrets.json"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".mangochat").join("secrets.json"));
+    }
+    Err("Failed to resolve data directory".into())
+}
+
+fn legacy_secrets_path() -> Result<PathBuf, String> {
+    if let Some(dir) = dirs::data_local_dir() {
         return Ok(dir.join("Jarvis").join("secrets.json"));
     }
     if let Some(home) = dirs::home_dir() {
@@ -22,7 +32,15 @@ fn secrets_path() -> Result<PathBuf, String> {
 
 pub fn load_api_keys() -> Result<HashMap<String, String>, String> {
     let path = secrets_path()?;
-    let text = match fs::read_to_string(&path) {
+    let read_path = if path.exists() {
+        path
+    } else {
+        match legacy_secrets_path() {
+            Ok(p) => p,
+            Err(_) => return Ok(HashMap::new()),
+        }
+    };
+    let text = match fs::read_to_string(&read_path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
         Err(e) => return Err(format!("Failed to read secrets file: {}", e)),

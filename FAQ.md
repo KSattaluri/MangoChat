@@ -1,4 +1,4 @@
-# Jarvis FAQ
+# Mango Chat FAQ
 
 ## 1) How do I start dictating?
 Press and hold `Right Ctrl` and speak. Release to commit your speech to the active text field.
@@ -21,14 +21,14 @@ Provider changes are staged in the form first. They are only persisted/applied a
 
 ## 6) What do Validate and Default mean in Provider settings?
 - `Validate`: checks whether the current API key works for that provider.
-- `Default`: selects the provider Jarvis uses for live dictation.
+- `Default`: selects the provider Mango Chat uses for live dictation.
 
 ## 7) Can I use different API keys for each provider?
 Yes. Keys are stored per provider.
 
 ## 8) Where are my settings saved?
 On Windows, settings are stored in:
-`AppData/Local/Jarvis/settings.json`
+`AppData/Local/MangoChat/settings.json`
 
 ## 9) Can I change microphones without restarting the app?
 Yes. In `Settings > Audio`, use the microphone dropdown and click `Refresh` to re-scan available input devices.
@@ -44,8 +44,8 @@ Start Cue plays a short audio notification when capture starts, so you know the 
 ## 12) How do voice URL commands work?
 In `Settings > Commands`, map a trigger word (for example `github`) to a URL. Saying `open <trigger>` opens that URL in Chrome.
 
-## 13) Can Jarvis run edit commands like Enter/Backspace?
-Yes. Jarvis supports built-in voice command keywords (for example `enter`, `back`) and dispatches them as keyboard actions.
+## 13) Can Mango Chat run edit commands like Enter/Backspace?
+Yes. Mango Chat supports built-in voice command keywords (for example `enter`, `back`) and dispatches them as keyboard actions.
 
 ## 14) Why do some very short words sometimes not appear?
 Short utterances can be affected by VAD segmentation and provider turn-finalization behavior. If this happens often, try `Lenient` mode and speak command words clearly with a brief pause after them.
@@ -54,16 +54,16 @@ Short utterances can be affected by VAD segmentation and provider turn-finalizat
 It shows session and cumulative usage metrics (for example sent/suppressed audio time, bytes sent, and commits), plus recent session history.
 
 ## 16) What happens when I close the app window?
-Closing the main window hides Jarvis to tray by default (unless explicitly quitting).
+Closing the main window hides Mango Chat to tray by default (unless explicitly quitting).
 
-## 17) How do I fully quit Jarvis?
+## 17) How do I fully quit Mango Chat?
 Use tray menu `Quit` (or the app's explicit quit control where available).
 
 ## 18) How do screenshots/snips work?
 Use the snip workflow to select an area. You can copy image data, copy file path, and optionally open/edit after capture (for example in Paint).
 
 ## 19) Why does provider behavior feel different across services?
-Each provider has different server-side turn detection and finalization behavior. Jarvis uses one client pipeline, but transcript timing and punctuation can vary by provider.
+Each provider has different server-side turn detection and finalization behavior. Mango Chat uses one client pipeline, but transcript timing and punctuation can vary by provider.
 
 ## 20) Is there a light theme?
 No. The app currently uses a dark theme only.
@@ -77,3 +77,4 @@ Try this sequence:
 - Confirm provider key/default in Provider settings.
 - Confirm microphone selection in Audio settings.
 - Restart the app if needed.
+

@@ -7,12 +7,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 /// Strip punctuation, lowercase, collapse whitespace.
-/// "Jarvis: back, back." → "jarvis back back"
+/// "Mango Chat: back, back." -> "mango chat back back"
 fn normalize(text: &str) -> String {
     let lower = text.trim().to_lowercase();
     // Replace any non-alphanumeric char with a space, then collapse.
-    // "Jarvis-Enter." → "jarvis enter"
-    // "Jarvis: back, back." → "jarvis back back"
+    // "Mango-Chat Enter." -> "mango chat enter"
+    // "Mango Chat: back, back." -> "mango chat back back"
     lower
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { ' ' })
@@ -51,7 +51,7 @@ const COMMANDS: &[(&str, fn())] = &[
     ("cut",            cmd_cut as fn()),
 ];
 
-const WAKE_WORDS: &[&str] = &["jarvis", "jarvi", "jarbi", "jarbis", "jarviss"];
+const WAKE_WORDS: &[&str] = &["mangochat", "mango", "jarvis", "jarvi", "jarbi"];
 
 fn cmd_new_line()       { press_enter(); }
 fn cmd_new_paragraph()  { press_enter(); press_enter(); }
@@ -388,4 +388,5 @@ pub fn copy_to_clipboard(text: &str) {
         }
     }
 }
+
 
