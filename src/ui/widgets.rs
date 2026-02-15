@@ -408,29 +408,6 @@ pub fn draw_dancing_strings(
     }
 }
 
-pub fn field(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut String,
-    password: bool,
-) -> egui::Response {
-    let p = theme_palette(ui.visuals().dark_mode);
-    ui.label(egui::RichText::new(label).size(11.0).color(p.text_muted));
-    // Match text input surface to active theme.
-    ui.visuals_mut().extreme_bg_color = if ui.visuals().dark_mode {
-        Color32::from_rgb(0x1a, 0x1d, 0x24)
-    } else {
-        Color32::from_rgb(0xff, 0xff, 0xff)
-    };
-    let mut te = egui::TextEdit::singleline(value)
-        .font(FontId::proportional(12.0))
-        .text_color(p.text)
-        .desired_width(f32::INFINITY);
-    if password {
-        te = te.password(true);
-    }
-    ui.add(te)
-}
 
 pub fn section_header(ui: &mut egui::Ui, text: &str) {
     let p = theme_palette(ui.visuals().dark_mode);

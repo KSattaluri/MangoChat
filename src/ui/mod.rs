@@ -813,9 +813,15 @@ impl MangoChatApp {
                     );
                 }
                 // --- Top control row ---
+                if self.settings_open {
+                    ui.add_space(8.0);
+                }
                 let viz_center = ui
                     .horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
+                        if self.settings_open {
+                            ui.add_space(16.0);
+                        }
 
                         let record_resp = record_toggle(ui, self.is_recording, accent);
                         if record_resp.clicked() {
@@ -1005,9 +1011,9 @@ impl MangoChatApp {
                                             let active = self.settings_tab == id;
                                             let text = if active {
                                                 egui::RichText::new(label)
-                                                    .size(12.0)
+                                                    .size(14.0)
                                                     .strong()
-                                                    .color(p.text)
+                                                    .color(Color32::BLACK)
                                             } else {
                                                 egui::RichText::new(label)
                                                     .size(12.0)
@@ -1047,36 +1053,74 @@ impl MangoChatApp {
                                     }
                                     ui.add_space(2.0);
 
+                                    // Reserve vertical space for the Save button so
+                                    // tab content doesn't push it off-screen on
+                                    // smaller monitors.
+                                    let has_save = matches!(
+                                        self.settings_tab.as_str(),
+                                        "provider"
+                                            | "dictation"
+                                            | "commands"
+                                            | "appearance"
+                                            | "general"
+                                    );
+                                    let save_reserve =
+                                        if has_save { 38.0 } else { 0.0 };
+                                    let content_size = vec2(
+                                        ui.available_width(),
+                                        (ui.available_height() - save_reserve)
+                                            .max(200.0),
+                                    );
+
                                     // ── Tab content ──
-                                    match self.settings_tab.as_str() {
-                                        "provider" => {
-                                            tabs::provider::render(self, ui, ctx);
+                                    ui.allocate_ui(content_size, |ui| {
+                                        match self.settings_tab.as_str() {
+                                            "provider" => {
+                                                tabs::provider::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "dictation" => {
+                                                tabs::dictation::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "commands" => {
+                                                tabs::commands::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "appearance" => {
+                                                tabs::appearance::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "general" => {
+                                                tabs::general::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "usage" => {
+                                                tabs::usage::render(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "about" => {
+                                                tabs::about::render_about(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            "faq" => {
+                                                tabs::about::render_faq(
+                                                    self, ui, ctx,
+                                                );
+                                            }
+                                            _ => {}
                                         }
-                                        "dictation" => {
-                                            tabs::dictation::render(self, ui, ctx);
-                                        }
-                                        "commands" => {
-                                            tabs::commands::render(self, ui, ctx);
-                                        }
-                                        "appearance" => {
-                                            tabs::appearance::render(self, ui, ctx);
-                                        }
-                                        "general" => {
-                                            tabs::general::render(self, ui, ctx);
-                                        }
-                                        "usage" => {
-                                            tabs::usage::render(self, ui, ctx);
-                                        }
-                                        "about" => {
-                                            tabs::about::render_about(self, ui, ctx);
-                                        }
-                                        "faq" => {
-                                            tabs::about::render_faq(self, ui, ctx);
-                                        }
-                                        _ => {}
-                                    }
+                                    });
 
                                     // Save button (only on settings tabs)
+                                    ui.add_space(10.0);
                                     if matches!(
                                         self.settings_tab.as_str(),
                                         "provider"
@@ -1099,8 +1143,13 @@ impl MangoChatApp {
                                             [save_w, 24.0],
                                             egui::Button::new(
                                                 egui::RichText::new(save_label)
-                                                    .size(13.0)
-                                                    .color(TEXT_COLOR),
+                                                    .size(15.0)
+                                                    .strong()
+                                                    .color(if show_exit {
+                                                        TEXT_COLOR
+                                                    } else {
+                                                        Color32::BLACK
+                                                    }),
                                             )
                                             .fill(if show_exit {
                                                 BTN_BG
