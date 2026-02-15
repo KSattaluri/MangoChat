@@ -11,6 +11,7 @@ use crate::audio;
 use crate::settings::Settings;
 use crate::usage::{append_usage_line, session_usage_path};
 use crate::state::{AppEvent, AppState, SessionUsage};
+use crate::updater::{self, CheckOutcome, ReleaseInfo, WorkerMessage};
 use eframe::egui;
 use egui::{
     pos2, vec2, Color32, Pos2, Rect, Sense, Stroke, TextureHandle,
@@ -18,7 +19,7 @@ use egui::{
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver as EventReceiver, Sender as EventSender};
+use std::sync::mpsc::{self, Receiver as EventReceiver, Sender as EventSender};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,6 +29,17 @@ use window::*;
 use widgets::*;
 use tray::*;
 use form_state::FormState;
+
+#[derive(Debug, Clone)]
+pub enum UpdateUiState {
+    NotChecked,
+    Checking,
+    UpToDate { current: String },
+    Available { current: String, latest: ReleaseInfo },
+    Installing,
+    InstallLaunched { path: String },
+    Error(String),
+}
 
 pub struct MangoChatApp {
     pub state: Arc<AppState>,
@@ -76,6 +88,12 @@ pub struct MangoChatApp {
     pub confirm_reset_totals: bool,
     pub confirm_reset_include_sessions: bool,
     pub selected_mic_unavailable: bool,
+    pub update_state: UpdateUiState,
+    pub update_worker_tx: mpsc::Sender<WorkerMessage>,
+    pub update_worker_rx: mpsc::Receiver<WorkerMessage>,
+    pub update_last_check: Option<std::time::Instant>,
+    pub update_check_inflight: bool,
+    pub update_install_inflight: bool,
 }
 
 impl MangoChatApp {
@@ -209,6 +227,8 @@ impl MangoChatApp {
         let mic_devices = audio::list_input_devices();
         let form = FormState::from_settings(&settings);
 
+        let (update_worker_tx, update_worker_rx) = mpsc::channel::<WorkerMessage>();
+
         // Create tray icon here (inside the event loop) so it stays alive
         let tray_icon = setup_tray(accent_palette(&settings.accent_color));
         println!("[tray] icon created: {}", tray_icon.is_some());
@@ -267,6 +287,45 @@ impl MangoChatApp {
             confirm_reset_totals: false,
             confirm_reset_include_sessions: false,
             selected_mic_unavailable: false,
+            update_state: UpdateUiState::NotChecked,
+            update_worker_tx,
+            update_worker_rx,
+            update_last_check: None,
+            update_check_inflight: false,
+            update_install_inflight: false,
+        }
+    }
+
+    pub fn trigger_update_check(&mut self) {
+        if self.update_check_inflight {
+            return;
+        }
+        self.update_check_inflight = true;
+        self.update_state = UpdateUiState::Checking;
+        updater::spawn_check(
+            self.update_worker_tx.clone(),
+            self.form.update_include_prerelease,
+        );
+    }
+
+    pub fn trigger_update_install(&mut self) {
+        if self.update_install_inflight {
+            return;
+        }
+        let release = match &self.update_state {
+            UpdateUiState::Available { latest, .. } => latest.clone(),
+            _ => return,
+        };
+        self.update_install_inflight = true;
+        self.update_state = UpdateUiState::Installing;
+        updater::spawn_install(self.update_worker_tx.clone(), release);
+    }
+
+    pub fn open_update_release_page(&mut self) {
+        if let UpdateUiState::Available { latest, .. } = &self.update_state {
+            if let Err(e) = updater::open_release_page(&latest.html_url) {
+                self.set_status(&e, "error");
+            }
         }
     }
 
@@ -590,6 +649,51 @@ impl MangoChatApp {
                         self.set_status("Device unavailable. Change in Settings.", "error");
                     } else {
                         self.set_status("Mic disconnected", "error");
+                    }
+                }
+            }
+        }
+
+        while let Ok(msg) = self.update_worker_rx.try_recv() {
+            match msg {
+                WorkerMessage::CheckFinished(result) => {
+                    self.update_check_inflight = false;
+                    self.update_last_check = Some(std::time::Instant::now());
+                    match result {
+                        Ok(CheckOutcome::UpToDate { current }) => {
+                            self.update_state = UpdateUiState::UpToDate {
+                                current: current.to_string(),
+                            };
+                        }
+                        Ok(CheckOutcome::UpdateAvailable { current, latest }) => {
+                            self.update_state = UpdateUiState::Available {
+                                current: current.to_string(),
+                                latest,
+                            };
+                        }
+                        Err(e) => {
+                            self.update_state = UpdateUiState::Error(e.clone());
+                            self.set_status(&e, "error");
+                        }
+                    }
+                }
+                WorkerMessage::InstallFinished(result) => {
+                    self.update_install_inflight = false;
+                    match result {
+                        Ok(path) => {
+                            self.update_state = UpdateUiState::InstallLaunched {
+                                path: path.clone(),
+                            };
+                            self.set_status(
+                                "Installer launched. Closing app for upgrade...",
+                                "idle",
+                            );
+                            self.should_quit = true;
+                        }
+                        Err(e) => {
+                            self.update_state = UpdateUiState::Error(e.clone());
+                            self.set_status(&e, "error");
+                        }
                     }
                 }
             }
@@ -1162,6 +1266,19 @@ impl eframe::App for MangoChatApp {
         self.apply_appearance(ctx);
         self.process_events();
 
+        if self.settings.auto_update_enabled
+            && !self.update_check_inflight
+            && !self.update_install_inflight
+        {
+            let should_check = self
+                .update_last_check
+                .map(|t| t.elapsed() >= std::time::Duration::from_secs(6 * 60 * 60))
+                .unwrap_or(true);
+            if should_check {
+                self.trigger_update_check();
+            }
+        }
+
         // Position bottom-right on first frame
         if !self.positioned {
             let compact_size = vec2(self.compact_window_width(), self.compact_window_height());
@@ -1247,6 +1364,9 @@ impl eframe::App for MangoChatApp {
         // Close → quit app directly.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.should_quit = true;
+        }
+        if self.should_quit {
+            std::process::exit(0);
         }
 
         if self.settings_open && self.settings.auto_minimize {
