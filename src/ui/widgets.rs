@@ -655,3 +655,162 @@ pub fn tab_button(
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
+/// Draws a preset-mode icon (P/I/E) at center `c` within a logical `s`-sized box.
+pub fn draw_preset_icon(
+    painter: &egui::Painter,
+    preset: &str,
+    c: egui::Pos2,
+    s: f32,
+    color: Color32,
+) {
+    let stroke = Stroke::new(1.4, color);
+
+    match preset {
+        // ── Path: chevron prompt  ❯  ──
+        "path" => {
+            let chev_h = s * 0.30;
+            let chev_w = s * 0.26;
+            let cx = c.x - chev_w * 0.15;
+            painter.line_segment(
+                [pos2(cx - chev_w, c.y - chev_h), pos2(cx, c.y)],
+                stroke,
+            );
+            painter.line_segment(
+                [pos2(cx, c.y), pos2(cx - chev_w, c.y + chev_h)],
+                stroke,
+            );
+            // underscore cursor
+            painter.line_segment(
+                [pos2(cx + s * 0.08, c.y + chev_h), pos2(cx + s * 0.30, c.y + chev_h)],
+                stroke,
+            );
+        }
+
+        // ── Image-in-memory: clipboard with image ──
+        "image" => {
+            // Clipboard outline
+            let board_w = s * 0.54;
+            let board_h = s * 0.64;
+            let board = Rect::from_center_size(
+                pos2(c.x, c.y + s * 0.04),
+                vec2(board_w, board_h),
+            );
+            painter.rect_stroke(board, 2.0, stroke);
+
+            // Clip tab on top
+            let tab_w = s * 0.24;
+            let tab_h = s * 0.12;
+            let tab = Rect::from_center_size(
+                pos2(c.x, board.min.y),
+                vec2(tab_w, tab_h),
+            );
+            painter.rect_filled(tab, 1.0, color);
+
+            // Small mountain/landscape inside (image indicator)
+            let inner_b = board.min.y + board_h * 0.75;
+            let inner_l = board.min.x + s * 0.08;
+            let inner_r = board.max.x - s * 0.08;
+            let peak1 = pos2(inner_l + (inner_r - inner_l) * 0.35, board.min.y + board_h * 0.42);
+            let peak2 = pos2(inner_l + (inner_r - inner_l) * 0.70, board.min.y + board_h * 0.55);
+            let thin = Stroke::new(1.0, color);
+            painter.line_segment([pos2(inner_l, inner_b), peak1], thin);
+            painter.line_segment([peak1, peak2], thin);
+            painter.line_segment([peak2, pos2(inner_r, inner_b)], thin);
+        }
+
+        // ── Edit: app window with pencil ──
+        "edit" => {
+            // App window frame
+            let win_w = s * 0.58;
+            let win_h = s * 0.52;
+            let win = Rect::from_center_size(
+                pos2(c.x - s * 0.04, c.y + s * 0.06),
+                vec2(win_w, win_h),
+            );
+            painter.rect_stroke(win, 2.0, stroke);
+
+            // Title bar dots
+            let dot_r = s * 0.032;
+            let dot_y = win.min.y + s * 0.07;
+            for i in 0..3 {
+                painter.circle_filled(
+                    pos2(win.min.x + s * 0.08 + i as f32 * s * 0.07, dot_y),
+                    dot_r,
+                    color,
+                );
+            }
+
+            // Small pencil in the bottom-right corner
+            let pen_tip = pos2(win.max.x + s * 0.02, win.max.y + s * 0.02);
+            let pen_top = pos2(pen_tip.x - s * 0.26, pen_tip.y - s * 0.26);
+            painter.line_segment([pen_top, pen_tip], Stroke::new(1.6, color));
+            // Pencil nib
+            let nib_dir = vec2(0.707, 0.707); // normalized diagonal
+            let nib_perp = vec2(-0.707, 0.707);
+            let nib_base = pos2(
+                pen_tip.x - nib_dir.x * s * 0.08,
+                pen_tip.y - nib_dir.y * s * 0.08,
+            );
+            let nib_l = pos2(
+                nib_base.x + nib_perp.x * s * 0.04,
+                nib_base.y + nib_perp.y * s * 0.04,
+            );
+            let nib_r = pos2(
+                nib_base.x - nib_perp.x * s * 0.04,
+                nib_base.y - nib_perp.y * s * 0.04,
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![nib_l, pen_tip, nib_r],
+                color,
+                Stroke::NONE,
+            ));
+        }
+
+        _ => {}
+    }
+}
+
+/// Renders a compact icon-only button for screenshot presets (P/I/E).
+pub fn preset_icon_button(
+    ui: &mut egui::Ui,
+    preset: &str,
+    active: bool,
+    accent: AccentPalette,
+) -> egui::Response {
+    let size = vec2(28.0, 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let hovered = response.hovered();
+        let p = theme_palette(ui.visuals().dark_mode);
+
+        let fill = if active {
+            accent.base
+        } else if hovered {
+            Color32::from_rgb(0x2d, 0x31, 0x3c)
+        } else {
+            p.btn_bg
+        };
+        let border = if active {
+            accent.ring
+        } else if hovered {
+            Color32::from_rgb(0x44, 0x48, 0x54)
+        } else {
+            p.btn_border
+        };
+        ui.painter()
+            .rect(rect, 4.0, fill, Stroke::new(1.0, border));
+
+        let icon_color = if active {
+            Color32::WHITE
+        } else if hovered {
+            TEXT_COLOR
+        } else {
+            p.text
+        };
+        draw_preset_icon(ui.painter(), preset, rect.center(), 18.0, icon_color);
+    }
+
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+

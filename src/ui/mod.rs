@@ -766,28 +766,7 @@ impl MangoChatApp {
         let p = theme_palette(true);
         let accent = self.current_accent();
         let show_screenshot_controls = self.settings.screenshot_enabled;
-        let preset_btn =
-            |ui: &mut egui::Ui,
-             label: &str,
-             active: bool,
-             p: ThemePalette,
-             accent: AccentPalette| {
-                ui.add(
-                    egui::Button::new(
-                        egui::RichText::new(label)
-                            .size(11.0)
-                            .strong()
-                            .color(if active { Color32::WHITE } else { p.text }),
-                    )
-                    .fill(if active { accent.base } else { p.btn_bg })
-                    .stroke(Stroke::new(
-                        1.0,
-                        if active { accent.ring } else { p.btn_border },
-                    ))
-                    .rounding(4.0)
-                    .min_size(vec2(20.0, 22.0)),
-                )
-            };
+        // preset_btn closure removed — using widgets::preset_icon_button instead
         let compact_mode = !self.settings_open;
         let compact_bg = compact_mode && self.settings.compact_background_enabled;
         let panel_fill = if self.settings_open {
@@ -795,12 +774,24 @@ impl MangoChatApp {
         } else {
             Color32::TRANSPARENT
         };
-        let panel_margin = if compact_bg { 16.0 } else { 12.0 };
+        let panel_margin_h = if compact_bg { 16.0 } else { 12.0 };
+        let panel_margin_v = if self.settings_open {
+            panel_margin_h
+        } else if compact_bg {
+            16.0
+        } else {
+            12.0
+        };
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(panel_fill)
-                    .inner_margin(egui::Margin::symmetric(panel_margin, panel_margin)),
+                    .inner_margin(egui::Margin {
+                        left: panel_margin_h,
+                        right: panel_margin_h,
+                        top: panel_margin_v,
+                        bottom: panel_margin_v,
+                    }),
             )
             .show(ctx, |ui| {
                 if compact_bg {
@@ -812,6 +803,28 @@ impl MangoChatApp {
                         Stroke::new(1.0, p.btn_border),
                     );
                 }
+
+                // --- Audio device label (compact mode only) ---
+                if !self.settings_open {
+                    let device_label = if self.settings.mic_device.trim().is_empty() {
+                        "System default".to_string()
+                    } else {
+                        self.settings.mic_device.clone()
+                    };
+                    ui.allocate_ui(vec2(ui.available_width(), 13.0), |ui| {
+                        ui.spacing_mut().interact_size.y = 13.0;
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(device_label)
+                                    .size(9.5)
+                                    .color(TEXT_MUTED),
+                            )
+                            .truncate(),
+                        );
+                    });
+                    ui.add_space(4.0);
+                }
+
                 // --- Top control row ---
                 if self.settings_open {
                     ui.add_space(8.0);
@@ -915,7 +928,7 @@ impl MangoChatApp {
                         let pad = ((ui.available_width() - btns_w) * 0.5).max(0.0);
                         ui.add_space(pad);
                         let p_resp =
-                            preset_btn(ui, "P", !self.snip_copy_image, p, accent);
+                            preset_icon_button(ui, "path", !self.snip_copy_image, accent);
                         self.paint_control_tooltip(
                             ctx,
                             &p_resp,
@@ -928,11 +941,10 @@ impl MangoChatApp {
                             self.snip_copy_image = false;
                             self.snip_edit_after = false;
                         }
-                        let i_resp = preset_btn(
+                        let i_resp = preset_icon_button(
                             ui,
-                            "I",
+                            "image",
                             self.snip_copy_image && !self.snip_edit_after,
-                            p,
                             accent,
                         );
                         self.paint_control_tooltip(
@@ -947,11 +959,10 @@ impl MangoChatApp {
                             self.snip_copy_image = true;
                             self.snip_edit_after = false;
                         }
-                        let e_resp = preset_btn(
+                        let e_resp = preset_icon_button(
                             ui,
-                            "E",
+                            "edit",
                             self.snip_copy_image && self.snip_edit_after,
-                            p,
                             accent,
                         );
                         self.paint_control_tooltip(
@@ -969,7 +980,7 @@ impl MangoChatApp {
                     });
                 }
 
-                ui.add_space(if self.settings_open { 6.0 } else { 2.0 });
+                ui.add_space(if self.settings_open { 6.0 } else { 0.0 });
 
                 // --- Collapsible settings panel ---
                 if self.settings_open {
