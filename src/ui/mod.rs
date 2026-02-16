@@ -811,18 +811,49 @@ impl MangoChatApp {
                     } else {
                         self.settings.mic_device.clone()
                     };
-                    ui.allocate_ui(vec2(ui.available_width(), 13.0), |ui| {
-                        ui.spacing_mut().interact_size.y = 13.0;
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(device_label)
-                                    .size(9.5)
-                                    .color(TEXT_MUTED),
-                            )
-                            .truncate(),
-                        );
+                    let mic_color = if self.is_recording {
+                        accent.base
+                    } else {
+                        TEXT_COLOR
+                    };
+                    let text_color = if self.is_recording {
+                        accent.base
+                    } else {
+                        TEXT_MUTED
+                    };
+                    let t = ctx.input(|i| i.time) as f32;
+                    let row_w = ui.available_width();
+                    let icon_s = 16.0;
+                    let icon_alloc = icon_s + 3.0;
+                    ui.allocate_ui(vec2(row_w, 16.0), |ui| {
+                        ui.spacing_mut().interact_size.y = 16.0;
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            let (icon_rect, _) =
+                                ui.allocate_exact_size(vec2(icon_alloc, 16.0), Sense::hover());
+                            let icon_center = pos2(
+                                icon_rect.min.x + icon_s * 0.5,
+                                icon_rect.center().y,
+                            );
+                            draw_mic_status_icon(
+                                ui.painter(),
+                                icon_center,
+                                icon_s,
+                                mic_color,
+                                self.is_recording,
+                                t,
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(device_label)
+                                        .size(9.5)
+                                        .color(text_color),
+                                )
+                                .truncate(),
+                            );
+                        });
                     });
-                    ui.add_space(4.0);
+                    ui.add_space(2.0);
                 }
 
                 // --- Top control row ---
@@ -921,7 +952,7 @@ impl MangoChatApp {
                     .inner;
 
                 if show_screenshot_controls && !self.settings_open {
-                    ui.add_space(1.0);
+                    ui.add_space(0.0);
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         let btns_w = 3.0 * 28.0 + 2.0 * 6.0;

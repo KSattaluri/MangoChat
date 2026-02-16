@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{pos2, vec2, Color32, CursorIcon, FontId, Rect, Sense, Stroke};
+use egui::{pos2, vec2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke};
 
 use super::theme::*;
 
@@ -812,5 +812,85 @@ pub fn preset_icon_button(
     }
 
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// Sample a cubic bezier into `n` points (excluding the start point).
+fn sample_cubic(p0: Pos2, p1: Pos2, p2: Pos2, p3: Pos2, n: usize) -> Vec<Pos2> {
+    (1..=n)
+        .map(|i| {
+            let t = i as f32 / n as f32;
+            let u = 1.0 - t;
+            pos2(
+                u * u * u * p0.x + 3.0 * u * u * t * p1.x + 3.0 * u * t * t * p2.x + t * t * t * p3.x,
+                u * u * u * p0.y + 3.0 * u * u * t * p1.y + 3.0 * u * t * t * p2.y + t * t * t * p3.y,
+            )
+        })
+        .collect()
+}
+
+/// Draws a Fluent UI mic icon (from actual SVG path data) with a pulsating
+/// body when recording.  `t` is the animation clock in seconds.
+pub fn draw_mic_status_icon(
+    painter: &egui::Painter,
+    c: egui::Pos2,
+    s: f32,
+    color: Color32,
+    is_recording: bool,
+    t: f32,
+) {
+    // ── Pulse the whole icon's alpha when recording ──
+    let draw_color = if is_recording {
+        let pulse = (t * 2.2).sin() * 0.5 + 0.5; // slower breathing
+        let alpha = (50.0 + pulse * 205.0) as u8;  // 50..255 — very visible
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
+    } else {
+        color
+    };
+
+    let stroke = Stroke::new(1.3, draw_color);
+
+    // Map from the Fluent 24×24 SVG coordinate space to screen pixels
+    // centred on `c` within a `s × s` box.
+    let scale = s / 24.0;
+    let m = |sx: f32, sy: f32| -> Pos2 {
+        pos2(c.x + (sx - 12.0) * scale, c.y + (sy - 12.0) * scale)
+    };
+    let seg = 8; // samples per bezier curve
+
+    // ── Capsule (filled) — exact Fluent SVG path ──
+    // M12,2  C14.209,2  16,3.791  16,6  V12
+    //        C16,14.209 14.209,16 12,16
+    //        C9.791,16  8,14.209  8,12  V6
+    //        C8,3.791   9.791,2   12,2  Z
+    let mut cap = vec![m(12.0, 2.0)];
+    cap.extend(sample_cubic(m(12.0, 2.0), m(14.209, 2.0), m(16.0, 3.791), m(16.0, 6.0), seg));
+    cap.push(m(16.0, 12.0));
+    cap.extend(sample_cubic(m(16.0, 12.0), m(16.0, 14.209), m(14.209, 16.0), m(12.0, 16.0), seg));
+    cap.extend(sample_cubic(m(12.0, 16.0), m(9.791, 16.0), m(8.0, 14.209), m(8.0, 12.0), seg));
+    cap.push(m(8.0, 6.0));
+    cap.extend(sample_cubic(m(8.0, 6.0), m(8.0, 3.791), m(9.791, 2.0), m(12.0, 2.0), seg));
+    painter.add(egui::Shape::convex_polygon(cap, draw_color, Stroke::NONE));
+
+    // ── Cradle (stroked U-shape) ──
+    // Centre line derived from the filled SVG cradle whose outer edge is
+    // at x ≈ 5 / 19 and inner edge at x ≈ 6.5 / 17.5.
+    let cl = 5.75_f32;  // left arm centre
+    let cr = 18.25_f32; // right arm centre
+    let arm_top = 11.5_f32;
+
+    let mut cradle = vec![m(cr, arm_top), m(cr, 13.0)];
+    cradle.extend(sample_cubic(m(cr, 13.0), m(cr, 16.5), m(15.0, 18.1), m(12.0, 18.1), seg));
+    cradle.extend(sample_cubic(m(12.0, 18.1), m(9.0, 18.1), m(cl, 16.5), m(cl, 13.0), seg));
+    cradle.push(m(cl, arm_top));
+
+    for w in cradle.windows(2) {
+        painter.line_segment([w[0], w[1]], stroke);
+    }
+
+    // ── Stem ──
+    painter.line_segment([m(12.0, 18.1), m(12.0, 21.0)], stroke);
+
+    // ── Base ──
+    painter.line_segment([m(10.0, 21.0), m(14.0, 21.0)], stroke);
 }
 

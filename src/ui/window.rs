@@ -3,8 +3,8 @@ use egui::{pos2, Pos2, Rect};
 
 pub const COMPACT_WINDOW_W_WITH_SNIP: f32 = 198.0;
 pub const COMPACT_WINDOW_W_NO_SNIP: f32 = 176.0;
-pub const COMPACT_WINDOW_H: f32 = 68.0;
-pub const COMPACT_WINDOW_H_WITH_SNIP: f32 = 96.0;
+pub const COMPACT_WINDOW_H: f32 = 74.0;
+pub const COMPACT_WINDOW_H_WITH_SNIP: f32 = 102.0;
 pub const COMPACT_BG_EXTRA_W: f32 = 36.0;
 pub const COMPACT_BG_EXTRA_H: f32 = 12.0;
 
