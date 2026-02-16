@@ -1030,7 +1030,7 @@ impl MangoChatApp {
                             // ── Tab bar ──
                             let prev_tab = self.settings_tab.clone();
                             ui.horizontal_top(|ui| {
-                                let nav_w = 170.0;
+                                let nav_w = 140.0;
                                 ui.allocate_ui_with_layout(
                                     vec2(nav_w, ui.available_height()),
                                     egui::Layout::top_down(egui::Align::Min),

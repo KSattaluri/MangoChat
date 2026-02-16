@@ -595,7 +595,7 @@ pub fn tab_button(
     width: f32,
 ) -> egui::Response {
     let p = theme_palette(ui.visuals().dark_mode);
-    let height = 32.0;
+    let height = 28.0;
     let (rect, response) =
         ui.allocate_exact_size(vec2(width, height), Sense::click());
 
@@ -621,7 +621,7 @@ pub fn tab_button(
             .rect(rect, 6.0, fill, Stroke::new(1.0, border));
 
         // ── Icon ──
-        let icon_center = pos2(rect.min.x + 20.0, rect.center().y);
+        let icon_center = pos2(rect.min.x + 18.0, rect.center().y);
         let icon_color = if active {
             Color32::from_rgba_unmultiplied(0, 0, 0, 210)
         } else if hovered {
@@ -629,11 +629,11 @@ pub fn tab_button(
         } else {
             accent.base
         };
-        draw_tab_icon(ui.painter(), tab_id, icon_center, 18.0, icon_color);
+        draw_tab_icon(ui.painter(), tab_id, icon_center, 16.0, icon_color);
 
         // ── Label (typewriter animation on hover only) ──
-        let font_size = if active { 13.5 } else { 12.0 };
-        let text_x = rect.min.x + 38.0;
+        let font_size = if active { 12.5 } else { 11.5 };
+        let text_x = rect.min.x + 34.0;
 
         let animate = hovered && !active;
         let lit_color = TEXT_COLOR;
