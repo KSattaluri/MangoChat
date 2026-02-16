@@ -4,6 +4,8 @@ use egui::{Color32, FontId, Stroke};
 use crate::ui::theme::*;
 use crate::ui::MangoChatApp;
 
+const APP_PATHS_FRAME_OVERHEAD: f32 = 34.0;
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
@@ -190,5 +192,46 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 let focus_id = egui::Id::new(("alias_trigger", new_idx));
                 ui.memory_mut(|m| m.request_focus(focus_id));
             }
+
+            // --- App Paths ---
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(12.0);
+
+            ui.label(
+                egui::RichText::new("App Paths")
+                    .size(13.0)
+                    .strong()
+                    .color(TEXT_COLOR),
+            );
+            ui.add_space(8.0);
+
+            let content_w = ui.available_width() - APP_PATHS_FRAME_OVERHEAD;
+            egui::Grid::new("app_paths_grid")
+                .num_columns(2)
+                .spacing([16.0, 12.0])
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Chrome")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.form.chrome_path)
+                            .desired_width(content_w * 0.7),
+                    );
+                    ui.end_row();
+
+                    ui.label(
+                        egui::RichText::new("Paint")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.form.paint_path)
+                            .desired_width(content_w * 0.7),
+                    );
+                    ui.end_row();
+                });
         });
 }

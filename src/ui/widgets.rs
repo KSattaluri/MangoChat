@@ -429,3 +429,229 @@ pub fn section_header(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+pub fn draw_tab_icon(
+    painter: &egui::Painter,
+    tab_id: &str,
+    c: egui::Pos2,
+    s: f32,
+    color: Color32,
+) {
+    let stroke = Stroke::new(1.3, color);
+    let thin = Stroke::new(1.0, color);
+
+    match tab_id {
+        // ── Cloud (provider / API services) ──
+        "provider" => {
+            let base_y = c.y + s * 0.08;
+            painter.rect_filled(
+                Rect::from_center_size(pos2(c.x, base_y), vec2(s * 0.72, s * 0.30)),
+                s * 0.15,
+                color,
+            );
+            painter.circle_filled(
+                pos2(c.x - s * 0.14, base_y - s * 0.15),
+                s * 0.20,
+                color,
+            );
+            painter.circle_filled(
+                pos2(c.x + s * 0.10, base_y - s * 0.24),
+                s * 0.24,
+                color,
+            );
+        }
+
+        // ── Microphone (dictation / voice input) ──
+        "dictation" => {
+            let top = c.y - s * 0.32;
+            let cap_h = s * 0.40;
+            let cap_w = s * 0.24;
+            let cap_center = pos2(c.x, top + cap_h * 0.5);
+            painter.rect_filled(
+                Rect::from_center_size(cap_center, vec2(cap_w, cap_h)),
+                cap_w * 0.5,
+                color,
+            );
+            let bowl_half = s * 0.22;
+            let bowl_top = cap_center.y + cap_h * 0.1;
+            let bowl_bot = cap_center.y + cap_h * 0.5 + s * 0.06;
+            painter.line_segment(
+                [pos2(c.x - bowl_half, bowl_top), pos2(c.x - bowl_half, bowl_bot)],
+                thin,
+            );
+            painter.line_segment(
+                [pos2(c.x + bowl_half, bowl_top), pos2(c.x + bowl_half, bowl_bot)],
+                thin,
+            );
+            let stem_top = bowl_bot + s * 0.04;
+            painter.line_segment(
+                [pos2(c.x - bowl_half, bowl_bot), pos2(c.x, stem_top)],
+                thin,
+            );
+            painter.line_segment(
+                [pos2(c.x + bowl_half, bowl_bot), pos2(c.x, stem_top)],
+                thin,
+            );
+            let base_y = c.y + s * 0.38;
+            painter.line_segment([pos2(c.x, stem_top), pos2(c.x, base_y)], thin);
+            painter.line_segment(
+                [pos2(c.x - s * 0.14, base_y), pos2(c.x + s * 0.14, base_y)],
+                stroke,
+            );
+        }
+
+        // ── Terminal prompt >_ (commands) ──
+        "commands" => {
+            let cx = c.x - s * 0.08;
+            let chev_h = s * 0.22;
+            let chev_w = s * 0.22;
+            painter.line_segment(
+                [pos2(cx - chev_w, c.y - chev_h), pos2(cx, c.y)],
+                stroke,
+            );
+            painter.line_segment(
+                [pos2(cx, c.y), pos2(cx - chev_w, c.y + chev_h)],
+                stroke,
+            );
+            painter.line_segment(
+                [pos2(cx + s * 0.10, c.y + chev_h), pos2(cx + s * 0.34, c.y + chev_h)],
+                stroke,
+            );
+        }
+
+        // ── Contrast / theme circle (appearance) ──
+        "appearance" => {
+            let r = s * 0.36;
+            painter.circle_stroke(c, r, stroke);
+            let n = 16;
+            let mut pts = Vec::with_capacity(n + 1);
+            for i in 0..=n {
+                let t = i as f32 / n as f32;
+                let a = -std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * t;
+                pts.push(pos2(c.x + r * a.cos(), c.y + r * a.sin()));
+            }
+            painter.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
+        }
+
+        // ── Bar chart (usage / statistics) ──
+        "usage" => {
+            let bar_w = s * 0.16;
+            let gap = s * 0.06;
+            let base_y = c.y + s * 0.32;
+            let heights = [s * 0.32, s * 0.52, s * 0.40];
+            let total_w = bar_w * 3.0 + gap * 2.0;
+            let start_x = c.x - total_w * 0.5;
+            for (i, &h) in heights.iter().enumerate() {
+                let bx = start_x + i as f32 * (bar_w + gap);
+                painter.rect_filled(
+                    Rect::from_min_size(pos2(bx, base_y - h), vec2(bar_w, h)),
+                    1.0,
+                    color,
+                );
+            }
+            painter.line_segment(
+                [
+                    pos2(start_x - s * 0.04, base_y),
+                    pos2(start_x + total_w + s * 0.04, base_y),
+                ],
+                thin,
+            );
+        }
+
+        // ── Question mark in circle (FAQ) ──
+        "faq" => {
+            painter.circle_stroke(c, s * 0.36, stroke);
+            painter.text(
+                pos2(c.x, c.y + s * 0.01),
+                egui::Align2::CENTER_CENTER,
+                "?",
+                FontId::proportional(s * 0.42),
+                color,
+            );
+        }
+
+        // ── Info "i" in circle (about) ──
+        "about" => {
+            painter.circle_stroke(c, s * 0.36, stroke);
+            painter.text(
+                pos2(c.x, c.y + s * 0.02),
+                egui::Align2::CENTER_CENTER,
+                "i",
+                FontId::proportional(s * 0.40),
+                color,
+            );
+        }
+
+        _ => {}
+    }
+}
+
+/// Renders a settings-tab button with a leading icon and label.
+pub fn tab_button(
+    ui: &mut egui::Ui,
+    tab_id: &str,
+    label: &str,
+    active: bool,
+    accent: AccentPalette,
+    width: f32,
+) -> egui::Response {
+    let p = theme_palette(ui.visuals().dark_mode);
+    let height = 32.0;
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(width, height), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let hovered = response.hovered();
+
+        // ── Background ──
+        let fill = if active {
+            accent.base
+        } else if hovered {
+            Color32::from_rgb(0x1e, 0x21, 0x2a)
+        } else {
+            Color32::TRANSPARENT
+        };
+        let border = if active {
+            accent.ring
+        } else if hovered {
+            Color32::from_rgb(0x36, 0x3a, 0x44)
+        } else {
+            p.btn_border
+        };
+        ui.painter()
+            .rect(rect, 6.0, fill, Stroke::new(1.0, border));
+
+        // ── Icon ──
+        let icon_center = pos2(rect.min.x + 20.0, rect.center().y);
+        let icon_color = if active {
+            Color32::from_rgba_unmultiplied(0, 0, 0, 210)
+        } else if hovered {
+            TEXT_COLOR
+        } else {
+            p.text_muted
+        };
+        draw_tab_icon(ui.painter(), tab_id, icon_center, 18.0, icon_color);
+
+        // ── Label ──
+        let text_color = if active {
+            Color32::BLACK
+        } else if hovered {
+            TEXT_COLOR
+        } else {
+            p.text_muted
+        };
+        let font_size = if active { 13.5 } else { 12.0 };
+        let galley = ui.painter().layout_no_wrap(
+            label.to_string(),
+            FontId::proportional(font_size),
+            text_color,
+        );
+        let text_pos = pos2(
+            rect.min.x + 38.0,
+            rect.center().y - galley.size().y * 0.5,
+        );
+        ui.painter().galley(text_pos, galley, text_color);
+    }
+
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+

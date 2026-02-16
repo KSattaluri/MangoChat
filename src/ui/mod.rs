@@ -1003,39 +1003,17 @@ impl MangoChatApp {
                                             ("dictation", "Dictation"),
                                             ("commands", "Commands"),
                                             ("appearance", "Appearance"),
-                                            ("general", "General"),
                                             ("usage", "Usage"),
                                             ("faq", "FAQ"),
                                             ("about", "About"),
                                         ] {
                                             let active = self.settings_tab == id;
-                                            let text = if active {
-                                                egui::RichText::new(label)
-                                                    .size(14.0)
-                                                    .strong()
-                                                    .color(Color32::BLACK)
-                                            } else {
-                                                egui::RichText::new(label)
-                                                    .size(12.0)
-                                                    .color(p.text_muted)
-                                            };
-                                            let btn = egui::Button::new(text)
-                                                .fill(if active {
-                                                    accent.base
-                                                } else {
-                                                    Color32::TRANSPARENT
-                                                })
-                                                .stroke(Stroke::new(
-                                                    1.0,
-                                                    if active {
-                                                        accent.ring
-                                                    } else {
-                                                        p.btn_border
-                                                    },
-                                                ))
-                                                .rounding(6.0)
-                                                .min_size(vec2(nav_w - 8.0, 28.0));
-                                            if ui.add(btn).clicked() {
+                                            if widgets::tab_button(
+                                                ui, id, label, active, accent,
+                                                nav_w - 8.0,
+                                            )
+                                            .clicked()
+                                            {
                                                 self.settings_tab = id.to_string();
                                             }
                                         }
@@ -1062,7 +1040,7 @@ impl MangoChatApp {
                                             | "dictation"
                                             | "commands"
                                             | "appearance"
-                                            | "general"
+                                            | "about"
                                     );
                                     let save_reserve =
                                         if has_save { 38.0 } else { 0.0 };
@@ -1095,11 +1073,6 @@ impl MangoChatApp {
                                                     self, ui, ctx,
                                                 );
                                             }
-                                            "general" => {
-                                                tabs::general::render(
-                                                    self, ui, ctx,
-                                                );
-                                            }
                                             "usage" => {
                                                 tabs::usage::render(
                                                     self, ui, ctx,
@@ -1127,7 +1100,7 @@ impl MangoChatApp {
                                             | "dictation"
                                             | "commands"
                                             | "appearance"
-                                            | "general"
+                                            | "about"
                                     ) {
                                         ui.add_space(6.0);
                                         let provider_dirty = self.settings_tab
