@@ -343,67 +343,90 @@ pub fn draw_dancing_strings(
     accent: AccentPalette,
 ) {
     let is_live = live_fft.is_some();
-    let lines = 4usize;
-    let samples = 72usize;
-    let width = rect.width().max(1.0);
-    let base_y = rect.center().y;
-    let amp_base = if is_live { 2.4 } else { 1.8 };
+    let w = rect.width().max(1.0);
+    let h = rect.height().max(1.0);
+    let cy = rect.center().y;
 
-    for line in 0..lines {
-        let phase = t * (1.6 + line as f32 * 0.28) + line as f32 * 0.9;
-        let amp = amp_base + (t * 1.2 + line as f32).sin() * 0.35;
+    // Breathing energy modulation (matches JS speechEnergy)
+    let energy = if is_live {
+        0.65 + 0.35 * (t * 1.8).sin() * (t * 0.7).sin()
+    } else {
+        0.55 + 0.45 * (t * 1.8).sin() * (t * 0.7).sin()
+    };
+
+    // 3 layers with stacked sine waves (ported from JS)
+    let layers = 3usize;
+    let step = 1.5_f32;
+    let sample_count = ((w / step) as usize).max(2);
+
+    for layer in 0..layers {
+        let lf = layer as f32;
+        let alpha = if is_live {
+            ((0.55 - lf * 0.13) * energy * 255.0) as u8
+        } else {
+            ((0.40 - lf * 0.10) * energy * 255.0) as u8
+        };
+        let line_w = 1.8 - lf * 0.4;
         let color = if is_live {
             Color32::from_rgba_unmultiplied(
                 accent.base.r(),
                 accent.base.g(),
                 accent.base.b(),
-                110 + line as u8 * 24,
+                alpha,
             )
         } else {
-            Color32::from_rgba_unmultiplied(184, 192, 204, 90 + line as u8 * 20)
+            Color32::from_rgba_unmultiplied(184, 192, 204, alpha)
         };
 
-        let mut points = Vec::with_capacity(samples);
-        for i in 0..samples {
-            let x = rect.min.x + width * (i as f32 / (samples - 1) as f32);
-            let nx = (x - rect.min.x) / width;
-            // Pin all strings to the same start/end point.
-            let envelope = (std::f32::consts::PI * nx).sin().powf(1.15);
-            let wave =
-                (nx * std::f32::consts::TAU * (1.2 + line as f32 * 0.25) - phase).sin();
-            let y = base_y + wave * amp * envelope;
-            points.push(pos2(x, y));
+        let mut points = Vec::with_capacity(sample_count);
+        for i in 0..sample_count {
+            let px = i as f32 * step;
+            let nx = px / w;
+            // Wider envelope — hold amplitude longer before tapering at edges
+            let envelope = (nx * std::f32::consts::PI).sin().powf(0.6);
+            let amp = envelope * energy * (h * 0.38);
+
+            let y = cy
+                + (px * 0.035 - t * 3.2 + lf * 1.8).sin() * amp * 0.55
+                + (px * 0.065 - t * 4.8 + lf * 0.9).sin() * amp * 0.3
+                + (px * 0.12 - t * 2.1 + lf * 3.2).sin() * amp * 0.15;
+
+            points.push(pos2(rect.min.x + px, y));
         }
-        painter.add(egui::Shape::line(points, Stroke::new(1.0, color)));
+        painter.add(egui::Shape::line(points, Stroke::new(line_w, color)));
     }
 
     if let Some(fft) = live_fft {
-        // Overlay wide equalizer when speaking, tapered near the edges.
-        let bar_count = 42usize;
-        let gap = 1.1;
-        let overlay_w = rect.width() * 0.94;
-        let left = rect.center().x - overlay_w * 0.5;
-        let bar_w =
-            ((overlay_w - gap * (bar_count as f32 - 1.0)) / bar_count as f32).max(1.0);
-        for i in 0..bar_count {
-            let idx = ((i as f32 / (bar_count - 1) as f32) * 49.0) as usize;
-            let boosted = (fft[idx] * 50.0).min(1.0);
-            let value = boosted.sqrt().max(0.05);
-            let nx = i as f32 / (bar_count - 1) as f32;
-            let envelope = (std::f32::consts::PI * nx).sin().powf(0.8);
-            let h = (value * rect.height() * (0.45 + envelope * 0.75)).max(1.5);
-            let x = left + i as f32 * (bar_w + gap);
-            let y = rect.center().y - h * 0.5;
-            painter.rect_filled(
-                Rect::from_min_size(pos2(x, y), vec2(bar_w, h)),
-                1.0,
-                Color32::from_rgba_unmultiplied(
-                    accent.base.r(),
-                    accent.base.g(),
-                    accent.base.b(),
-                    195,
-                ),
-            );
+        // Only show bars when there's actual speech energy.
+        let total_energy: f32 = fft.iter().sum();
+        if total_energy > 0.15 {
+            let bar_count = 28usize;
+            let gap = 2.0;
+            let overlay_w = w * 0.94;
+            let left = rect.center().x - overlay_w * 0.5;
+            let bar_w =
+                ((overlay_w - gap * (bar_count as f32 - 1.0)) / bar_count as f32).max(2.0);
+            for i in 0..bar_count {
+                let idx = ((i as f32 / (bar_count - 1) as f32) * 49.0) as usize;
+                let boosted = (fft[idx] * 70.0).min(1.0);
+                if boosted < 0.01 { continue; }
+                let value = boosted.sqrt();
+                let nx = i as f32 / (bar_count - 1) as f32;
+                let envelope = (std::f32::consts::PI * nx).sin().powf(0.8);
+                let bh = value * h * (0.4 + envelope * 0.6);
+                let x = left + i as f32 * (bar_w + gap);
+                let y = cy - bh * 0.5;
+                painter.rect_filled(
+                    Rect::from_min_size(pos2(x, y), vec2(bar_w, bh)),
+                    2.0,
+                    Color32::from_rgba_unmultiplied(
+                        accent.base.r(),
+                        accent.base.g(),
+                        accent.base.b(),
+                        140,
+                    ),
+                );
+            }
         }
     }
 }
