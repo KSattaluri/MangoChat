@@ -225,6 +225,38 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         ui.label("images");
                     });
                     ui.end_row();
+
+                    ui.label(
+                        egui::RichText::new("After edit capture")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    let revert_label = match app.form.snip_edit_revert.as_str() {
+                        "image" => "Switch to copy image",
+                        "path" => "Switch to copy path",
+                        _ => "Stay on edit",
+                    };
+                    egui::ComboBox::from_id_salt("snip_edit_revert_select")
+                        .selected_text(revert_label)
+                        .width(placement_combo_w)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut app.form.snip_edit_revert,
+                                "stay".to_string(),
+                                "Stay on edit",
+                            );
+                            ui.selectable_value(
+                                &mut app.form.snip_edit_revert,
+                                "image".to_string(),
+                                "Switch to copy image",
+                            );
+                            ui.selectable_value(
+                                &mut app.form.snip_edit_revert,
+                                "path".to_string(),
+                                "Switch to copy path",
+                            );
+                        });
+                    ui.end_row();
                 });
         });
 }

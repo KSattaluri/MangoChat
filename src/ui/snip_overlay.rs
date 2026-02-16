@@ -59,7 +59,17 @@ impl MangoChatApp {
                         ) {
                             eprintln!("[snip] editor error: {}", e);
                         }
-                        self.snip_edit_after = false;
+                        match self.settings.snip_edit_revert.as_str() {
+                            "image" => {
+                                self.snip_copy_image = true;
+                                self.snip_edit_after = false;
+                            }
+                            "path" => {
+                                self.snip_copy_image = false;
+                                self.snip_edit_after = false;
+                            }
+                            _ => {} // "stay" — keep edit mode
+                        }
                     }
                     println!("[snip] saved to {}", path.to_string_lossy());
                 }

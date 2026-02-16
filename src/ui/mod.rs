@@ -964,7 +964,7 @@ impl MangoChatApp {
                             ctx,
                             &p_resp,
                             "preset_path",
-                            "Preset: Path (copy file path)",
+                            "Right Alt & Snip, copies image path",
                             true,
                             Some(viz_center),
                         );
@@ -982,7 +982,7 @@ impl MangoChatApp {
                             ctx,
                             &i_resp,
                             "preset_image",
-                            "Preset: Image (copy image)",
+                            "Right Alt & Snip, copies image to clipboard",
                             true,
                             Some(viz_center),
                         );
@@ -1000,7 +1000,7 @@ impl MangoChatApp {
                             ctx,
                             &e_resp,
                             "preset_edit",
-                            "Preset: Image + Edit",
+                            "Right Alt & Snip, copies image & opens editor",
                             true,
                             Some(viz_center),
                         );
@@ -1044,7 +1044,7 @@ impl MangoChatApp {
                                             ("provider", "Provider"),
                                             ("dictation", "Dictation"),
                                             ("commands", "Commands"),
-                                            ("appearance", "Appearance"),
+                                            ("appearance", "Customization"),
                                             ("usage", "Usage"),
                                             ("faq", "FAQ"),
                                             ("about", "About"),

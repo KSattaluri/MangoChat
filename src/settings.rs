@@ -51,6 +51,8 @@ pub struct Settings {
     pub window_anchor: String, // top_left | top_center | top_right | bottom_left | bottom_center | bottom_right
     #[serde(default)]
     pub snip_editor_path: String,
+    #[serde(default = "default_snip_edit_revert")]
+    pub snip_edit_revert: String, // stay | image | path
     #[serde(default = "default_chrome_path")]
     pub chrome_path: String,
     #[serde(default = "default_paint_path")]
@@ -120,6 +122,7 @@ impl Default for Settings {
             window_monitor_id: String::new(),
             window_anchor: default_window_anchor(),
             snip_editor_path: String::new(),
+            snip_edit_revert: default_snip_edit_revert(),
             chrome_path: default_chrome_path(),
             paint_path: default_paint_path(),
             provider_inactivity_timeout_secs: default_provider_inactivity_timeout_secs(),
@@ -166,6 +169,9 @@ fn default_window_monitor_mode() -> String {
 }
 fn default_window_anchor() -> String {
     "bottom_right".into()
+}
+fn default_snip_edit_revert() -> String {
+    "stay".into()
 }
 fn default_chrome_path() -> String {
     r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()
@@ -328,6 +334,12 @@ pub fn load() -> Settings {
         && settings.window_anchor != "bottom_right"
     {
         settings.window_anchor = default_window_anchor();
+    }
+    if settings.snip_edit_revert != "stay"
+        && settings.snip_edit_revert != "image"
+        && settings.snip_edit_revert != "path"
+    {
+        settings.snip_edit_revert = default_snip_edit_revert();
     }
     settings.provider_inactivity_timeout_secs =
         settings.provider_inactivity_timeout_secs.clamp(5, 300);
