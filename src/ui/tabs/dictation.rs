@@ -1,9 +1,11 @@
 use eframe::egui;
+use egui::{Color32, Stroke};
 use crate::audio;
 use crate::ui::theme::*;
 use crate::ui::MangoChatApp;
 
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
+    let accent = app.current_accent();
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
 
@@ -23,13 +25,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
-                    ui.add(
-                        egui::Slider::new(
-                            &mut app.form.max_session_length_minutes,
-                            1..=120,
-                        )
-                        .show_value(false),
-                    );
+                    ui.scope(|ui| {
+                        style_slider_accent(ui, accent.base, accent.hover);
+                        ui.add(
+                            egui::Slider::new(
+                                &mut app.form.max_session_length_minutes,
+                                1..=120,
+                            )
+                            .show_value(false),
+                        );
+                    });
                     let resp = ui.add(
                         egui::DragValue::new(
                             &mut app.form.max_session_length_minutes,
@@ -48,13 +53,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
-                    ui.add(
-                        egui::Slider::new(
-                            &mut app.form.provider_inactivity_timeout_secs,
-                            5..=300,
-                        )
-                        .show_value(false),
-                    );
+                    ui.scope(|ui| {
+                        style_slider_accent(ui, accent.base, accent.hover);
+                        ui.add(
+                            egui::Slider::new(
+                                &mut app.form.provider_inactivity_timeout_secs,
+                                5..=300,
+                            )
+                            .show_value(false),
+                        );
+                    });
                     let resp = ui.add(
                         egui::DragValue::new(
                             &mut app.form.provider_inactivity_timeout_secs,
@@ -151,4 +159,14 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     ui.end_row();
                 });
         });
+}
+
+/// Override slider widget visuals to use the accent color for the thumb and
+/// track highlights, with a darker shade on hover/active.
+fn style_slider_accent(ui: &mut egui::Ui, base: Color32, hover: Color32) {
+    let v = ui.visuals_mut();
+    // Only color the thumb outline (fg_stroke), leave fill untouched
+    v.widgets.inactive.fg_stroke = Stroke::new(2.0, base);
+    v.widgets.hovered.fg_stroke = Stroke::new(2.0, hover);
+    v.widgets.active.fg_stroke = Stroke::new(2.0, hover);
 }
