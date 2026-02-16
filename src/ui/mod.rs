@@ -1019,7 +1019,7 @@ impl MangoChatApp {
                 // --- Collapsible settings panel ---
                 if self.settings_open {
                     ui.add_space(8.0);
-                    egui::Frame::none()
+                    let frame_resp = egui::Frame::none()
                         .fill(p.settings_bg)
                         .stroke(Stroke::new(1.0, p.btn_border))
                         .rounding(6.0)
@@ -1314,6 +1314,17 @@ impl MangoChatApp {
                                 });
                             });
                         });
+
+                    // Paint thin accent line over the frame's top border
+                    let fr = frame_resp.response.rect;
+                    let rounding = 6.0_f32;
+                    ui.painter().line_segment(
+                        [
+                            pos2(fr.min.x + rounding, fr.min.y),
+                            pos2(fr.max.x - rounding, fr.min.y),
+                        ],
+                        Stroke::new(0.5, accent.base),
+                    );
                 }
             });
     }

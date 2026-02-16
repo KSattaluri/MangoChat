@@ -631,25 +631,109 @@ pub fn tab_button(
         };
         draw_tab_icon(ui.painter(), tab_id, icon_center, 18.0, icon_color);
 
-        // ── Label ──
-        let text_color = if active {
-            Color32::BLACK
-        } else if hovered {
-            TEXT_COLOR
-        } else {
-            p.text_muted
-        };
+        // ── Label (typewriter animation on hover only) ──
         let font_size = if active { 13.5 } else { 12.0 };
-        let galley = ui.painter().layout_no_wrap(
-            label.to_string(),
-            FontId::proportional(font_size),
-            text_color,
-        );
-        let text_pos = pos2(
-            rect.min.x + 38.0,
-            rect.center().y - galley.size().y * 0.5,
-        );
-        ui.painter().galley(text_pos, galley, text_color);
+        let text_x = rect.min.x + 38.0;
+
+        let animate = hovered && !active;
+        let lit_color = TEXT_COLOR;
+        let dim_color = p.text_muted;
+
+        if active {
+            // Active tab: static black text, no animation
+            let galley = ui.painter().layout_no_wrap(
+                label.to_string(),
+                FontId::proportional(font_size),
+                Color32::BLACK,
+            );
+            let text_pos = pos2(text_x, rect.center().y - galley.size().y * 0.5);
+            ui.painter().galley(text_pos, galley, Color32::BLACK);
+        } else if animate {
+            let anim_id = egui::Id::new(("tab_typewriter", tab_id));
+            let now = ui.input(|i| i.time);
+
+            let start = ui.data(|d| d.get_temp::<f64>(anim_id)).unwrap_or_else(|| {
+                ui.data_mut(|d| d.insert_temp(anim_id, now));
+                now
+            });
+            let elapsed = now - start;
+            let chars_per_sec = 24.0;
+            let char_count = label.chars().count();
+            let type_duration = char_count as f64 / chars_per_sec;
+            let pause_duration = 2.0;
+            let cycle_duration = type_duration + pause_duration;
+            let cycle_elapsed = elapsed % cycle_duration;
+
+            let revealed = if cycle_elapsed < type_duration {
+                (cycle_elapsed * chars_per_sec) as usize
+            } else {
+                char_count
+            };
+
+            ui.ctx().request_repaint();
+
+            let byte_pos = label
+                .char_indices()
+                .nth(revealed)
+                .map(|(i, _)| i)
+                .unwrap_or(label.len());
+            let lit = &label[..byte_pos];
+            let dim = &label[byte_pos..];
+
+            let full_galley = ui.painter().layout_no_wrap(
+                label.to_string(),
+                FontId::proportional(font_size),
+                dim_color,
+            );
+            let text_y = rect.center().y - full_galley.size().y * 0.5;
+
+            if !lit.is_empty() {
+                let lit_galley = ui.painter().layout_no_wrap(
+                    lit.to_string(),
+                    FontId::proportional(font_size),
+                    lit_color,
+                );
+                ui.painter()
+                    .galley(pos2(text_x, text_y), lit_galley, lit_color);
+            }
+            if !dim.is_empty() {
+                let lit_w = if lit.is_empty() {
+                    0.0
+                } else {
+                    ui.painter()
+                        .layout_no_wrap(
+                            lit.to_string(),
+                            FontId::proportional(font_size),
+                            lit_color,
+                        )
+                        .size()
+                        .x
+                };
+                let dim_galley = ui.painter().layout_no_wrap(
+                    dim.to_string(),
+                    FontId::proportional(font_size),
+                    dim_color,
+                );
+                ui.painter().galley(
+                    pos2(text_x + lit_w, text_y),
+                    dim_galley,
+                    dim_color,
+                );
+            }
+        } else {
+            // Clear animation state when idle
+            let anim_id = egui::Id::new(("tab_typewriter", tab_id));
+            ui.data_mut(|d| d.remove::<f64>(anim_id));
+
+            let galley = ui.painter().layout_no_wrap(
+                label.to_string(),
+                FontId::proportional(font_size),
+                p.text_muted,
+            );
+            let text_pos =
+                pos2(text_x, rect.center().y - galley.size().y * 0.5);
+            ui.painter().galley(text_pos, galley, p.text_muted);
+        }
     }
 
     response.on_hover_cursor(CursorIcon::PointingHand)
