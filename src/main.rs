@@ -57,7 +57,7 @@ fn main() {
 
     // Populate dynamic config from settings
     if let Ok(mut p) = app_state.chrome_path.lock() {
-        *p = settings.chrome_path.clone();
+        *p = settings.resolved_browser_path();
     }
     if let Ok(mut p) = app_state.paint_path.lock() {
         *p = settings.paint_path.clone();

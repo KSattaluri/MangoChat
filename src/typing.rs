@@ -63,15 +63,25 @@ fn cmd_copy()           { press_ctrl_key(Key::Unicode('c')); }
 fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
-/// Open a URL in Chrome: focus/launch Chrome, then Ctrl+T → Ctrl+L → type URL → Enter.
-pub fn open_url_in_chrome(chrome_path: &str, url: &str) {
+/// Open a URL in the user's chosen browser.
+/// Tries the explicit path first, then a bare command name derived from the
+/// path (so Firefox falls back to "firefox", Edge to "msedge", Chrome to
+/// "chrome"), and finally the OS default URL handler.
+pub fn open_url_in_chrome(browser_path: &str, url: &str) {
     #[cfg(windows)]
     {
-        // Prefer explicit Chrome path, then PATH-resolved "chrome", then OS URL handler.
-        if launch_chrome_with_url(chrome_path, url) {
+        if launch_chrome_with_url(browser_path, url) {
             return;
         }
-        if launch_chrome_with_url("chrome", url) {
+        let lower = browser_path.to_lowercase();
+        let fallback = if lower.contains("firefox") {
+            "firefox"
+        } else if lower.contains("msedge") || lower.contains("\\edge\\") {
+            "msedge"
+        } else {
+            "chrome"
+        };
+        if launch_chrome_with_url(fallback, url) {
             return;
         }
         let _ = std::process::Command::new("rundll32")
@@ -80,8 +90,8 @@ pub fn open_url_in_chrome(chrome_path: &str, url: &str) {
     }
     #[cfg(not(windows))]
     {
-        let _ = (chrome_path, url);
-        println!("[typing] open_url_in_chrome not supported on this OS");
+        let _ = (browser_path, url);
+        println!("[typing] open_url_in_browser not supported on this OS");
     }
 }
 

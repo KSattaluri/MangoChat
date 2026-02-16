@@ -26,6 +26,7 @@ pub struct FormState {
     pub window_anchor: String,
     pub snip_editor_path: String,
     pub snip_edit_revert: String,
+    pub default_browser: String,
     pub chrome_path: String,
     pub paint_path: String,
     pub provider_inactivity_timeout_secs: u64,
@@ -61,6 +62,7 @@ impl FormState {
             window_anchor: settings.window_anchor.clone(),
             snip_editor_path: settings.snip_editor_path.clone(),
             snip_edit_revert: settings.snip_edit_revert.clone(),
+            default_browser: settings.default_browser.clone(),
             chrome_path: settings.chrome_path.clone(),
             paint_path: settings.paint_path.clone(),
             provider_inactivity_timeout_secs: settings.provider_inactivity_timeout_secs,
@@ -97,6 +99,7 @@ impl FormState {
         settings.window_anchor = self.window_anchor.clone();
         settings.snip_editor_path = self.snip_editor_path.clone();
         settings.snip_edit_revert = self.snip_edit_revert.clone();
+        settings.default_browser = self.default_browser.clone();
         settings.chrome_path = self.chrome_path.clone();
         settings.paint_path = self.paint_path.clone();
         settings.provider_inactivity_timeout_secs =

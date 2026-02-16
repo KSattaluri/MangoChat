@@ -627,7 +627,7 @@ pub fn tab_button(
         } else if hovered {
             TEXT_COLOR
         } else {
-            p.text_muted
+            accent.base
         };
         draw_tab_icon(ui.painter(), tab_id, icon_center, 18.0, icon_color);
 
@@ -809,6 +809,69 @@ pub fn preset_icon_button(
             p.text
         };
         draw_preset_icon(ui.painter(), preset, rect.center(), 18.0, icon_color);
+    }
+
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// Renders a horizontal sub-tab button with an underline indicator.
+pub fn sub_tab_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    active: bool,
+    accent: AccentPalette,
+) -> egui::Response {
+    let p = theme_palette(ui.visuals().dark_mode);
+    let text_color = if active { TEXT_COLOR } else { p.text_muted };
+    let font_size = if active { 12.5 } else { 12.0 };
+
+    let galley = ui.painter().layout_no_wrap(
+        label.to_string(),
+        FontId::proportional(font_size),
+        text_color,
+    );
+    let text_w = galley.size().x;
+    let pad_h = 8.0;
+    let height = 26.0;
+    let width = text_w + pad_h * 2.0;
+
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let hovered = response.hovered();
+
+        // Draw label text
+        let draw_color = if active {
+            TEXT_COLOR
+        } else if hovered {
+            TEXT_COLOR
+        } else {
+            p.text_muted
+        };
+        let draw_galley = ui.painter().layout_no_wrap(
+            label.to_string(),
+            FontId::proportional(font_size),
+            draw_color,
+        );
+        let text_pos = pos2(
+            rect.center().x - draw_galley.size().x * 0.5,
+            rect.center().y - draw_galley.size().y * 0.5 - 1.0,
+        );
+        ui.painter().galley(text_pos, draw_galley, draw_color);
+
+        // Draw underline indicator
+        let line_y = rect.max.y - 1.0;
+        if active {
+            ui.painter().line_segment(
+                [pos2(rect.min.x + 2.0, line_y), pos2(rect.max.x - 2.0, line_y)],
+                Stroke::new(2.0, accent.base),
+            );
+        } else if hovered {
+            ui.painter().line_segment(
+                [pos2(rect.min.x + 2.0, line_y), pos2(rect.max.x - 2.0, line_y)],
+                Stroke::new(1.0, BTN_BORDER),
+            );
+        }
     }
 
     response.on_hover_cursor(CursorIcon::PointingHand)

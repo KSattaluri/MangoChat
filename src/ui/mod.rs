@@ -49,6 +49,7 @@ pub struct MangoChatApp {
     pub settings: Settings,
     pub settings_open: bool,
     pub settings_tab: String,
+    pub commands_sub_tab: String,
     pub status_text: String,
     pub status_state: String,
     pub is_recording: bool,
@@ -214,6 +215,7 @@ impl MangoChatApp {
         self.key_check_inflight.clear();
         self.key_check_result.clear();
         self.last_validated_provider = None;
+        self.commands_sub_tab = "browser".into();
     }
 
     pub fn new(
@@ -258,6 +260,7 @@ impl MangoChatApp {
             settings,
             settings_open: false,
             settings_tab: "provider".into(),
+            commands_sub_tab: "browser".into(),
             status_text: "Ready".into(),
             status_state: "idle".into(),
             is_recording: false,
@@ -1214,8 +1217,7 @@ impl MangoChatApp {
                                                         {
                                                             *p = self
                                                                 .settings
-                                                                .chrome_path
-                                                                .clone();
+                                                                .resolved_browser_path();
                                                         }
                                                         if let Ok(mut p) =
                                                             self.state.paint_path.lock()

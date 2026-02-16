@@ -53,6 +53,8 @@ pub struct Settings {
     pub snip_editor_path: String,
     #[serde(default = "default_snip_edit_revert")]
     pub snip_edit_revert: String, // stay | image | path
+    #[serde(default = "default_browser")]
+    pub default_browser: String, // chrome | edge | firefox
     #[serde(default = "default_chrome_path")]
     pub chrome_path: String,
     #[serde(default = "default_paint_path")]
@@ -85,6 +87,17 @@ impl Settings {
     /// Get the API key for a given provider.
     pub fn api_key_for(&self, provider: &str) -> &str {
         self.api_keys.get(provider).map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Return the browser executable path based on the selected default browser.
+    /// Falls back to the custom chrome_path for "chrome", and uses known
+    /// default install locations for Edge and Firefox.
+    pub fn resolved_browser_path(&self) -> String {
+        match self.default_browser.as_str() {
+            "edge" => default_edge_path(),
+            "firefox" => default_firefox_path(),
+            _ => self.chrome_path.clone(), // "chrome" or unknown
+        }
     }
 
     /// Set the API key for a given provider.
@@ -123,6 +136,7 @@ impl Default for Settings {
             window_anchor: default_window_anchor(),
             snip_editor_path: String::new(),
             snip_edit_revert: default_snip_edit_revert(),
+            default_browser: default_browser(),
             chrome_path: default_chrome_path(),
             paint_path: default_paint_path(),
             provider_inactivity_timeout_secs: default_provider_inactivity_timeout_secs(),
@@ -173,8 +187,17 @@ fn default_window_anchor() -> String {
 fn default_snip_edit_revert() -> String {
     "stay".into()
 }
+fn default_browser() -> String {
+    "chrome".into()
+}
 fn default_chrome_path() -> String {
     r"C:\Program Files\Google\Chrome\Application\chrome.exe".into()
+}
+fn default_edge_path() -> String {
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe".into()
+}
+fn default_firefox_path() -> String {
+    r"C:\Program Files\Mozilla Firefox\firefox.exe".into()
 }
 fn default_paint_path() -> String {
     r"C:\Windows\System32\mspaint.exe".into()
@@ -307,6 +330,12 @@ pub fn load() -> Settings {
             url: default_explorer_path(),
             builtin: true,
         });
+    }
+    if settings.default_browser != "chrome"
+        && settings.default_browser != "edge"
+        && settings.default_browser != "firefox"
+    {
+        settings.default_browser = default_browser();
     }
     settings.screenshot_retention_count = settings.screenshot_retention_count.clamp(1, 200);
     if settings.text_size != "small"
