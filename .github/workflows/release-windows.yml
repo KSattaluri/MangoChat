@@ -26,13 +26,22 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path preflight | Out-Null
-          $source = @"
+          @'
           public static class Program
           {
               public static void Main() { }
           }
-          "@
-          Add-Type -TypeDefinition $source -OutputAssembly preflight\probe.exe -OutputType ConsoleApplication
+          '@ | Out-File -FilePath preflight\probe.cs -Encoding ascii
+
+          $candidates = @(
+            "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+            "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+          )
+          $csc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $csc) { throw "csc.exe not found on runner" }
+
+          & $csc /nologo /target:exe /out:preflight\probe.exe preflight\probe.cs
+          if ($LASTEXITCODE -ne 0) { throw "csc compilation failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path preflight\probe.exe)) { throw "Failed to build probe executable" }
 
       - name: Preflight signing authorization check
