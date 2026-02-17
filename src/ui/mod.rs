@@ -60,6 +60,9 @@ pub struct MangoChatApp {
     // Tray icon (must stay alive or the icon disappears)
     pub _tray_icon: Option<tray_icon::TrayIcon>,
 
+    // Mango logo texture (lazy-loaded)
+    pub mango_texture: Option<TextureHandle>,
+
     // Snip overlay state
     pub snip_overlay_active: bool,
     pub snip_texture: Option<TextureHandle>,
@@ -278,6 +281,7 @@ impl MangoChatApp {
             positioned: false,
             initial_position_corrected: false,
             compact_anchor_pos: None,
+            mango_texture: None,
             snip_overlay_active: false,
             snip_texture: None,
             snip_drag_start: None,

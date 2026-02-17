@@ -7,12 +7,29 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.label(
-                egui::RichText::new("Mango Chat \u{2014} Voice Dictation")
-                    .size(13.0)
-                    .strong()
-                    .color(TEXT_COLOR),
-            );
+            ui.horizontal(|ui| {
+                // Mango icon (lazy-loaded)
+                let icon_sz = 20.0;
+                let tex = app.mango_texture.get_or_insert_with(|| {
+                    const MANGO_PNG: &[u8] = include_bytes!("../../../icons/mango.png");
+                    let img = image::load_from_memory(MANGO_PNG)
+                        .expect("embedded mango.png");
+                    let rgba = img.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    let pixels = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+                    ui.ctx().load_texture("mango-logo", pixels, egui::TextureOptions::LINEAR)
+                });
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                let rect = ui.allocate_space(egui::vec2(icon_sz, icon_sz)).1;
+                ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Mango Chat \u{2014} Voice Dictation")
+                        .size(13.0)
+                        .strong()
+                        .color(TEXT_COLOR),
+                );
+            });
 
             // ── Credits ──
             let accent = app.current_accent();

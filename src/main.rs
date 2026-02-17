@@ -113,18 +113,38 @@ fn main() {
         });
     }
 
+    // Load mango icon for the window/taskbar
+    let window_icon = {
+        const MANGO_PNG: &[u8] = include_bytes!("../icons/mango.png");
+        image::load_from_memory(MANGO_PNG).ok().map(|img| {
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            Arc::new(egui::IconData {
+                rgba: rgba.into_raw(),
+                width: w,
+                height: h,
+            })
+        })
+    };
+
+    let mut vp = ViewportBuilder::default()
+        .with_title("Mango Chat")
+        .with_inner_size(vec2(
+            if settings.screenshot_enabled { 360.0 } else { 210.0 },
+            if settings.compact_background_enabled { 92.0 } else { 80.0 },
+        ))
+        .with_taskbar(false)
+        .with_transparent(true)
+        .with_decorations(false)
+        .with_always_on_top()
+        .with_resizable(true);
+
+    if let Some(icon) = window_icon {
+        vp = vp.with_icon(icon);
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_title("Mango Chat")
-            .with_inner_size(vec2(
-                if settings.screenshot_enabled { 360.0 } else { 210.0 },
-                if settings.compact_background_enabled { 92.0 } else { 80.0 },
-            ))
-            .with_taskbar(false)
-            .with_transparent(true)
-            .with_decorations(false)
-            .with_always_on_top()
-            .with_resizable(true),
+        viewport: vp,
         ..Default::default()
     };
 
