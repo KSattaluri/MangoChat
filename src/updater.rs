@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 
@@ -13,6 +13,7 @@ const REPO_NAME: &str = "mango-chat";
 const REPO_RELEASE_PAGE_NAME: &str = "MangoChat";
 const APP_USER_AGENT: &str = "mangochat-updater";
 const EXPECTED_SIGNER_SUBJECT_SUBSTR: &str = "Kalyan Sattaluri";
+const POWERSHELL_VERIFY_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone)]
 pub struct ReleaseAsset {
@@ -330,10 +331,39 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
          Write-Output ($sig.Status.ToString() + '|' + $subject)",
         escaped_path
     );
-    let output = Command::new("powershell")
+    let mut child = Command::new("powershell")
         .args(["-NoProfile", "-Command", &ps])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("signature verification failed to run: {e}"))?;
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(POWERSHELL_VERIFY_TIMEOUT_SECS);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "signature verification timed out after {}s",
+                        POWERSHELL_VERIFY_TIMEOUT_SECS
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("signature verification process error: {e}"));
+            }
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("signature verification failed to collect output: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!("signature verification command failed: {}", stderr));
