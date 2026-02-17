@@ -10,7 +10,42 @@ permissions:
   id-token: write
 
 jobs:
+  preflight-signing:
+    runs-on: windows-latest
+    environment: release
+
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build probe executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path preflight | Out-Null
+          @'
+          int main(void) { return 0; }
+          '@ | Out-File -FilePath preflight\probe.c -Encoding ascii
+          cl /nologo /W0 /O1 /MD preflight\probe.c /Fe:preflight\probe.exe
+          if (-not (Test-Path preflight\probe.exe)) { throw "Failed to build probe executable" }
+
+      - name: Preflight signing authorization check
+        uses: azure/artifact-signing-action@v1
+        with:
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
+          files-folder: ${{ github.workspace }}\preflight
+          files-folder-filter: probe.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
   build-and-release:
+    needs: preflight-signing
     runs-on: windows-latest
     environment: release
 
@@ -96,4 +131,3 @@ jobs:
             dist/*.exe
             dist/SHA256SUMS.txt
           generate_release_notes: true
-
