@@ -35,7 +35,7 @@ jobs:
         uses: azure/artifact-signing-action@v1
         with:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
           files-folder: ${{ github.workspace }}\target\release
           files-folder-filter: mangochat.exe
@@ -68,7 +68,7 @@ jobs:
         uses: azure/artifact-signing-action@v1
         with:
           endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
           files-folder: ${{ github.workspace }}\dist
           files-folder-filter: MangoChat-Setup-*.exe
