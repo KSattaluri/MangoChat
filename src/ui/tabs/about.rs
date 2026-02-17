@@ -1,6 +1,5 @@
 use eframe::egui;
 use crate::ui::theme::*;
-use crate::ui::widgets::section_header;
 use crate::ui::{MangoChatApp, UpdateUiState};
 
 pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
@@ -15,8 +14,74 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .color(TEXT_COLOR),
             );
 
+            // ── Credits ──
+            let accent = app.current_accent();
+            let sz = 13.0;
+            ui.add_space(12.0);
+            {
+                let prev = ui.spacing().item_spacing.y;
+                ui.spacing_mut().item_spacing.y = 8.0;
+
+                ui.hyperlink_to(
+                    egui::RichText::new("mangochat.org")
+                        .size(sz)
+                        .color(accent.base),
+                    "https://mangochat.org",
+                );
+                ui.label(
+                    egui::RichText::new("Made by Kalyan Sattaluri")
+                        .size(sz)
+                        .color(TEXT_COLOR),
+                );
+                ui.label(
+                    egui::RichText::new("Made with Claude & Codex")
+                        .size(sz)
+                        .color(TEXT_MUTED),
+                );
+
+                let fmt = |color| egui::text::TextFormat {
+                    font_id: egui::FontId::proportional(sz),
+                    color,
+                    ..Default::default()
+                };
+                let mut job = egui::text::LayoutJob::default();
+                job.append("Made for ", 0.0, fmt(TEXT_MUTED));
+                job.append("Shreya ", 0.0, fmt(TEXT_COLOR));
+                job.append("\u{2665}", 0.0, fmt(accent.base));
+                job.append(" & ", 0.0, fmt(TEXT_MUTED));
+                job.append("Avy ", 0.0, fmt(TEXT_COLOR));
+                job.append("\u{2665}", 0.0, fmt(accent.base));
+                ui.label(job);
+
+                ui.hyperlink_to(
+                    egui::RichText::new("github.com/KSattaluri/MangoChat")
+                        .size(sz)
+                        .color(accent.base),
+                    "https://github.com/KSattaluri/MangoChat",
+                );
+
+                ui.spacing_mut().item_spacing.y = prev;
+            }
+
             // --- Updates ---
-            section_header(ui, "Updates");
+            ui.add_space(24.0);
+            {
+                let rect = ui.available_rect_before_wrap();
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(rect.min.x, rect.min.y),
+                        egui::pos2(rect.max.x, rect.min.y),
+                    ],
+                    egui::Stroke::new(0.5, BTN_BORDER),
+                );
+            }
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Updates")
+                    .size(13.0)
+                    .strong()
+                    .color(TEXT_MUTED),
+            );
 
             egui::Grid::new("updates_grid")
                 .num_columns(2)
@@ -140,6 +205,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .size(11.0)
                     .color(TEXT_MUTED),
             );
+
         });
 }
 
