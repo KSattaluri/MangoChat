@@ -1,85 +1,39 @@
-# Contributing to Mango Chat
+Mango Chat
+==========
 
-Thanks for contributing.
+Copyright (C) 2026 Mango Chat contributors.
+For conditions of distribution and use, see LICENSE.
 
-## Scope
+Contributing issues
+-------------------
 
-This repository contains the Windows desktop app (`mangochat.exe`) and installer build flow (`MangoChat-Setup.exe`).
+To report bugs or request features, open an issue in this repository:
 
-Primary goals:
-- Reliable dictation/transcription behavior
-- Stable window placement and compact UI behavior
-- Safe release and upgrade flow
+https://github.com/KSattaluri/mango-chat/issues
 
-## Development Setup
+Contributing code or documentation updates
+------------------------------------------
 
-Use `README.md` for environment setup and build instructions.
+To contribute code or documentation updates, work from your fork and open a pull request.
 
-Quick start:
+1. Fork the project.
+2. Clone your fork (`git clone https://github.com/<your-username>/mango-chat.git`).
+3. Add an `upstream` remote (`git remote add upstream https://github.com/KSattaluri/mango-chat.git`).
+4. Get the latest changes from upstream (`git pull upstream master`).
+5. Create a topic branch (`git checkout -b <topic-branch-name>`).
+6. Keep changes focused and consistent with existing style.
+7. Commit your changes.
+8. Push your branch (`git push origin <topic-branch-name>`).
+9. Open a pull request with a clear title and description.
 
-```powershell
-cargo check
-cargo run
-```
+Guidelines
+----------
 
-## Branching and PRs
-
-- `master` is release-ready.
-- Use feature branches for all changes.
-- Keep PRs focused (one concern per PR when possible).
-- Do not push broken builds to `master`.
-
-Recommended branch naming:
-- `feature/<topic>`
-- `fix/<topic>`
-
-## Code Guidelines
-
-- Keep changes minimal and targeted.
-- Prefer clear and explicit behavior over implicit side effects.
-- Preserve existing monitor placement and audio/session behavior unless intentionally changing it.
-- Avoid adding global hooks or background polling without a clear need and a user-visible setting.
-
-## UI Changes
-
-- Maintain consistency with existing compact/settings behavior.
-- Validate on multi-monitor setups when touching positioning logic.
-- Validate compact + expanded modes and screenshot controls.
-
-## Security and Secrets
-
+- Avoid unrelated mass formatting or whitespace-only changes.
+- Include reproduction steps for bug fixes when possible.
+- Keep commits small and reviewable.
 - Never commit keys, tokens, or credentials.
-- API keys are stored via app runtime secret storage (encrypted at rest on Windows).
-- Keep operational runbooks local-only unless explicitly intended for public docs.
 
-## Testing Checklist
+If you do not have Git (`git`), get it from:
 
-Before opening a PR:
-
-1. `cargo check` succeeds.
-2. `cargo run` starts and UI renders.
-3. Recording start/stop works.
-4. Screenshot flow works (if enabled).
-5. Settings save/load works.
-6. No regressions in monitor placement behavior.
-
-If installer/build logic changes:
-
-1. `cargo build --release` succeeds.
-2. `.\scripts\build-installer.ps1` succeeds.
-3. Installer output launches app correctly.
-
-## Commit Messages
-
-Use short imperative subject lines, for example:
-- `Refactor provider tab rendering`
-- `Fix compact window anchor on secondary monitor`
-- `Add update check state to General tab`
-
-## Release Notes Discipline
-
-For user-visible changes, include:
-- What changed
-- Why it changed
-- Any migration or user action required
-
+https://git-scm.com/
