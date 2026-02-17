@@ -15,46 +15,64 @@ pub fn settings_toggle(
     is_recording: bool,
     accent: AccentPalette,
 ) -> egui::Response {
-    let size = 28.0;
-    let radius = size / 2.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let center = rect.center();
-        let hovered = response.hovered();
-        let idle_ring = Color32::from_rgba_unmultiplied(255, 255, 255, 180);
-
-        let (fill, ring, glyph) = if is_recording {
+    if is_recording {
+        // Recording: bold filled accent circle with gear (original style)
+        let size = 28.0;
+        let radius = size / 2.0;
+        let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+        if ui.is_rect_visible(rect) {
+            let center = rect.center();
+            let hovered = response.hovered();
             let fill = if hovered { accent.hover } else { accent.base };
-            (fill, accent.ring, Color32::WHITE)
-        } else {
-            let gray = Color32::from_rgb(0x3a, 0x3d, 0x45);
-            let gray_hover = Color32::from_rgb(0x4a, 0x4d, 0x55);
-            let fill = if hovered { gray_hover } else { gray };
-            (fill, idle_ring, Color32::WHITE)
-        };
-
-        ui.painter()
-            .circle_stroke(center, radius, Stroke::new(1.5, ring));
-        ui.painter().circle_filled(center, radius - 2.5, fill);
-        // Draw a small cog manually so color is fully controllable across fonts/platforms.
-        let gear_stroke = Stroke::new(1.2, glyph);
-        let r_inner = 2.0;
-        let r_ring = 4.2;
-        let r_tooth_outer = 6.0;
-        for i in 0..8 {
-            let a = i as f32 * std::f32::consts::TAU / 8.0;
-            let dir = vec2(a.cos(), a.sin());
-            let p1 = center + dir * r_ring;
-            let p2 = center + dir * r_tooth_outer;
-            ui.painter().line_segment([p1, p2], gear_stroke);
+            let ring = accent.ring;
+            ui.painter()
+                .circle_stroke(center, radius, Stroke::new(1.5, ring));
+            ui.painter().circle_filled(center, radius - 2.5, fill);
+            let gear_stroke = Stroke::new(1.2, Color32::WHITE);
+            let r_inner = 2.0;
+            let r_ring = 4.2;
+            let r_tooth_outer = 6.0;
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::TAU / 8.0;
+                let dir = vec2(a.cos(), a.sin());
+                let p1 = center + dir * r_ring;
+                let p2 = center + dir * r_tooth_outer;
+                ui.painter().line_segment([p1, p2], gear_stroke);
+            }
+            ui.painter()
+                .circle_stroke(center, r_ring, Stroke::new(1.2, Color32::WHITE));
+            ui.painter().circle_filled(center, r_inner, Color32::WHITE);
         }
-        ui.painter()
-            .circle_stroke(center, r_ring, Stroke::new(1.2, glyph));
-        ui.painter().circle_filled(center, r_inner, glyph);
+        response.on_hover_cursor(CursorIcon::PointingHand)
+    } else {
+        // Idle: subtle outlined ring + gear in warm muted string color
+        let size = 24.0;
+        let muted = Color32::from_rgb(200, 180, 168);
+        let muted_bright = Color32::from_rgb(220, 200, 188);
+        let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+        if ui.is_rect_visible(rect) {
+            let center = rect.center();
+            let hovered = response.hovered();
+            let color = if hovered { muted_bright } else { muted };
+            ui.painter()
+                .circle_stroke(center, size * 0.44, Stroke::new(1.0, color));
+            let gear_stroke = Stroke::new(1.0, color);
+            let r_inner = 1.8;
+            let r_ring = 3.6;
+            let r_tooth_outer = 5.2;
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::TAU / 8.0;
+                let dir = vec2(a.cos(), a.sin());
+                let p1 = center + dir * r_ring;
+                let p2 = center + dir * r_tooth_outer;
+                ui.painter().line_segment([p1, p2], gear_stroke);
+            }
+            ui.painter()
+                .circle_stroke(center, r_ring, Stroke::new(1.0, color));
+            ui.painter().circle_filled(center, r_inner, color);
+        }
+        response.on_hover_cursor(CursorIcon::PointingHand)
     }
-
-    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 pub fn mic_unavailable_badge(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
@@ -126,50 +144,43 @@ pub fn record_toggle(
     is_recording: bool,
     accent: AccentPalette,
 ) -> egui::Response {
-    let size = 28.0;
-    let radius = size / 2.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let center = rect.center();
-        let hovered = response.hovered();
-
-        let (fill, ring) = if is_recording {
-            // Active: accent color with brighter hover
-            if hovered {
+    if is_recording {
+        // Recording: bold filled accent circle with stop icon (original style)
+        let size = 28.0;
+        let radius = size / 2.0;
+        let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+        if ui.is_rect_visible(rect) {
+            let center = rect.center();
+            let hovered = response.hovered();
+            let (fill, ring) = if hovered {
                 (accent.hover, accent.base)
             } else {
                 (accent.base, accent.ring)
-            }
-        } else {
-            // Idle: muted gray with white ring
-            let gray = Color32::from_rgb(0x3a, 0x3d, 0x45);
-            let gray_hover = Color32::from_rgb(0x4a, 0x4d, 0x55);
-            let idle_ring = Color32::from_rgba_unmultiplied(255, 255, 255, 180);
-            if hovered {
-                (gray_hover, idle_ring)
-            } else {
-                (gray, idle_ring)
-            }
-        };
-
-        // Outer ring
-        ui.painter()
-            .circle_stroke(center, radius, Stroke::new(1.5, ring));
-        // Filled circle
-        ui.painter().circle_filled(center, radius - 2.5, fill);
-
-        // Inner icon: square (stop) when recording, circle (record) when idle
-        if is_recording {
+            };
+            ui.painter()
+                .circle_stroke(center, radius, Stroke::new(1.5, ring));
+            ui.painter().circle_filled(center, radius - 2.5, fill);
             let sq = 7.0;
             let sq_rect = egui::Rect::from_center_size(center, vec2(sq, sq));
             ui.painter().rect_filled(sq_rect, 1.5, Color32::WHITE);
-        } else {
-            ui.painter().circle_filled(center, 5.0, Color32::WHITE);
         }
+        response.on_hover_cursor(CursorIcon::PointingHand)
+    } else {
+        // Idle: subtle outlined ring + dot in warm muted string color
+        let size = 24.0;
+        let muted = Color32::from_rgb(200, 180, 168);
+        let muted_bright = Color32::from_rgb(220, 200, 188);
+        let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+        if ui.is_rect_visible(rect) {
+            let center = rect.center();
+            let hovered = response.hovered();
+            let color = if hovered { muted_bright } else { muted };
+            ui.painter()
+                .circle_stroke(center, size * 0.44, Stroke::new(1.0, color));
+            ui.painter().circle_filled(center, 4.0, color);
+        }
+        response.on_hover_cursor(CursorIcon::PointingHand)
     }
-
-    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 pub fn provider_default_button(
@@ -375,7 +386,7 @@ pub fn draw_dancing_strings(
                 alpha,
             )
         } else {
-            Color32::from_rgba_unmultiplied(184, 192, 204, alpha)
+            Color32::from_rgba_unmultiplied(200, 180, 168, alpha)
         };
 
         let mut points = Vec::with_capacity(sample_count);
