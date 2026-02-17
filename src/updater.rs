@@ -62,19 +62,61 @@ fn parse_tag_version(tag: &str) -> Option<Version> {
     Version::parse(raw).ok()
 }
 
-pub fn spawn_check(tx: Sender<WorkerMessage>, include_prerelease: bool) {
+pub fn spawn_check_with_override(
+    tx: Sender<WorkerMessage>,
+    include_prerelease: bool,
+    feed_url_override: Option<String>,
+) {
     std::thread::spawn(move || {
-        let result = check_for_updates(include_prerelease);
+        let result = check_for_updates(include_prerelease, feed_url_override.as_deref());
         let _ = tx.send(WorkerMessage::CheckFinished(result));
     });
 }
 
-fn check_for_updates(include_prerelease: bool) -> Result<CheckOutcome, String> {
-    let current = current_version()?;
-    let url = format!(
+fn to_github_releases_api_url(feed_url: &str) -> Option<String> {
+    let trimmed = feed_url.trim().trim_end_matches('/');
+    let marker = "github.com/";
+    let idx = trimmed.find(marker)?;
+    let tail = &trimmed[idx + marker.len()..];
+    let mut parts = tail.split('/');
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    if !trimmed.contains("/releases") {
+        return None;
+    }
+    Some(format!(
+        "https://api.github.com/repos/{}/{}/releases?per_page=20",
+        owner, repo
+    ))
+}
+
+fn release_feed_url(feed_url_override: Option<&str>) -> String {
+    if let Some(override_url) = feed_url_override {
+        let trimmed = override_url.trim();
+        if !trimmed.is_empty() {
+            if trimmed.contains("github.com/") && trimmed.contains("/releases") {
+                if let Some(api_url) = to_github_releases_api_url(trimmed) {
+                    return api_url;
+                }
+            }
+            return trimmed.to_string();
+        }
+    }
+    format!(
         "https://api.github.com/repos/{}/{}/releases?per_page=20",
         REPO_OWNER, REPO_NAME
-    );
+    )
+}
+
+fn check_for_updates(
+    include_prerelease: bool,
+    feed_url_override: Option<&str>,
+) -> Result<CheckOutcome, String> {
+    let current = current_version()?;
+    let url = release_feed_url(feed_url_override);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))

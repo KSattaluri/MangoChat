@@ -65,8 +65,33 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         });
                     app.form.update_include_prerelease = include_pre;
                     ui.end_row();
+
+                    ui.label(
+                        egui::RichText::new("Update feed URL override")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    let mut feed = app.form.update_feed_url_override.clone();
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut feed)
+                            .desired_width(360.0)
+                            .hint_text(
+                                "Optional: local/test URL or GitHub releases page URL",
+                            ),
+                    );
+                    if response.changed() {
+                        app.form.update_feed_url_override = feed;
+                    }
+                    ui.end_row();
                 });
 
+            ui.label(
+                egui::RichText::new(
+                    "When set, update checks use this URL. Leave empty to use MangoChat GitHub releases.",
+                )
+                .size(11.0)
+                .color(TEXT_MUTED),
+            );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui

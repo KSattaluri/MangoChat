@@ -305,9 +305,10 @@ impl MangoChatApp {
         }
         self.update_check_inflight = true;
         self.update_state = UpdateUiState::Checking;
-        updater::spawn_check(
+        updater::spawn_check_with_override(
             self.update_worker_tx.clone(),
             self.form.update_include_prerelease,
+            Some(self.form.update_feed_url_override.clone()),
         );
     }
 
