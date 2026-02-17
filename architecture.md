@@ -1,4 +1,4 @@
-# Mango Chat Architecture (Manager/Architect View)
+# Mango Chat Architecture
 
 ## 1) Purpose and scope
 
