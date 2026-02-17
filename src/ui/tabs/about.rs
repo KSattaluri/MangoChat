@@ -35,6 +35,25 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     ui.end_row();
 
                     ui.label(
+                        egui::RichText::new("Latest version")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    let latest_text = match &app.update_state {
+                        UpdateUiState::Available { latest, .. } => latest.version.to_string(),
+                        UpdateUiState::UpToDate { current } => current.clone(),
+                        UpdateUiState::Checking => "Checking...".to_string(),
+                        UpdateUiState::Error(_) => "Unknown".to_string(),
+                        _ => "Not checked".to_string(),
+                    };
+                    ui.label(
+                        egui::RichText::new(latest_text)
+                            .size(12.0)
+                            .color(TEXT_MUTED),
+                    );
+                    ui.end_row();
+
+                    ui.label(
                         egui::RichText::new("Auto-check for updates")
                             .size(13.0)
                             .color(TEXT_COLOR),
@@ -125,7 +144,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
 
                 if ui
                     .add_enabled(
-                        matches!(app.update_state, UpdateUiState::Available { .. }),
+                        true,
                         egui::Button::new(
                             egui::RichText::new("Open release page")
                                 .size(11.0)
@@ -165,6 +184,14 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .size(11.0)
                     .color(TEXT_MUTED),
             );
+            if let Some(last) = app.update_last_check {
+                let secs = last.elapsed().as_secs();
+                ui.label(
+                    egui::RichText::new(format!("Last checked: {}s ago", secs))
+                        .size(11.0)
+                        .color(TEXT_MUTED),
+                );
+            }
         });
 }
 

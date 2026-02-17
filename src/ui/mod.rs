@@ -95,6 +95,7 @@ pub struct MangoChatApp {
     pub update_last_check: Option<std::time::Instant>,
     pub update_check_inflight: bool,
     pub update_install_inflight: bool,
+    pub update_startup_check_done: bool,
 }
 
 impl MangoChatApp {
@@ -226,6 +227,12 @@ impl MangoChatApp {
         settings: Settings,
         _egui_ctx: egui::Context,
     ) -> Self {
+        if let Ok(removed) = updater::cleanup_stale_temp_installers(7) {
+            if removed > 0 {
+                println!("[updater] cleaned up {} stale installer(s) from temp", removed);
+            }
+        }
+
         let mic_devices = audio::list_input_devices();
         let form = FormState::from_settings(&settings);
 
@@ -296,6 +303,7 @@ impl MangoChatApp {
             update_last_check: None,
             update_check_inflight: false,
             update_install_inflight: false,
+            update_startup_check_done: false,
         }
     }
 
@@ -330,6 +338,10 @@ impl MangoChatApp {
             if let Err(e) = updater::open_release_page(&latest.html_url) {
                 self.set_status(&e, "error");
             }
+            return;
+        }
+        if let Err(e) = updater::open_release_page(&updater::default_release_page_url()) {
+            self.set_status(&e, "error");
         }
     }
 
@@ -677,7 +689,6 @@ impl MangoChatApp {
                         }
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());
-                            self.set_status(&e, "error");
                         }
                     }
                 }
@@ -1414,17 +1425,13 @@ impl eframe::App for MangoChatApp {
         self.apply_appearance(ctx);
         self.process_events();
 
-        if self.settings.auto_update_enabled
+        if !self.update_startup_check_done
+            && self.settings.auto_update_enabled
             && !self.update_check_inflight
             && !self.update_install_inflight
         {
-            let should_check = self
-                .update_last_check
-                .map(|t| t.elapsed() >= std::time::Duration::from_secs(6 * 60 * 60))
-                .unwrap_or(true);
-            if should_check {
-                self.trigger_update_check();
-            }
+            self.update_startup_check_done = true;
+            self.trigger_update_check();
         }
 
         // Position bottom-right on first frame
