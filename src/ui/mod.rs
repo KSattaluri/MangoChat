@@ -810,34 +810,90 @@ impl MangoChatApp {
                 // --- Audio device label (compact mode only) ---
                 if !self.settings_open {
                     let max_chars = 55;
-                    let device_label = if self.is_recording {
+                    let mic_color;
+                    let text_color;
+                    let display_text;
+
+                    if self.is_recording {
+                        mic_color = accent.base;
+                        text_color = accent.base;
+
+                        // Build the two alternating messages
                         let dev = if self.settings.mic_device.trim().is_empty() {
                             "System default"
                         } else {
                             &self.settings.mic_device
                         };
-                        let prefix = "Listening: ";
-                        let full = format!("{}{}", prefix, dev);
-                        if full.chars().count() > max_chars {
-                            let mut truncated: String = full.chars().take(max_chars - 3).collect();
-                            truncated.push_str("...");
-                            truncated
+                        let msg_device = {
+                            let full = format!("Listening: {}", dev);
+                            if full.chars().count() > max_chars {
+                                let mut s: String = full.chars().take(max_chars - 3).collect();
+                                s.push_str("...");
+                                s
+                            } else {
+                                full
+                            }
+                        };
+                        let msg_provider = format!(
+                            "Provider: {}",
+                            MangoChatApp::provider_display_name(&self.settings.provider)
+                        );
+                        let messages = [msg_device, msg_provider];
+
+                        let now = ctx.input(|i| i.time);
+                        let chars_per_sec = 30.0;
+                        let total_display = 8.0; // total seconds per message
+                        let dot_duration = 2.0; // blinking dots in the last 2s
+                        let dot_interval = 0.4;
+
+                        // State: (msg_start_time, current_message_index)
+                        let state_id = egui::Id::new("compact_status_state");
+                        let (msg_start, msg_idx): (f64, usize) = ui
+                            .data(|d| d.get_temp(state_id))
+                            .unwrap_or((now, 0));
+
+                        let full_msg = &messages[msg_idx % messages.len()];
+                        let char_count = full_msg.chars().count();
+                        let type_duration = char_count as f64 / chars_per_sec;
+                        let hold_end = total_display - dot_duration;
+                        let elapsed = now - msg_start;
+
+                        if elapsed < type_duration {
+                            // Phase 1: typing out characters
+                            let revealed = (elapsed * chars_per_sec) as usize;
+                            display_text = full_msg.chars().take(revealed).collect();
+                        } else if elapsed < hold_end {
+                            // Phase 2: hold full text
+                            display_text = full_msg.clone();
+                        } else if elapsed < total_display {
+                            // Phase 3: blinking dots before transition
+                            let dot_elapsed = elapsed - hold_end;
+                            let dot_count = ((dot_elapsed / dot_interval) as usize % 3) + 1;
+                            let dots: String = std::iter::repeat('.').take(dot_count).collect();
+                            display_text = format!("{}  {}", full_msg, dots);
                         } else {
-                            full
+                            // Phase 4: transition to next message
+                            let next_idx = (msg_idx + 1) % messages.len();
+                            ui.data_mut(|d| d.insert_temp(state_id, (now, next_idx)));
+                            display_text = String::new();
                         }
+
+                        // Persist current state
+                        if elapsed < total_display {
+                            ui.data_mut(|d| d.insert_temp(state_id, (msg_start, msg_idx)));
+                        }
+
+                        ctx.request_repaint();
                     } else {
-                        "Not listening".to_string()
-                    };
-                    let mic_color = if self.is_recording {
-                        accent.base
-                    } else {
-                        TEXT_COLOR
-                    };
-                    let text_color = if self.is_recording {
-                        accent.base
-                    } else {
-                        TEXT_MUTED
-                    };
+                        mic_color = TEXT_COLOR;
+                        text_color = TEXT_MUTED;
+                        display_text = "Not listening".to_string();
+
+                        // Reset cycle state when not recording
+                        let state_id = egui::Id::new("compact_status_state");
+                        ui.data_mut(|d| d.remove::<(f64, usize)>(state_id));
+                    }
+
                     let t = ctx.input(|i| i.time) as f32;
                     let row_w = ui.available_width();
                     let icon_s = 16.0;
@@ -862,8 +918,8 @@ impl MangoChatApp {
                             );
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(device_label)
-                                        .size(9.5)
+                                    egui::RichText::new(display_text)
+                                        .size(10.5)
                                         .color(text_color),
                                 )
                                 .truncate(),
@@ -971,8 +1027,8 @@ impl MangoChatApp {
                 if show_screenshot_controls && !self.settings_open {
                     ui.add_space(0.0);
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        let btns_w = 3.0 * 28.0 + 2.0 * 6.0;
+                        ui.spacing_mut().item_spacing.x = 14.0;
+                        let btns_w = 3.0 * 28.0 + 2.0 * 14.0;
                         let pad = ((ui.available_width() - btns_w) * 0.5).max(0.0);
                         ui.add_space(pad);
                         let p_resp =

@@ -4,7 +4,6 @@ use crate::ui::widgets::section_header;
 use crate::ui::{MangoChatApp, UpdateUiState};
 
 pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
-    let accent = app.current_accent();
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
@@ -15,49 +14,6 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .strong()
                     .color(TEXT_COLOR),
             );
-
-            section_header(ui, "Keyboard Shortcuts");
-            for (key, desc) in [
-                ("Right Ctrl (hold)", "Push-to-talk dictation"),
-                ("Right Ctrl (tap)", "Quick toggle recording"),
-                ("Escape", "Cancel snip overlay"),
-            ] {
-                ui.columns(2, |cols| {
-                    cols[0].label(
-                        egui::RichText::new(key)
-                            .size(11.0)
-                            .strong()
-                            .color(TEXT_COLOR),
-                    );
-                    cols[1].label(
-                        egui::RichText::new(desc)
-                            .size(11.0)
-                            .color(TEXT_MUTED),
-                    );
-                });
-            }
-
-            section_header(ui, "Voice Commands");
-            for (cmd, desc) in [
-                ("\"back\"", "Delete previous word"),
-                ("\"new line\"", "Insert line break"),
-                ("\"new paragraph\"", "Double line break"),
-                ("\"undo\" / \"redo\"", "Undo or redo"),
-                ("\"open <trigger>\"", "Open URL (see Commands tab)"),
-            ] {
-                ui.columns(2, |cols| {
-                    cols[0].label(
-                        egui::RichText::new(cmd)
-                            .size(11.0)
-                            .color(accent.base),
-                    );
-                    cols[1].label(
-                        egui::RichText::new(desc)
-                            .size(11.0)
-                            .color(TEXT_MUTED),
-                    );
-                });
-            }
 
             // --- Updates ---
             section_header(ui, "Updates");
@@ -187,7 +143,8 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
         });
 }
 
-pub fn render_faq(_app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
+pub fn render_faq(app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
+    let accent = app.current_accent();
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
@@ -198,9 +155,9 @@ pub fn render_faq(_app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
                     .strong()
                     .color(TEXT_COLOR),
             );
-            ui.add_space(6.0);
+            ui.add_space(12.0);
 
-            for (q, a) in [
+            let items = [
                 (
                     "How do I start dictating?",
                     "Hold Right Ctrl and speak. Release to commit the transcription to the active text field.",
@@ -225,24 +182,27 @@ pub fn render_faq(_app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) 
                     "How do I change the hotkey?",
                     "The hotkey is currently Right Ctrl. Custom hotkeys are planned for a future release.",
                 ),
-            ] {
-                egui::CollapsingHeader::new(
-                    egui::RichText::new(q)
-                        .size(11.0)
-                        .color(TEXT_COLOR),
-                )
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(a)
-                                .size(11.0)
-                                .color(TEXT_MUTED),
-                        )
-                        .wrap(),
-                    );
-                });
+            ];
+
+            for (i, (q, a)) in items.iter().enumerate() {
+                ui.label(
+                    egui::RichText::new(*q)
+                        .size(12.0)
+                        .strong()
+                        .color(accent.base),
+                );
+                ui.add_space(3.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(*a)
+                            .size(11.5)
+                            .color(TEXT_MUTED),
+                    )
+                    .wrap(),
+                );
+                if i < items.len() - 1 {
+                    ui.add_space(14.0);
+                }
             }
         });
 }
