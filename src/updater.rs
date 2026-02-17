@@ -7,7 +7,7 @@ use std::process::Command;
 use std::sync::mpsc::Sender;
 
 const REPO_OWNER: &str = "KSattaluri";
-const REPO_NAME: &str = "MangoChat";
+const REPO_NAME: &str = "mango-chat";
 const APP_USER_AGENT: &str = "mangochat-updater";
 
 #[derive(Debug, Clone)]
