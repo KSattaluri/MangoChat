@@ -43,6 +43,8 @@ pub struct Settings {
     pub auto_update_enabled: bool,
     #[serde(default)]
     pub update_include_prerelease: bool,
+    #[serde(default)]
+    pub update_feed_url_override: String,
     #[serde(default = "default_window_monitor_mode")]
     pub window_monitor_mode: String, // follow_cursor | fixed
     #[serde(default)]
@@ -131,6 +133,7 @@ impl Default for Settings {
             auto_minimize: false,
             auto_update_enabled: false,
             update_include_prerelease: false,
+            update_feed_url_override: String::new(),
             window_monitor_mode: default_window_monitor_mode(),
             window_monitor_id: String::new(),
             window_anchor: default_window_anchor(),
@@ -373,6 +376,7 @@ pub fn load() -> Settings {
     settings.provider_inactivity_timeout_secs =
         settings.provider_inactivity_timeout_secs.clamp(5, 300);
     settings.max_session_length_minutes = settings.max_session_length_minutes.clamp(1, 120);
+    settings.update_feed_url_override = settings.update_feed_url_override.trim().to_string();
     settings
 }
 

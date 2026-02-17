@@ -21,6 +21,7 @@ pub struct FormState {
     pub auto_minimize: bool,
     pub auto_update_enabled: bool,
     pub update_include_prerelease: bool,
+    pub update_feed_url_override: String,
     pub window_monitor_mode: String,
     pub window_monitor_id: String,
     pub window_anchor: String,
@@ -57,6 +58,7 @@ impl FormState {
             auto_minimize: settings.auto_minimize,
             auto_update_enabled: settings.auto_update_enabled,
             update_include_prerelease: settings.update_include_prerelease,
+            update_feed_url_override: settings.update_feed_url_override.clone(),
             window_monitor_mode: WINDOW_MONITOR_MODE_FIXED.to_string(),
             window_monitor_id: settings.window_monitor_id.clone(),
             window_anchor: settings.window_anchor.clone(),
@@ -94,6 +96,7 @@ impl FormState {
         settings.auto_minimize = self.auto_minimize;
         settings.auto_update_enabled = self.auto_update_enabled;
         settings.update_include_prerelease = self.update_include_prerelease;
+        settings.update_feed_url_override = self.update_feed_url_override.trim().to_string();
         settings.window_monitor_mode = WINDOW_MONITOR_MODE_FIXED.to_string();
         settings.window_monitor_id = self.window_monitor_id.clone();
         settings.window_anchor = self.window_anchor.clone();
