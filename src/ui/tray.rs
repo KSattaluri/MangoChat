@@ -1,7 +1,9 @@
-use eframe::egui::Color32;
 use super::theme::AccentPalette;
 
-pub fn setup_tray(accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
+/// Mango icon PNG embedded at compile time.
+const MANGO_PNG: &[u8] = include_bytes!("../../icons/mango.png");
+
+pub fn setup_tray(_accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
     use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tray_icon::TrayIconBuilder;
 
@@ -11,7 +13,7 @@ pub fn setup_tray(accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 
-    let icon = match make_tray_icon(accent.base) {
+    let icon = match make_tray_icon() {
         Some(i) => i,
         None => return None,
     };
@@ -35,15 +37,21 @@ pub fn setup_tray(accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
     tray
 }
 
-fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
-    let mut icon_data = vec![0u8; 16 * 16 * 4];
-    for pixel in icon_data.chunks_exact_mut(4) {
-        pixel[0] = color.r();
-        pixel[1] = color.g();
-        pixel[2] = color.b();
-        pixel[3] = 0xFF;
-    }
-    match tray_icon::Icon::from_rgba(icon_data, 16, 16) {
+fn make_tray_icon() -> Option<tray_icon::Icon> {
+    let img = match image::load_from_memory(MANGO_PNG) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("[tray] failed to decode mango.png: {}", e);
+            return None;
+        }
+    };
+
+    // Resize to 32x32 (crisp on standard and high-DPI displays)
+    let resized = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
+    let rgba = resized.to_rgba8();
+    let (w, h) = rgba.dimensions();
+
+    match tray_icon::Icon::from_rgba(rgba.into_raw(), w, h) {
         Ok(i) => Some(i),
         Err(e) => {
             eprintln!("[tray] icon error: {}", e);
@@ -51,4 +59,3 @@ fn make_tray_icon(color: Color32) -> Option<tray_icon::Icon> {
         }
     }
 }
-
