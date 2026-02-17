@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::PathBuf;
 use windows::core::PCWSTR;
 use windows::Win32::Media::Audio::{
@@ -10,22 +11,38 @@ pub const START_CUES: &[(&str, &str)] = &[
 ];
 const STOP_CUE_FILE: &str = "audio_close.wav";
 
-fn resolve_asset_path(file_name: &str) -> Option<PathBuf> {
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-    let cwd = std::env::current_dir().ok();
+const START_CUE_1_BYTES: &[u8] = include_bytes!("../assets/audio1.wav");
+const START_CUE_2_BYTES: &[u8] = include_bytes!("../assets/audio2.wav");
+const STOP_CUE_BYTES: &[u8] = include_bytes!("../assets/audio_close.wav");
 
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = exe_dir {
-        candidates.push(dir.join("assets").join(file_name));
+fn embedded_cue_bytes(file_name: &str) -> Option<&'static [u8]> {
+    match file_name {
+        "audio1.wav" => Some(START_CUE_1_BYTES),
+        "audio2.wav" => Some(START_CUE_2_BYTES),
+        STOP_CUE_FILE => Some(STOP_CUE_BYTES),
+        _ => None,
     }
-    if let Some(dir) = cwd {
-        candidates.push(dir.join("assets").join(file_name));
-    }
-    candidates.push(PathBuf::from("assets").join(file_name));
+}
 
-    candidates.into_iter().find(|p| p.exists())
+fn embedded_cue_path(file_name: &str) -> Result<PathBuf, String> {
+    let bytes = embedded_cue_bytes(file_name)
+        .ok_or_else(|| format!("unsupported cue: {}", file_name))?;
+
+    let cue_dir = std::env::temp_dir().join("MangoChat").join("cues");
+    fs::create_dir_all(&cue_dir)
+        .map_err(|e| format!("failed to create cue temp dir '{}': {}", cue_dir.display(), e))?;
+    let path = cue_dir.join(file_name);
+
+    let should_write = match fs::metadata(&path) {
+        Ok(meta) => meta.len() != bytes.len() as u64,
+        Err(_) => true,
+    };
+    if should_write {
+        fs::write(&path, bytes)
+            .map_err(|e| format!("failed to write cue file '{}': {}", path.display(), e))?;
+    }
+
+    Ok(path)
 }
 
 pub fn play_start_cue(file_name: &str) -> Result<(), String> {
@@ -34,14 +51,12 @@ pub fn play_start_cue(file_name: &str) -> Result<(), String> {
         return Err(format!("unsupported start cue: {}", file_name));
     }
 
-    let path = resolve_asset_path(file_name)
-        .ok_or_else(|| format!("start cue not found in assets/: {}", file_name))?;
+    let path = embedded_cue_path(file_name)?;
     play_wave_path(&path)
 }
 
 pub fn play_stop_cue() -> Result<(), String> {
-    let path = resolve_asset_path(STOP_CUE_FILE)
-        .ok_or_else(|| format!("stop cue not found in assets/: {}", STOP_CUE_FILE))?;
+    let path = embedded_cue_path(STOP_CUE_FILE)?;
     play_wave_path(&path)
 }
 
