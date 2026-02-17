@@ -9,7 +9,7 @@ Contributing issues
 
 To report bugs or request features, open an issue in this repository:
 
-https://github.com/KSattaluri/mango-chat/issues
+https://github.com/KSattaluri/MangoChat/issues
 
 Contributing code or documentation updates
 ------------------------------------------
@@ -19,9 +19,9 @@ instead of cloning the main repository, commit your work on topic branches, and
 open pull requests. In detail:
 
 1. Fork the project.
-2. Clone your fork (`git clone https://github.com/<your-username>/mango-chat.git`).
+2. Clone your fork (`git clone https://github.com/<your-username>/MangoChat.git`).
 3. Follow `environment-setup.md` to install prerequisites and verify local setup.
-4. Add an `upstream` remote (`git remote add upstream https://github.com/KSattaluri/mango-chat.git`).
+4. Add an `upstream` remote (`git remote add upstream https://github.com/KSattaluri/MangoChat.git`).
 5. Get the latest changes from upstream (`git pull upstream master`).
 6. Create a new topic branch (`git checkout -b <topic-branch-name>`).
 7. Make sure your changes follow existing coding conventions (indentation, comments, and style).
