@@ -809,10 +809,24 @@ impl MangoChatApp {
 
                 // --- Audio device label (compact mode only) ---
                 if !self.settings_open {
-                    let device_label = if self.settings.mic_device.trim().is_empty() {
-                        "System default".to_string()
+                    let max_chars = 55;
+                    let device_label = if self.is_recording {
+                        let dev = if self.settings.mic_device.trim().is_empty() {
+                            "System default"
+                        } else {
+                            &self.settings.mic_device
+                        };
+                        let prefix = "Listening: ";
+                        let full = format!("{}{}", prefix, dev);
+                        if full.chars().count() > max_chars {
+                            let mut truncated: String = full.chars().take(max_chars - 3).collect();
+                            truncated.push_str("...");
+                            truncated
+                        } else {
+                            full
+                        }
                     } else {
-                        self.settings.mic_device.clone()
+                        "Not listening".to_string()
                     };
                     let mic_color = if self.is_recording {
                         accent.base
