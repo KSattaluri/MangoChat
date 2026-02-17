@@ -26,10 +26,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path preflight | Out-Null
-          @'
-          int main(void) { return 0; }
-          '@ | Out-File -FilePath preflight\probe.c -Encoding ascii
-          cl /nologo /W0 /O1 /MD preflight\probe.c /Fe:preflight\probe.exe
+          $source = @"
+          public static class Program
+          {
+              public static void Main() { }
+          }
+          "@
+          Add-Type -TypeDefinition $source -OutputAssembly preflight\probe.exe -OutputType ConsoleApplication
           if (-not (Test-Path preflight\probe.exe)) { throw "Failed to build probe executable" }
 
       - name: Preflight signing authorization check
