@@ -3,6 +3,16 @@ use crate::audio;
 use crate::ui::theme::*;
 use crate::ui::MangoChatApp;
 
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    let count = input.chars().count();
+    if count <= max_chars {
+        return input.to_string();
+    }
+    let mut out: String = input.chars().take(max_chars.saturating_sub(3)).collect();
+    out.push_str("...");
+    out
+}
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
@@ -25,12 +35,13 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     );
                     ui.horizontal(|ui| {
                         let combo_w = (content_w - 170.0).max(120.0);
+                        let selected_mic = if app.form.mic.is_empty() {
+                            "Default".to_string()
+                        } else {
+                            truncate_chars(&app.form.mic, 64)
+                        };
                         egui::ComboBox::from_id_salt("mic_select")
-                            .selected_text(if app.form.mic.is_empty() {
-                                "Default"
-                            } else {
-                                &app.form.mic
-                            })
+                            .selected_text(selected_mic)
                             .width(combo_w)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(

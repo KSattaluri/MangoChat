@@ -20,7 +20,10 @@ pub enum AppEvent {
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
+#[serde(default)]
 pub struct UsageTotals {
+    pub provider: String,
+    pub model: String,
     pub bytes_sent: u64,
     pub ms_sent: u64,
     pub ms_suppressed: u64,
@@ -30,9 +33,11 @@ pub struct UsageTotals {
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
+#[serde(default)]
 pub struct SessionUsage {
     pub session_id: u64,
     pub provider: String,
+    pub model: String,
     pub bytes_sent: u64,
     pub ms_sent: u64,
     pub ms_suppressed: u64,
@@ -43,6 +48,7 @@ pub struct SessionUsage {
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]
+#[serde(default)]
 pub struct ProviderUsage {
     pub ms_sent: u64,
     pub ms_suppressed: u64,

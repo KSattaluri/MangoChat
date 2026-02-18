@@ -5,6 +5,16 @@ use crate::ui::theme::*;
 use crate::ui::widgets::*;
 use crate::ui::MangoChatApp;
 
+fn provider_model_label(app: &MangoChatApp, provider_id: &str) -> String {
+    match provider_id {
+        "openai" => app.form.model.clone(),
+        "deepgram" => "nova-3".to_string(),
+        "elevenlabs" => "scribe_v2_realtime".to_string(),
+        "assemblyai" => "Universal Streaming v3".to_string(),
+        _ => "-".to_string(),
+    }
+}
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let p = theme_palette(true);
     let accent = app.current_accent();
@@ -34,7 +44,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     // Subtract frame overhead so rows have even left/right margins.
     let frame_overhead = 34.0;
     let total_w = ui.available_width() - frame_overhead;
-    let provider_w = 200.0;
+    let provider_w = 220.0;
     let validate_w = 92.0;
     let default_w = 72.0;
     let row_pad_x = 8.0;
@@ -94,6 +104,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             .show(ui, |ui| {
                 ui.set_width(total_w.max(0.0));
                 ui.horizontal(|ui| {
+                    let model_label = provider_model_label(app, &provider_id);
                     let key_value = app
                         .form
                         .api_keys
@@ -122,15 +133,30 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     }
 
                     let provider_color = MangoChatApp::provider_color(&provider_id, p);
-                    ui.add_sized(
-                        [provider_w, 24.0],
-                        egui::Label::new(
-                            egui::RichText::new(*provider_name)
-                                .size(13.0)
-                                .strong()
-                                .color(provider_color),
-                        )
-                        .wrap_mode(egui::TextWrapMode::Truncate),
+                    ui.allocate_ui_with_layout(
+                        vec2(provider_w, 34.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.add_sized(
+                                [provider_w, 16.0],
+                                egui::Label::new(
+                                    egui::RichText::new(*provider_name)
+                                        .size(13.0)
+                                        .strong()
+                                        .color(provider_color),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            );
+                            ui.add_sized(
+                                [provider_w, 14.0],
+                                egui::Label::new(
+                                    egui::RichText::new(model_label)
+                                        .size(11.0)
+                                        .color(TEXT_MUTED),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            );
+                        },
                     );
 
                     let key_resp = ui
@@ -158,7 +184,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             visuals.widgets.active.bg_stroke =
                                 Stroke::new(1.0, input_stroke);
                             ui.add_sized(
-                                [api_w, 24.0],
+                                [api_w, 34.0],
                                 egui::TextEdit::singleline(key_value)
                                     .password(true)
                                     .font(FontId::proportional(12.5)),
@@ -181,7 +207,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     let result = app.key_check_result.get(&provider_id).cloned();
                     let validate_resp = ui
                         .allocate_ui_with_layout(
-                            vec2(validate_w, 24.0),
+                            vec2(validate_w, 34.0),
                             egui::Layout::centered_and_justified(
                                 egui::Direction::LeftToRight,
                             ),

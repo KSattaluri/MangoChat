@@ -88,6 +88,14 @@ fn main() {
     app_state
         .screenshot_enabled
         .store(settings.screenshot_enabled, Ordering::SeqCst);
+    if let Ok(mut usage) = app_state.usage.lock() {
+        if usage.provider.is_empty() {
+            usage.provider = settings.provider.clone();
+        }
+        if usage.model.is_empty() {
+            usage.model = settings.model.clone();
+        }
+    }
 
     // Start hotkey listener
     hotkey::start_listener(app_state.clone(), event_tx.clone());
@@ -114,7 +122,9 @@ fn main() {
             let hours_suppressed = snapshot.ms_suppressed as f64 / 3_600_000.0;
             let mb_sent = snapshot.bytes_sent as f64 / (1024.0 * 1024.0);
             println!(
-                "[usage] sent={:.2}h suppressed={:.2}h bytes={:.1}MB commits={}",
+                "[usage] provider={} model={} sent={:.2}h suppressed={:.2}h bytes={:.1}MB commits={}",
+                if snapshot.provider.is_empty() { "-" } else { snapshot.provider.as_str() },
+                if snapshot.model.is_empty() { "-" } else { snapshot.model.as_str() },
                 hours_sent, hours_suppressed, mb_sent, snapshot.commits
             );
         });

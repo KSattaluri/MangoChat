@@ -2,6 +2,16 @@ use eframe::egui;
 use crate::ui::theme::*;
 use crate::ui::{MangoChatApp, UpdateUiState};
 
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    let count = input.chars().count();
+    if count <= max_chars {
+        return input.to_string();
+    }
+    let mut out: String = input.chars().take(max_chars.saturating_sub(3)).collect();
+    out.push_str("...");
+    out
+}
+
 pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
@@ -132,17 +142,15 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         }
                         _ => env!("CARGO_PKG_VERSION").to_string(),
                     };
-                    let display_version = if version_text.chars().count() > 100 {
-                        let mut s: String = version_text.chars().take(97).collect();
-                        s.push_str("...");
-                        s
-                    } else {
-                        version_text
-                    };
-                    ui.label(
-                        egui::RichText::new(display_version)
-                            .size(12.0)
-                            .color(TEXT_MUTED),
+                    let display_version = truncate_chars(&version_text, 72);
+                    ui.add_sized(
+                        [360.0, 20.0],
+                        egui::Label::new(
+                            egui::RichText::new(display_version)
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                        )
+                        .wrap_mode(egui::TextWrapMode::Truncate),
                     );
                     ui.end_row();
 

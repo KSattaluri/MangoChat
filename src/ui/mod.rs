@@ -539,10 +539,16 @@ impl MangoChatApp {
 
         let gen = self.state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let now = now_ms();
+        if let Ok(mut totals) = self.state.usage.lock() {
+            totals.provider = self.settings.provider.clone();
+            totals.model = self.settings.model.clone();
+            totals.last_update_ms = now;
+        }
         if let Ok(mut session) = self.state.session_usage.lock() {
             *session = crate::state::SessionUsage {
                 session_id: now,
                 provider: self.settings.provider.clone(),
+                model: self.settings.model.clone(),
                 bytes_sent: 0,
                 ms_sent: 0,
                 ms_suppressed: 0,
