@@ -1,11 +1,9 @@
 use eframe::egui;
-use egui::{Color32, Stroke};
 use crate::audio;
 use crate::ui::theme::*;
 use crate::ui::MangoChatApp;
 
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
-    let accent = app.current_accent();
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
 
@@ -14,75 +12,8 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         .show(ui, |ui| {
             ui.add_space(6.0);
 
-            // --- Session limits (sliders) ---
-            egui::Grid::new("session_limits_grid")
-                .num_columns(4)
-                .spacing([16.0, 12.0])
-                .show(ui, |ui| {
-                    // Max session length
-                    ui.label(
-                        egui::RichText::new("Max session length (minutes)")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    ui.scope(|ui| {
-                        style_slider_accent(ui, accent.base, accent.hover);
-                        ui.add(
-                            egui::Slider::new(
-                                &mut app.form.max_session_length_minutes,
-                                1..=120,
-                            )
-                            .show_value(false),
-                        );
-                    });
-                    let resp = ui.add(
-                        egui::DragValue::new(
-                            &mut app.form.max_session_length_minutes,
-                        )
-                        .range(1..=120),
-                    );
-                    if resp.hovered() || resp.has_focus() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-                    }
-                    ui.label("min");
-                    ui.end_row();
-
-                    // Inactivity timeout
-                    ui.label(
-                        egui::RichText::new("Inactivity timeout (seconds)")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    ui.scope(|ui| {
-                        style_slider_accent(ui, accent.base, accent.hover);
-                        ui.add(
-                            egui::Slider::new(
-                                &mut app.form.provider_inactivity_timeout_secs,
-                                5..=300,
-                            )
-                            .show_value(false),
-                        );
-                    });
-                    let resp = ui.add(
-                        egui::DragValue::new(
-                            &mut app.form.provider_inactivity_timeout_secs,
-                        )
-                        .range(5..=300),
-                    );
-                    if resp.hovered() || resp.has_focus() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-                    }
-                    ui.label("seconds");
-                    ui.end_row();
-                });
-
-            // Separator
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(12.0);
-
-            // --- Microphone + VAD Mode (dropdowns) ---
-            egui::Grid::new("dictation_dropdowns_grid")
+            // --- All dictation settings in one aligned grid ---
+            egui::Grid::new("dictation_grid")
                 .num_columns(2)
                 .spacing([16.0, 12.0])
                 .show(ui, |ui| {
@@ -157,16 +88,65 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             );
                         });
                     ui.end_row();
-                });
-        });
-}
 
-/// Override slider widget visuals to use the accent color for the thumb and
-/// track highlights, with a darker shade on hover/active.
-fn style_slider_accent(ui: &mut egui::Ui, base: Color32, hover: Color32) {
-    let v = ui.visuals_mut();
-    // Only color the thumb outline (fg_stroke), leave fill untouched
-    v.widgets.inactive.fg_stroke = Stroke::new(2.0, base);
-    v.widgets.hovered.fg_stroke = Stroke::new(2.0, hover);
-    v.widgets.active.fg_stroke = Stroke::new(2.0, hover);
+                    // Spacer row between dropdowns and session limits
+                    ui.allocate_space(egui::vec2(0.0, 8.0));
+                    ui.allocate_space(egui::vec2(0.0, 8.0));
+                    ui.end_row();
+
+                    // Max session length
+                    ui.label(
+                        egui::RichText::new("Max session length")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            egui::DragValue::new(
+                                &mut app.form.max_session_length_minutes,
+                            )
+                            .range(1..=120),
+                        );
+                        if resp.hovered() || resp.has_focus() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        }
+                        ui.label(
+                            egui::RichText::new("min")
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                        );
+                    });
+                    ui.end_row();
+
+                    // Inactivity timeout
+                    ui.label(
+                        egui::RichText::new("Inactivity timeout")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        let resp = ui.add(
+                            egui::DragValue::new(
+                                &mut app.form.provider_inactivity_timeout_secs,
+                            )
+                            .range(5..=300),
+                        );
+                        if resp.hovered() || resp.has_focus() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        }
+                        ui.label(
+                            egui::RichText::new("sec")
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                        );
+                    });
+                    ui.end_row();
+                });
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Suggest to leave defaults")
+                    .size(11.0)
+                    .color(TEXT_MUTED),
+            );
+        });
 }

@@ -34,8 +34,8 @@ use form_state::FormState;
 pub enum UpdateUiState {
     NotChecked,
     Checking,
-    UpToDate { current: String },
-    Available { current: String, latest: ReleaseInfo },
+    UpToDate,
+    Available { latest: ReleaseInfo },
     Installing,
     InstallLaunched { path: String },
     Error(String),
@@ -329,7 +329,7 @@ impl MangoChatApp {
             return;
         }
         let release = match &self.update_state {
-            UpdateUiState::Available { latest, .. } => latest.clone(),
+            UpdateUiState::Available { latest } => latest.clone(),
             _ => return,
         };
         self.update_install_inflight = true;
@@ -338,7 +338,7 @@ impl MangoChatApp {
     }
 
     pub fn open_update_release_page(&mut self) {
-        if let UpdateUiState::Available { latest, .. } = &self.update_state {
+        if let UpdateUiState::Available { latest } = &self.update_state {
             if let Err(e) = updater::open_release_page(&latest.html_url) {
                 self.set_status(&e, "error");
             }
@@ -680,14 +680,11 @@ impl MangoChatApp {
                     self.update_check_inflight = false;
                     self.update_last_check = Some(std::time::Instant::now());
                     match result {
-                        Ok(CheckOutcome::UpToDate { current }) => {
-                            self.update_state = UpdateUiState::UpToDate {
-                                current: current.to_string(),
-                            };
+                        Ok(CheckOutcome::UpToDate) => {
+                            self.update_state = UpdateUiState::UpToDate;
                         }
-                        Ok(CheckOutcome::UpdateAvailable { current, latest }) => {
+                        Ok(CheckOutcome::UpdateAvailable { latest }) => {
                             self.update_state = UpdateUiState::Available {
-                                current: current.to_string(),
                                 latest,
                             };
                         }

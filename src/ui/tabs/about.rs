@@ -37,7 +37,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
             ui.add_space(12.0);
             {
                 let prev = ui.spacing().item_spacing.y;
-                ui.spacing_mut().item_spacing.y = 8.0;
+                ui.spacing_mut().item_spacing.y = 6.0;
 
                 ui.hyperlink_to(
                     egui::RichText::new("mangochat.org")
@@ -81,7 +81,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
             }
 
             // --- Updates ---
-            ui.add_space(24.0);
+            ui.add_space(16.0);
             {
                 let rect = ui.available_rect_before_wrap();
                 ui.painter().line_segment(
@@ -102,34 +102,45 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
 
             egui::Grid::new("updates_grid")
                 .num_columns(2)
-                .spacing([16.0, 12.0])
+                .spacing([16.0, 8.0])
                 .show(ui, |ui| {
+                    // Version row — compact inline with status
                     ui.label(
-                        egui::RichText::new("Current version")
+                        egui::RichText::new("Version")
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
-                    ui.label(
-                        egui::RichText::new(env!("CARGO_PKG_VERSION"))
-                            .size(12.0)
-                            .color(TEXT_MUTED),
-                    );
-                    ui.end_row();
-
-                    ui.label(
-                        egui::RichText::new("Latest version")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    let latest_text = match &app.update_state {
-                        UpdateUiState::Available { latest, .. } => latest.version.to_string(),
-                        UpdateUiState::UpToDate { current } => current.clone(),
-                        UpdateUiState::Checking => "Checking...".to_string(),
-                        UpdateUiState::Error(_) => "Unknown".to_string(),
-                        _ => "Not checked".to_string(),
+                    let version_text = match &app.update_state {
+                        UpdateUiState::UpToDate => {
+                            format!("{} (up to date)", env!("CARGO_PKG_VERSION"))
+                        }
+                        UpdateUiState::Available { latest } => {
+                            let pre = if latest.prerelease { " pre-release" } else { "" };
+                            format!("{} \u{2192} {} ({}{})", env!("CARGO_PKG_VERSION"), latest.version, latest.tag, pre)
+                        }
+                        UpdateUiState::Checking => {
+                            format!("{} (checking\u{2026})", env!("CARGO_PKG_VERSION"))
+                        }
+                        UpdateUiState::Installing => {
+                            format!("{} (installing\u{2026})", env!("CARGO_PKG_VERSION"))
+                        }
+                        UpdateUiState::InstallLaunched { path } => {
+                            format!("{} (launched {})", env!("CARGO_PKG_VERSION"), path)
+                        }
+                        UpdateUiState::Error(e) => {
+                            format!("{} (error: {})", env!("CARGO_PKG_VERSION"), e)
+                        }
+                        _ => env!("CARGO_PKG_VERSION").to_string(),
+                    };
+                    let display_version = if version_text.chars().count() > 100 {
+                        let mut s: String = version_text.chars().take(97).collect();
+                        s.push_str("...");
+                        s
+                    } else {
+                        version_text
                     };
                     ui.label(
-                        egui::RichText::new(latest_text)
+                        egui::RichText::new(display_version)
                             .size(12.0)
                             .color(TEXT_MUTED),
                     );
@@ -166,34 +177,9 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         });
                     app.form.update_include_prerelease = include_pre;
                     ui.end_row();
-
-                    ui.label(
-                        egui::RichText::new("Update feed URL override")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    let mut feed = app.form.update_feed_url_override.clone();
-                    let response = ui.add(
-                        egui::TextEdit::singleline(&mut feed)
-                            .desired_width(360.0)
-                            .hint_text(
-                                "Optional: local/test URL or GitHub releases page URL",
-                            ),
-                    );
-                    if response.changed() {
-                        app.form.update_feed_url_override = feed;
-                    }
-                    ui.end_row();
                 });
 
-            ui.label(
-                egui::RichText::new(
-                    "When set, update checks use this URL. Leave empty to use MangoChat GitHub releases.",
-                )
-                .size(11.0)
-                .color(TEXT_MUTED),
-            );
-            ui.add_space(8.0);
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
@@ -209,16 +195,25 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     app.trigger_update_check();
                 }
 
-                if ui
-                    .add_enabled(
-                        matches!(app.update_state, UpdateUiState::Available { .. })
-                            && !app.update_install_inflight,
-                        egui::Button::new(
-                            egui::RichText::new("Download & Install")
-                                .size(11.0)
-                                .color(TEXT_COLOR),
-                        ),
+                let install_enabled = matches!(app.update_state, UpdateUiState::Available { .. })
+                    && !app.update_install_inflight;
+                let install_btn = if install_enabled {
+                    egui::Button::new(
+                        egui::RichText::new("Download & Install")
+                            .size(11.0)
+                            .color(egui::Color32::BLACK),
                     )
+                    .fill(accent.base)
+                    .stroke(egui::Stroke::new(1.0, accent.ring))
+                } else {
+                    egui::Button::new(
+                        egui::RichText::new("Download & Install")
+                            .size(11.0)
+                            .color(TEXT_COLOR),
+                    )
+                };
+                if ui
+                    .add_enabled(install_enabled, install_btn)
                     .clicked()
                 {
                     app.trigger_update_install();
@@ -238,42 +233,6 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     app.open_update_release_page();
                 }
             });
-
-            let status_text = match &app.update_state {
-                UpdateUiState::NotChecked => "Update status: not checked".to_string(),
-                UpdateUiState::Checking => "Update status: checking...".to_string(),
-                UpdateUiState::UpToDate { current } => {
-                    format!("Update status: up to date ({current})")
-                }
-                UpdateUiState::Available { current, latest } => format!(
-                    "Update available: {} -> {} (tag {}){}",
-                    current,
-                    latest.version,
-                    latest.tag,
-                    if latest.prerelease { " (pre-release)" } else { "" }
-                ),
-                UpdateUiState::Installing => {
-                    "Update status: downloading installer...".to_string()
-                }
-                UpdateUiState::InstallLaunched { path } => format!(
-                    "Installer launched: {} (app will close)",
-                    path
-                ),
-                UpdateUiState::Error(e) => format!("Update status: error ({e})"),
-            };
-            ui.label(
-                egui::RichText::new(status_text)
-                    .size(11.0)
-                    .color(TEXT_MUTED),
-            );
-            if let Some(last) = app.update_last_check {
-                let secs = last.elapsed().as_secs();
-                ui.label(
-                    egui::RichText::new(format!("Last checked: {}s ago", secs))
-                        .size(11.0)
-                        .color(TEXT_MUTED),
-                );
-            }
         });
 }
 

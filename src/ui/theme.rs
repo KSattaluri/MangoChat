@@ -5,7 +5,7 @@ pub const TEXT_COLOR: Color32 = Color32::from_rgb(0xe6, 0xe6, 0xe6);
 pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x9c, 0xa3, 0xaf);
 pub const BTN_BG: Color32 = Color32::from_rgb(0x25, 0x28, 0x30);
 pub const BTN_BORDER: Color32 = Color32::from_rgb(0x2c, 0x2f, 0x36);
-pub const SETTINGS_BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x21);
+pub const SETTINGS_BG: Color32 = Color32::from_rgb(0x1c, 0x1f, 0x2a);
 pub const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 
 pub const PROVIDER_ROWS: &[(&str, &str)] = &[

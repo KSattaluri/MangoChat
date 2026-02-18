@@ -38,8 +38,8 @@ pub enum WorkerMessage {
 
 #[derive(Debug, Clone)]
 pub enum CheckOutcome {
-    UpToDate { current: Version },
-    UpdateAvailable { current: Version, latest: ReleaseInfo },
+    UpToDate,
+    UpdateAvailable { latest: ReleaseInfo },
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,13 +180,13 @@ fn check_for_updates(
     }
 
     let Some(latest) = best else {
-        return Ok(CheckOutcome::UpToDate { current });
+        return Ok(CheckOutcome::UpToDate);
     };
 
     if latest.version > current {
-        Ok(CheckOutcome::UpdateAvailable { current, latest })
+        Ok(CheckOutcome::UpdateAvailable { latest })
     } else {
-        Ok(CheckOutcome::UpToDate { current })
+        Ok(CheckOutcome::UpToDate)
     }
 }
 
