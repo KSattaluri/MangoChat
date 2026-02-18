@@ -33,45 +33,49 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
-                    ui.horizontal(|ui| {
-                        let combo_w = (content_w - 170.0).max(120.0);
-                        let selected_mic = if app.form.mic.is_empty() {
-                            "Default".to_string()
-                        } else {
-                            truncate_chars(&app.form.mic, 64)
-                        };
-                        egui::ComboBox::from_id_salt("mic_select")
-                            .selected_text(selected_mic)
-                            .width(combo_w)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut app.form.mic,
-                                    String::new(),
-                                    "Default",
-                                );
-                                for dev in &app.mic_devices {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), 26.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            let combo_w = (content_w - 170.0).max(120.0);
+                            let selected_mic = if app.form.mic.is_empty() {
+                                "Default".to_string()
+                            } else {
+                                truncate_chars(&app.form.mic, 64)
+                            };
+                            egui::ComboBox::from_id_salt("mic_select")
+                                .selected_text(selected_mic)
+                                .width(combo_w)
+                                .show_ui(ui, |ui| {
                                     ui.selectable_value(
                                         &mut app.form.mic,
-                                        dev.clone(),
-                                        dev,
+                                        String::new(),
+                                        "Default",
                                     );
-                                }
-                            });
-                        if ui
-                            .add_sized(
-                                [68.0, 22.0],
-                                egui::Button::new("Refresh"),
-                            )
-                            .clicked()
-                        {
-                            app.mic_devices = audio::list_input_devices();
-                            if !app.form.mic.is_empty()
-                                && !app.mic_devices.contains(&app.form.mic)
+                                    for dev in &app.mic_devices {
+                                        ui.selectable_value(
+                                            &mut app.form.mic,
+                                            dev.clone(),
+                                            dev,
+                                        );
+                                    }
+                                });
+                            if ui
+                                .add_sized(
+                                    [72.0, 24.0],
+                                    egui::Button::new("Refresh"),
+                                )
+                                .clicked()
                             {
-                                app.form.mic.clear();
+                                app.mic_devices = audio::list_input_devices();
+                                if !app.form.mic.is_empty()
+                                    && !app.mic_devices.contains(&app.form.mic)
+                                {
+                                    app.form.mic.clear();
+                                }
                             }
-                        }
-                    });
+                        },
+                    );
                     ui.end_row();
 
                     // VAD Mode
