@@ -217,36 +217,50 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .color(TEXT_COLOR),
                     );
                     ui.horizontal(|ui| {
-                        let resp = ui.add(
-                            egui::DragValue::new(&mut app.form.screenshot_retention_count)
-                                .range(1..=200),
-                        );
-                        if resp.hovered() || resp.has_focus() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-                        }
-                        ui.label(
-                            egui::RichText::new("images")
-                                .size(12.0)
-                                .color(TEXT_MUTED),
-                        );
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(control_w, 24.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
-                                if ui
-                                    .add_sized(
-                                        [142.0, 22.0],
-                                        egui::Button::new("Open images folder"),
-                                    )
-                                    .clicked()
-                                {
-                                    if let Err(e) = snip::open_snip_folder() {
-                                        app.set_status(
-                                            &format!("Failed to open folder: {}", e),
-                                            "error",
-                                        );
-                                    }
+                                let resp = ui.add(
+                                    egui::DragValue::new(&mut app.form.screenshot_retention_count)
+                                        .range(1..=200),
+                                );
+                                if resp.hovered() || resp.has_focus() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
                                 }
-                            }
+                                ui.label(
+                                    egui::RichText::new("images")
+                                        .size(12.0)
+                                        .color(TEXT_MUTED),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .add_sized(
+                                                [148.0, 22.0],
+                                                egui::Button::new(
+                                                    egui::RichText::new("Open images folder")
+                                                        .color(accent.base),
+                                                )
+                                                .fill(accent.base.gamma_multiply(0.22))
+                                                .stroke(egui::Stroke::new(
+                                                    1.0,
+                                                    accent.base.gamma_multiply(0.85),
+                                                )),
+                                            )
+                                            .clicked()
+                                        {
+                                            if let Err(e) = snip::open_snip_folder() {
+                                                app.set_status(
+                                                    &format!("Failed to open folder: {}", e),
+                                                    "error",
+                                                );
+                                            }
+                                        }
+                                    },
+                                );
+                            },
                         );
                     });
                     ui.end_row();
