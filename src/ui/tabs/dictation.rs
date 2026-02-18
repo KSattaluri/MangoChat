@@ -1,5 +1,6 @@
 use eframe::egui;
 use crate::audio;
+use crate::snip;
 use crate::ui::theme::*;
 use crate::ui::MangoChatApp;
 
@@ -156,6 +157,123 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                 .color(TEXT_MUTED),
                         );
                     });
+                    ui.end_row();
+
+                    // ── Separator ──
+                    ui.separator();
+                    ui.separator();
+                    ui.end_row();
+
+                    // ── Screenshot capture ──
+                    ui.label(
+                        egui::RichText::new("Screenshot capture")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    {
+                        let control_w = (content_w - 216.0).max(160.0);
+                        let mut enabled = app.form.screenshot_enabled;
+                        egui::ComboBox::from_id_salt("screenshot_enabled_select")
+                            .selected_text(if enabled { "Yes" } else { "No" })
+                            .width(control_w)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut enabled, true, "Yes");
+                                ui.selectable_value(&mut enabled, false, "No");
+                            });
+                        app.form.screenshot_enabled = enabled;
+                    }
+                    ui.end_row();
+
+                    // ── Retention count ──
+                    ui.label(
+                        egui::RichText::new("Retention count")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        let control_w = (content_w - 216.0).max(160.0);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(control_w, 24.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                let resp = ui.add(
+                                    egui::DragValue::new(&mut app.form.screenshot_retention_count)
+                                        .range(1..=200),
+                                );
+                                if resp.hovered() || resp.has_focus() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                                }
+                                ui.label(
+                                    egui::RichText::new("images")
+                                        .size(12.0)
+                                        .color(TEXT_MUTED),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .add_sized(
+                                                [148.0, 22.0],
+                                                egui::Button::new(
+                                                    egui::RichText::new("Open images folder")
+                                                        .color(TEXT_COLOR),
+                                                )
+                                                .fill(accent.base.gamma_multiply(0.22))
+                                                .stroke(egui::Stroke::new(
+                                                    1.0,
+                                                    accent.base.gamma_multiply(0.85),
+                                                )),
+                                            )
+                                            .clicked()
+                                        {
+                                            if let Err(e) = snip::open_snip_folder() {
+                                                app.set_status(
+                                                    &format!("Failed to open folder: {}", e),
+                                                    "error",
+                                                );
+                                            }
+                                        }
+                                    },
+                                );
+                            },
+                        );
+                    });
+                    ui.end_row();
+
+                    // ── After edit capture ──
+                    ui.label(
+                        egui::RichText::new("After edit capture")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    {
+                        let control_w = (content_w - 216.0).max(160.0);
+                        let revert_label = match app.form.snip_edit_revert.as_str() {
+                            "image" => "Switch to copy image",
+                            "path" => "Switch to copy path",
+                            _ => "Stay on edit",
+                        };
+                        egui::ComboBox::from_id_salt("snip_edit_revert_select")
+                            .selected_text(revert_label)
+                            .width(control_w)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut app.form.snip_edit_revert,
+                                    "stay".to_string(),
+                                    "Stay on edit",
+                                );
+                                ui.selectable_value(
+                                    &mut app.form.snip_edit_revert,
+                                    "image".to_string(),
+                                    "Switch to copy image",
+                                );
+                                ui.selectable_value(
+                                    &mut app.form.snip_edit_revert,
+                                    "path".to_string(),
+                                    "Switch to copy path",
+                                );
+                            });
+                    }
                     ui.end_row();
 
                     ui.label(

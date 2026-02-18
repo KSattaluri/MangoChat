@@ -1195,9 +1195,9 @@ impl MangoChatApp {
 
                                         for (id, label) in [
                                             ("provider", "Provider"),
-                                            ("dictation", "Dictation"),
+                                            ("dictation", "Session"),
                                             ("commands", "Commands"),
-                                            ("appearance", "Customization"),
+                                            ("appearance", "Appearance"),
                                             ("usage", "Usage"),
                                             ("faq", "FAQ"),
                                             ("about", "About"),
