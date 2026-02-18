@@ -1028,7 +1028,7 @@ impl MangoChatApp {
                                 self.settings_open = true;
                                 self.sync_form_from_settings();
                                 self.session_history =
-                                    crate::usage::load_recent_sessions(20);
+                                    crate::usage::load_recent_sessions(5);
                                 self.apply_window_mode(ctx, true);
                             }
                         }
@@ -1155,7 +1155,7 @@ impl MangoChatApp {
                                         && prev_tab != "usage"
                                     {
                                         self.session_history =
-                                            crate::usage::load_recent_sessions(20);
+                                            crate::usage::load_recent_sessions(5);
                                     }
                                     ui.add_space(2.0);
 

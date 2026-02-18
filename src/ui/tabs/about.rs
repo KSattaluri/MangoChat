@@ -6,7 +6,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
+            ui.set_min_width(ui.available_width().max(0.0));
             ui.horizontal(|ui| {
                 // Mango icon (lazy-loaded)
                 let icon_sz = 20.0;
@@ -241,7 +241,7 @@ pub fn render_faq(app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
+            ui.set_min_width(ui.available_width().max(0.0));
             ui.label(
                 egui::RichText::new("Frequently Asked Questions")
                     .size(13.0)

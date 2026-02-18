@@ -1,5 +1,3 @@
-use eframe::egui;
-use super::theme::theme_palette;
 
 pub fn fmt_duration_ms(ms: u64) -> String {
     let total_secs = ms / 1000;
@@ -45,18 +43,5 @@ pub fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-pub fn stat_card(ui: &mut egui::Ui, label: &str, value: &str) {
-    let p = theme_palette(ui.visuals().dark_mode);
-    ui.vertical(|ui| {
-        ui.label(egui::RichText::new(label).size(9.0).color(p.text_muted));
-        ui.label(
-            egui::RichText::new(value)
-                .size(13.0)
-                .strong()
-                .color(p.text),
-        );
-    });
 }
 
