@@ -241,7 +241,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                                 [148.0, 22.0],
                                                 egui::Button::new(
                                                     egui::RichText::new("Open images folder")
-                                                        .color(accent.base),
+                                                        .color(TEXT_COLOR),
                                                 )
                                                 .fill(accent.base.gamma_multiply(0.22))
                                                 .stroke(egui::Stroke::new(
