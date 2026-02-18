@@ -21,13 +21,7 @@ fn secrets_path() -> Result<PathBuf, String> {
 }
 
 fn legacy_secrets_path() -> Result<PathBuf, String> {
-    if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Jarvis").join("secrets.json"));
-    }
-    if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".jarvis").join("secrets.json"));
-    }
-    Err("Failed to resolve data directory".into())
+    Err("Legacy secrets path disabled".into())
 }
 
 pub fn load_api_keys() -> Result<HashMap<String, String>, String> {

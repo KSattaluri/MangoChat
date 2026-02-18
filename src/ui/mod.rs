@@ -1406,6 +1406,23 @@ impl MangoChatApp {
                                                                 })
                                                                 .collect();
                                                         }
+                                                        if let Ok(mut v) = self
+                                                            .state
+                                                            .app_shortcuts
+                                                            .lock()
+                                                        {
+                                                            *v = self
+                                                                .settings
+                                                                .app_shortcuts
+                                                                .iter()
+                                                                .map(|c| {
+                                                                    (
+                                                                        c.trigger.clone(),
+                                                                        c.path.clone(),
+                                                                    )
+                                                                })
+                                                                .collect();
+                                                        }
                                                         self._tray_icon = setup_tray(
                                                             self.current_accent(),
                                                         );

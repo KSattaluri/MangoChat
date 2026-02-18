@@ -76,6 +76,13 @@ fn main() {
             .map(|c| (c.trigger.clone(), c.replacement.clone()))
             .collect();
     }
+    if let Ok(mut v) = app_state.app_shortcuts.lock() {
+        *v = settings
+            .app_shortcuts
+            .iter()
+            .map(|c| (c.trigger.clone(), c.path.clone()))
+            .collect();
+    }
 
     // Populate feature gates from settings
     app_state

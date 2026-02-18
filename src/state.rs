@@ -76,6 +76,8 @@ pub struct AppState {
     pub url_commands: Mutex<Vec<(String, String)>>,
     /// Dynamic alias voice commands: (trigger, replacement text).
     pub alias_commands: Mutex<Vec<(String, String)>>,
+    /// Dynamic app shortcuts: (trigger, executable path).
+    pub app_shortcuts: Mutex<Vec<(String, String)>>,
 }
 
 impl AppState {
@@ -100,6 +102,7 @@ impl AppState {
             paint_path: Mutex::new(r"C:\Windows\System32\mspaint.exe".into()),
             url_commands: Mutex::new(vec![]),
             alias_commands: Mutex::new(vec![]),
+            app_shortcuts: Mutex::new(vec![]),
         }
     }
 }

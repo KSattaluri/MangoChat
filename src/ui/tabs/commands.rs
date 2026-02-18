@@ -5,8 +5,6 @@ use crate::ui::theme::*;
 use crate::ui::widgets;
 use crate::ui::MangoChatApp;
 
-const APP_PATHS_FRAME_OVERHEAD: f32 = 34.0;
-
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let accent = app.current_accent();
 
@@ -118,7 +116,7 @@ fn render_browser_commands(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     let mut delete_url_idx: Option<usize> = None;
     for (i, cmd) in app.form.url_commands.iter_mut().enumerate() {
         let row_w = ui.available_width();
-        let trigger_w = 100.0;
+        let trigger_w = 140.0;
         let delete_w = 24.0;
         let spacing = ui.spacing().item_spacing.x;
         let url_w = (row_w - trigger_w - delete_w - spacing * 2.0).max(140.0);
@@ -287,48 +285,161 @@ fn render_text_aliases(app: &mut MangoChatApp, ui: &mut egui::Ui) {
 
 fn render_app_paths(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.label(
-        egui::RichText::new("App Paths")
+        egui::RichText::new("App Shortcuts")
             .size(13.0)
             .strong()
             .color(TEXT_COLOR),
     );
     ui.add_space(8.0);
 
-    let content_w = ui.available_width() - APP_PATHS_FRAME_OVERHEAD;
-    egui::Grid::new("app_paths_grid")
-        .num_columns(2)
-        .spacing([16.0, 12.0])
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("Chrome")
-                    .size(13.0)
-                    .color(TEXT_COLOR),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.form.chrome_path)
-                    .desired_width(content_w * 0.7),
-            );
-            ui.end_row();
+    let mut delete_idx: Option<usize> = None;
+    for (i, shortcut) in app.form.app_shortcuts.iter_mut().enumerate() {
+        let row_w = ui.available_width();
+        let trigger_w = 140.0;
+        let delete_w = 24.0;
+        let spacing = ui.spacing().item_spacing.x;
+        let path_w = (row_w - trigger_w - delete_w - spacing * 2.0).max(180.0);
 
-            ui.label(
-                egui::RichText::new("Paint")
+        ui.horizontal(|ui| {
+            ui.set_width(row_w.max(0.0));
+            ui.visuals_mut().extreme_bg_color = Color32::from_rgb(0x1a, 0x1d, 0x24);
+            let trigger_id = egui::Id::new(("app_shortcut_trigger", i));
+            ui.add_sized(
+                [trigger_w, 22.0],
+                egui::TextEdit::singleline(&mut shortcut.trigger)
+                    .id(trigger_id)
+                    .interactive(!shortcut.builtin)
+                    .font(FontId::proportional(13.0))
+                    .text_color(TEXT_COLOR),
+            );
+            ui.visuals_mut().extreme_bg_color = Color32::from_rgb(0x1a, 0x1d, 0x24);
+            ui.add_sized(
+                [path_w, 22.0],
+                egui::TextEdit::singleline(&mut shortcut.path)
+                    .font(FontId::proportional(13.0))
+                    .text_color(TEXT_COLOR),
+            );
+            if !shortcut.builtin {
+                if ui
+                    .add_sized(
+                        [delete_w, 22.0],
+                        egui::Button::new(
+                            egui::RichText::new("x")
+                                .size(13.0)
+                                .color(RED),
+                        )
+                        .fill(BTN_BG)
+                        .stroke(Stroke::new(0.5, BTN_BORDER)),
+                    )
+                    .clicked()
+                {
+                    delete_idx = Some(i);
+                }
+            } else {
+                ui.add_sized([delete_w, 22.0], egui::Label::new(""));
+            }
+        });
+        ui.add_space(2.0);
+    }
+    if let Some(idx) = delete_idx {
+        app.form.app_shortcuts.remove(idx);
+    }
+
+    ui.add_space(6.0);
+    if ui
+        .add_sized(
+            [ui.available_width(), 28.0],
+            egui::Button::new(
+                egui::RichText::new("+ Add Shortcut")
                     .size(13.0)
                     .color(TEXT_COLOR),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.form.paint_path)
-                    .desired_width(content_w * 0.7),
-            );
-            ui.end_row();
+            )
+            .fill(BTN_BG)
+            .stroke(Stroke::new(0.5, BTN_BORDER)),
+        )
+        .clicked()
+    {
+        let new_idx = app.form.app_shortcuts.len();
+        app.form.app_shortcuts.push(crate::settings::AppShortcut {
+            trigger: String::new(),
+            path: String::new(),
+            builtin: false,
         });
+        let focus_id = egui::Id::new(("app_shortcut_trigger", new_idx));
+        ui.memory_mut(|m| m.request_focus(focus_id));
+    }
 }
 
 fn render_system_placeholder(ui: &mut egui::Ui) {
     let p = theme_palette(ui.visuals().dark_mode);
-    ui.add_space(20.0);
     ui.label(
-        egui::RichText::new("System commands will appear here.")
+        egui::RichText::new("System Commands (Read-only)")
             .size(13.0)
+            .strong()
+            .color(TEXT_COLOR),
+    );
+    ui.add_space(8.0);
+
+    let rows = [
+        ("enter", "Insert a line break in the active app."),
+        ("yes", "Insert a line break in the active app."),
+        ("back", "Delete the previous word."),
+        ("back back", "Delete the current line."),
+        ("new line", "Insert a line break."),
+        ("new paragraph", "Insert a double line break."),
+        ("undo", "Undo the previous action (Ctrl+Z)."),
+        ("copy", "Copy selected text (Ctrl+C)."),
+        ("paste", "Paste from clipboard (Ctrl+V)."),
+        ("cut", "Cut selected text (Ctrl+X)."),
+        ("select all", "Select all text (Ctrl+A)."),
+    ];
+
+    egui::Frame::none()
+        .fill(p.settings_bg)
+        .stroke(Stroke::new(0.5, BTN_BORDER))
+        .inner_margin(egui::Margin::same(10.0))
+        .rounding(egui::Rounding::same(8.0))
+        .show(ui, |ui| {
+            egui::Grid::new("system_commands_grid")
+                .num_columns(2)
+                .striped(true)
+                .min_col_width(120.0)
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Command")
+                            .size(12.0)
+                            .strong()
+                            .color(p.text_muted),
+                    );
+                    ui.label(
+                        egui::RichText::new("Behavior")
+                            .size(12.0)
+                            .strong()
+                            .color(p.text_muted),
+                    );
+                    ui.end_row();
+
+                    for (command, behavior) in rows {
+                        ui.label(
+                            egui::RichText::new(command)
+                                .size(13.0)
+                                .strong()
+                                .color(TEXT_COLOR),
+                        );
+                        ui.label(
+                            egui::RichText::new(behavior)
+                                .size(12.5)
+                                .color(TEXT_COLOR),
+                        );
+                        ui.end_row();
+                    }
+                });
+        });
+
+    ui.add_space(8.0);
+    ui.label(
+        egui::RichText::new("These commands are built-in and cannot be edited.")
+            .size(12.0)
             .color(p.text_muted),
     );
 }
