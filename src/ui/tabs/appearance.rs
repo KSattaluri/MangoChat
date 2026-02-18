@@ -5,6 +5,16 @@ use crate::ui::theme::*;
 use crate::ui::window::*;
 use crate::ui::MangoChatApp;
 
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    let count = input.chars().count();
+    if count <= max_chars {
+        return input.to_string();
+    }
+    let mut out: String = input.chars().take(max_chars.saturating_sub(3)).collect();
+    out.push_str("...");
+    out
+}
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let accent = app.current_accent();
     let frame_overhead = 34.0;
@@ -98,14 +108,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     );
                     {
                         let choices = app.monitor_choices();
-                        egui::ComboBox::from_id_salt("window_monitor_id_select")
-                            .selected_text(
-                                if app.form.window_monitor_id.trim().is_empty() {
-                                    "Primary monitor".to_string()
-                                } else {
-                                    app.monitor_label_for_id(&app.form.window_monitor_id)
-                                },
+                        let selected_monitor = if app.form.window_monitor_id.trim().is_empty() {
+                            "Primary monitor".to_string()
+                        } else {
+                            truncate_chars(
+                                &app.monitor_label_for_id(&app.form.window_monitor_id),
+                                64,
                             )
+                        };
+                        egui::ComboBox::from_id_salt("window_monitor_id_select")
+                            .selected_text(selected_monitor)
                             .width(control_w)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(
