@@ -229,14 +229,25 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                 .size(12.0)
                                 .color(TEXT_MUTED),
                         );
-                        if ui
-                            .add_sized([92.0, 22.0], egui::Button::new("Open folder"))
-                            .clicked()
-                        {
-                            if let Err(e) = snip::open_snip_folder() {
-                                app.set_status(&format!("Failed to open folder: {}", e), "error");
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if ui
+                                    .add_sized(
+                                        [142.0, 22.0],
+                                        egui::Button::new("Open images folder"),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Err(e) = snip::open_snip_folder() {
+                                        app.set_status(
+                                            &format!("Failed to open folder: {}", e),
+                                            "error",
+                                        );
+                                    }
+                                }
                             }
-                        }
+                        );
                     });
                     ui.end_row();
 
