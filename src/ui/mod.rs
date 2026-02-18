@@ -826,32 +826,38 @@ impl MangoChatApp {
                     let mic_color;
                     let text_color;
                     let display_text;
+                    let use_sparkle_icon;
+                    let update_available =
+                        matches!(self.update_state, UpdateUiState::Available { .. });
+                    let trim_for_row = |text: String| -> String {
+                        if text.chars().count() > max_chars {
+                            let mut s: String = text.chars().take(max_chars - 3).collect();
+                            s.push_str("...");
+                            s
+                        } else {
+                            text
+                        }
+                    };
 
                     if self.is_recording {
                         mic_color = accent.base;
                         text_color = accent.base;
 
-                        // Build the two alternating messages
+                        // Build the alternating messages
                         let dev = if self.settings.mic_device.trim().is_empty() {
                             "System default"
                         } else {
                             &self.settings.mic_device
                         };
-                        let msg_device = {
-                            let full = format!("Listening: {}", dev);
-                            if full.chars().count() > max_chars {
-                                let mut s: String = full.chars().take(max_chars - 3).collect();
-                                s.push_str("...");
-                                s
-                            } else {
-                                full
-                            }
-                        };
+                        let msg_device = trim_for_row(format!("Listening: {}", dev));
                         let msg_provider = format!(
                             "Provider: {}",
                             MangoChatApp::provider_display_name(&self.settings.provider)
                         );
-                        let messages = [msg_device, msg_provider];
+                        let mut messages = vec![msg_device, msg_provider];
+                        if update_available {
+                            messages.push("Newer version available".to_string());
+                        }
 
                         let now = ctx.input(|i| i.time);
                         let chars_per_sec = 30.0;
@@ -866,6 +872,8 @@ impl MangoChatApp {
                             .unwrap_or((now, 0));
 
                         let full_msg = &messages[msg_idx % messages.len()];
+                        use_sparkle_icon = full_msg.starts_with("Provider:")
+                            || full_msg == "Newer version available";
                         let char_count = full_msg.chars().count();
                         let type_duration = char_count as f64 / chars_per_sec;
                         let hold_end = total_display - dot_duration;
@@ -900,11 +908,54 @@ impl MangoChatApp {
                     } else {
                         mic_color = TEXT_COLOR;
                         text_color = TEXT_MUTED;
-                        display_text = "Not listening".to_string();
+                        if update_available {
+                            let messages = [
+                                "Not listening".to_string(),
+                                "Newer version available".to_string(),
+                            ];
+                            let now = ctx.input(|i| i.time);
+                            let chars_per_sec = 30.0;
+                            let total_display = 8.0;
+                            let dot_duration = 2.0;
+                            let dot_interval = 0.4;
+                            let state_id = egui::Id::new("compact_status_state_idle");
+                            let (msg_start, msg_idx): (f64, usize) =
+                                ui.data(|d| d.get_temp(state_id)).unwrap_or((now, 0));
+                            let full_msg = &messages[msg_idx % messages.len()];
+                            use_sparkle_icon = full_msg == "Newer version available";
+                            let char_count = full_msg.chars().count();
+                            let type_duration = char_count as f64 / chars_per_sec;
+                            let hold_end = total_display - dot_duration;
+                            let elapsed = now - msg_start;
 
-                        // Reset cycle state when not recording
-                        let state_id = egui::Id::new("compact_status_state");
-                        ui.data_mut(|d| d.remove::<(f64, usize)>(state_id));
+                            if elapsed < type_duration {
+                                let revealed = (elapsed * chars_per_sec) as usize;
+                                display_text = full_msg.chars().take(revealed).collect();
+                            } else if elapsed < hold_end {
+                                display_text = full_msg.clone();
+                            } else if elapsed < total_display {
+                                let dot_elapsed = elapsed - hold_end;
+                                let dot_count = ((dot_elapsed / dot_interval) as usize % 3) + 1;
+                                let dots: String = std::iter::repeat('.').take(dot_count).collect();
+                                display_text = format!("{}  {}", full_msg, dots);
+                            } else {
+                                let next_idx = (msg_idx + 1) % messages.len();
+                                ui.data_mut(|d| d.insert_temp(state_id, (now, next_idx)));
+                                display_text = String::new();
+                            }
+                            if elapsed < total_display {
+                                ui.data_mut(|d| d.insert_temp(state_id, (msg_start, msg_idx)));
+                            }
+                            ctx.request_repaint();
+                        } else {
+                            display_text = "Not listening".to_string();
+                            // Reset cycle state when not recording and no update cycle is needed.
+                            let state_id_live = egui::Id::new("compact_status_state");
+                            let state_id_idle = egui::Id::new("compact_status_state_idle");
+                            ui.data_mut(|d| d.remove::<(f64, usize)>(state_id_live));
+                            ui.data_mut(|d| d.remove::<(f64, usize)>(state_id_idle));
+                            use_sparkle_icon = false;
+                        }
                     }
 
                     let t = ctx.input(|i| i.time) as f32;
@@ -921,14 +972,24 @@ impl MangoChatApp {
                                 icon_rect.min.x + icon_s * 0.5,
                                 icon_rect.center().y,
                             );
-                            draw_mic_status_icon(
-                                ui.painter(),
-                                icon_center,
-                                icon_s,
-                                mic_color,
-                                self.is_recording,
-                                t,
-                            );
+                            if use_sparkle_icon {
+                                draw_sparkle_status_icon(
+                                    ui.painter(),
+                                    icon_center,
+                                    icon_s,
+                                    mic_color,
+                                    t,
+                                );
+                            } else {
+                                draw_mic_status_icon(
+                                    ui.painter(),
+                                    icon_center,
+                                    icon_s,
+                                    mic_color,
+                                    self.is_recording,
+                                    t,
+                                );
+                            }
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(display_text)

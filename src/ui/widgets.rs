@@ -1075,3 +1075,41 @@ pub fn draw_mic_status_icon(
     painter.line_segment([m(10.0, 21.0), m(14.0, 21.0)], stroke);
 }
 
+
+/// Draws a compact twinkling sparkle icon.
+pub fn draw_sparkle_status_icon(
+    painter: &egui::Painter,
+    c: egui::Pos2,
+    s: f32,
+    color: Color32,
+    t: f32,
+) {
+    let pulse = (t * 5.0).sin() * 0.5 + 0.5;
+    let spike = 0.75 + pulse * 0.55;
+    let alpha = (140.0 + pulse * 110.0) as u8;
+    let glow_alpha = (30.0 + pulse * 70.0) as u8;
+    let draw_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+    let glow_color =
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), glow_alpha);
+
+    let long = s * 0.33 * spike;
+    let short = s * 0.18 * (1.0 + pulse * 0.35);
+    let thin = Stroke::new(1.1, draw_color);
+
+    // soft center glow
+    painter.circle_filled(c, s * 0.20 * (0.9 + pulse * 0.3), glow_color);
+
+    // main 4-point sparkle
+    painter.line_segment([pos2(c.x, c.y - long), pos2(c.x, c.y + long)], thin);
+    painter.line_segment([pos2(c.x - long, c.y), pos2(c.x + long, c.y)], thin);
+
+    // rotated inner sparkle
+    painter.line_segment(
+        [pos2(c.x - short, c.y - short), pos2(c.x + short, c.y + short)],
+        Stroke::new(1.0, draw_color),
+    );
+    painter.line_segment(
+        [pos2(c.x - short, c.y + short), pos2(c.x + short, c.y - short)],
+        Stroke::new(1.0, draw_color),
+    );
+}
