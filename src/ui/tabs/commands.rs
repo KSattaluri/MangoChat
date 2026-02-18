@@ -9,18 +9,20 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let accent = app.current_accent();
 
     // ── Sub-tab bar (pinned above scroll area) ──
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        for (id, label) in [
-            ("browser", "Browser"),
-            ("aliases", "Custom text aliases"),
-            ("system", "Mango Chat aliases"),
-            ("apps", "App locations"),
-        ] {
-            let active = app.commands_sub_tab == id;
-            if widgets::sub_tab_button(ui, label, active, accent).clicked() {
-                app.commands_sub_tab = id.to_string();
-            }
+    let tabs = [
+        ("browser", "Browser"),
+        ("aliases", "Custom text aliases"),
+        ("system", "Mango Chat aliases"),
+        ("apps", "App locations"),
+    ];
+    ui.columns(tabs.len(), |cols| {
+        for (i, (id, label)) in tabs.iter().enumerate() {
+            let active = app.commands_sub_tab == *id;
+            cols[i].with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                if widgets::sub_tab_button(ui, label, active, accent).clicked() {
+                    app.commands_sub_tab = id.to_string();
+                }
+            });
         }
     });
     ui.add_space(10.0);
@@ -445,6 +447,7 @@ fn render_system_placeholder(ui: &mut egui::Ui) {
         .inner_margin(egui::Margin::same(10.0))
         .rounding(egui::Rounding::same(8.0))
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             let row_w = ui.available_width();
             let command_w = 160.0;
             let behavior_w = (row_w - command_w - 12.0).max(240.0);

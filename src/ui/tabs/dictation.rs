@@ -14,6 +14,7 @@ fn truncate_chars(input: &str, max_chars: usize) -> String {
 }
 
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
+    let accent = app.current_accent();
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
 
@@ -156,12 +157,44 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         );
                     });
                     ui.end_row();
+
+                    ui.label(
+                        egui::RichText::new("Reset defaults")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        let btn = egui::Button::new(
+                            egui::RichText::new("Reset")
+                                .size(12.0)
+                                .strong()
+                                .color(egui::Color32::BLACK),
+                        )
+                        .fill(accent.base)
+                        .stroke(egui::Stroke::new(1.0, accent.ring));
+                        if ui.add(btn).clicked() {
+                            app.form.reset_non_provider_defaults();
+                            app.mic_devices = audio::list_input_devices();
+                            if !app.form.mic.is_empty()
+                                && !app.mic_devices.contains(&app.form.mic)
+                            {
+                                app.form.mic.clear();
+                            }
+                            app.set_status(
+                                "Defaults restored. Click Save to apply.",
+                                "idle",
+                            );
+                        }
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Does not reset provider/API keys or usage logs.",
+                            )
+                            .size(11.0)
+                            .color(TEXT_MUTED),
+                        );
+                    });
+                    ui.end_row();
                 });
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Suggest to leave defaults")
-                    .size(11.0)
-                    .color(TEXT_MUTED),
-            );
         });
 }

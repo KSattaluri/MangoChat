@@ -128,5 +128,34 @@ impl FormState {
             settings.paint_path = paint.path.clone();
         }
     }
+
+    pub fn reset_non_provider_defaults(&mut self) {
+        let defaults = Settings::non_provider_reset_defaults();
+        self.mic = defaults.mic_device;
+        self.vad_mode = defaults.vad_mode;
+        self.screenshot_enabled = defaults.screenshot_enabled;
+        self.screenshot_retention_count = defaults.screenshot_retention_count;
+        self.start_cue = defaults.start_cue;
+        self.text_size = defaults.text_size;
+        self.accent_color = defaults.accent_color;
+        self.compact_background_enabled = defaults.compact_background_enabled;
+        self.auto_minimize = defaults.auto_minimize;
+        self.auto_update_enabled = defaults.auto_update_enabled;
+        self.update_include_prerelease = defaults.update_include_prerelease;
+        self.update_feed_url_override = defaults.update_feed_url_override;
+        self.window_monitor_mode = defaults.window_monitor_mode;
+        self.window_monitor_id = defaults.window_monitor_id;
+        self.window_anchor = defaults.window_anchor;
+        self.snip_editor_path = defaults.snip_editor_path;
+        self.snip_edit_revert = defaults.snip_edit_revert;
+        self.default_browser = defaults.default_browser;
+        self.chrome_path = defaults.chrome_path;
+        self.paint_path = defaults.paint_path;
+        self.provider_inactivity_timeout_secs = defaults.provider_inactivity_timeout_secs;
+        self.max_session_length_minutes = defaults.max_session_length_minutes;
+        self.url_commands = defaults.url_commands;
+        self.alias_commands = defaults.alias_commands;
+        self.app_shortcuts = defaults.app_shortcuts;
+    }
 }
 

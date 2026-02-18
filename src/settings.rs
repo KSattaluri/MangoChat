@@ -120,6 +120,32 @@ impl Settings {
             self.api_keys.insert(provider.to_string(), key);
         }
     }
+
+    /// Defaults used by the in-app "Reset defaults" action.
+    /// Provider/API-key-related fields are intentionally left to the caller.
+    pub fn non_provider_reset_defaults() -> Self {
+        let mut s = Self::default();
+        s.screenshot_enabled = true;
+        s.compact_background_enabled = true;
+        s.auto_minimize = true;
+        s.window_anchor = "bottom_left".to_string();
+        s.snip_edit_revert = "path".to_string();
+        s.alias_commands = vec![
+            AliasCommand {
+                trigger: "codex".into(),
+                replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+            },
+            AliasCommand {
+                trigger: "claude".into(),
+                replacement: "claude --dangerously-skip-permissions".into(),
+            },
+            AliasCommand {
+                trigger: "bombay".into(),
+                replacement: "mumbai".into(),
+            },
+        ];
+        s
+    }
 }
 
 impl Default for Settings {
