@@ -9,7 +9,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 
 const REPO_OWNER: &str = "KSattaluri";
-const REPO_NAME: &str = "mango-chat";
+const REPO_NAME: &str = "MangoChat";
 const REPO_RELEASE_PAGE_NAME: &str = "MangoChat";
 const APP_USER_AGENT: &str = "mangochat-updater";
 const EXPECTED_SIGNER_SUBJECT_SUBSTR: &str = "Kalyan Sattaluri";
