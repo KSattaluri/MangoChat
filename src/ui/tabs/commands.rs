@@ -124,7 +124,7 @@ fn render_browser_commands(app: &mut MangoChatApp, ui: &mut egui::Ui) {
         let url_w = (row_w - trigger_w - delete_w - spacing * 2.0).max(140.0);
 
         ui.horizontal(|ui| {
-            ui.set_width(row_w);
+            ui.set_width(row_w.max(0.0));
             ui.visuals_mut().extreme_bg_color =
                 Color32::from_rgb(0x1a, 0x1d, 0x24);
             let trigger_id = egui::Id::new(("url_cmd_trigger", i));
@@ -218,7 +218,7 @@ fn render_text_aliases(app: &mut MangoChatApp, ui: &mut egui::Ui) {
             (row_w - trigger_w - delete_w - spacing * 2.0).max(180.0);
 
         ui.horizontal(|ui| {
-            ui.set_width(row_w);
+            ui.set_width(row_w.max(0.0));
             ui.visuals_mut().extreme_bg_color =
                 Color32::from_rgb(0x1a, 0x1d, 0x24);
             let trigger_id = egui::Id::new(("alias_trigger", i));

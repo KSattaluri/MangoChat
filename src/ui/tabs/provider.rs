@@ -43,7 +43,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         .max(160.0);
 
     ui.horizontal(|ui| {
-        ui.set_width(total_w - row_pad_x * 2.0);
+        ui.set_width((total_w - row_pad_x * 2.0).max(0.0));
         ui.add_space(row_pad_x);
         ui.add_sized(
             [default_w, 20.0],
@@ -92,7 +92,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             .rounding(6.0)
             .inner_margin(egui::Margin::symmetric(8.0, 6.0))
             .show(ui, |ui| {
-                ui.set_width(total_w);
+                ui.set_width(total_w.max(0.0));
                 ui.horizontal(|ui| {
                     let key_value = app
                         .form
