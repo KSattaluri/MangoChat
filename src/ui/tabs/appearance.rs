@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use crate::snip;
 use crate::ui::theme::*;
 use crate::ui::window::*;
 use crate::ui::MangoChatApp;
@@ -228,6 +229,14 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                 .size(12.0)
                                 .color(TEXT_MUTED),
                         );
+                        if ui
+                            .add_sized([92.0, 22.0], egui::Button::new("Open folder"))
+                            .clicked()
+                        {
+                            if let Err(e) = snip::open_snip_folder() {
+                                app.set_status(&format!("Failed to open folder: {}", e), "error");
+                            }
+                        }
                     });
                     ui.end_row();
 
