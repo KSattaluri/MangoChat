@@ -34,7 +34,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                 ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new("Mango Chat \u{2014} Voice Dictation")
+                    egui::RichText::new("Mango Chat \u{2014} Voice Dictation & Productivity App")
                         .size(13.0)
                         .strong()
                         .color(TEXT_COLOR),

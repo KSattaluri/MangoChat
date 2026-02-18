@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{pos2, vec2, Color32, FontId, Sense, Stroke};
+use egui::{pos2, vec2, Align2, Color32, FontId, Sense, Stroke};
 
 use crate::ui::theme::*;
 use crate::ui::widgets;
@@ -13,9 +13,9 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui.spacing_mut().item_spacing.x = 2.0;
         for (id, label) in [
             ("browser", "Browser"),
-            ("aliases", "Text Aliases"),
-            ("apps", "App Shortcuts"),
-            ("system", "System"),
+            ("aliases", "Custom text aliases"),
+            ("system", "Mango Chat aliases"),
+            ("apps", "App locations"),
         ] {
             let active = app.commands_sub_tab == id;
             if widgets::sub_tab_button(ui, label, active, accent).clicked() {
@@ -105,20 +105,33 @@ fn render_browser_commands(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.add_space(20.0);
 
     // ── URL command list ──
-    ui.label(
-        egui::RichText::new("Browser Commands")
-            .size(13.0)
-            .strong()
-            .color(TEXT_COLOR),
-    );
-    ui.add_space(8.0);
+    let trigger_w = 140.0;
+    let delete_w = 24.0;
+    let spacing = ui.spacing().item_spacing.x;
+    {
+        let row_w = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(vec2(row_w.max(0.0), 20.0), Sense::hover());
+        let font = FontId::proportional(12.0);
+        ui.painter().text(
+            pos2(rect.min.x, rect.center().y),
+            Align2::LEFT_CENTER,
+            "Command",
+            font.clone(),
+            TEXT_MUTED,
+        );
+        ui.painter().text(
+            pos2(rect.min.x + trigger_w + spacing, rect.center().y),
+            Align2::LEFT_CENTER,
+            "Target address",
+            font,
+            TEXT_MUTED,
+        );
+    }
+    ui.add_space(4.0);
 
     let mut delete_url_idx: Option<usize> = None;
     for (i, cmd) in app.form.url_commands.iter_mut().enumerate() {
         let row_w = ui.available_width();
-        let trigger_w = 140.0;
-        let delete_w = 24.0;
-        let spacing = ui.spacing().item_spacing.x;
         let url_w = (row_w - trigger_w - delete_w - spacing * 2.0).max(140.0);
 
         ui.horizontal(|ui| {
@@ -198,20 +211,33 @@ fn render_browser_commands(app: &mut MangoChatApp, ui: &mut egui::Ui) {
 }
 
 fn render_text_aliases(app: &mut MangoChatApp, ui: &mut egui::Ui) {
-    ui.label(
-        egui::RichText::new("Text Aliases")
-            .size(13.0)
-            .strong()
-            .color(TEXT_COLOR),
-    );
-    ui.add_space(8.0);
+    let trigger_w = 140.0;
+    let delete_w = 24.0;
+    let spacing = ui.spacing().item_spacing.x;
+    {
+        let row_w = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(vec2(row_w.max(0.0), 20.0), Sense::hover());
+        let font = FontId::proportional(12.0);
+        ui.painter().text(
+            pos2(rect.min.x, rect.center().y),
+            Align2::LEFT_CENTER,
+            "Command",
+            font.clone(),
+            TEXT_MUTED,
+        );
+        ui.painter().text(
+            pos2(rect.min.x + trigger_w + spacing, rect.center().y),
+            Align2::LEFT_CENTER,
+            "Text alias",
+            font,
+            TEXT_MUTED,
+        );
+    }
+    ui.add_space(4.0);
 
     let mut delete_alias_idx: Option<usize> = None;
     for (i, cmd) in app.form.alias_commands.iter_mut().enumerate() {
         let row_w = ui.available_width();
-        let trigger_w = 140.0;
-        let delete_w = 24.0;
-        let spacing = ui.spacing().item_spacing.x;
         let replacement_w =
             (row_w - trigger_w - delete_w - spacing * 2.0).max(180.0);
 
@@ -285,19 +311,39 @@ fn render_text_aliases(app: &mut MangoChatApp, ui: &mut egui::Ui) {
 
 fn render_app_paths(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.label(
-        egui::RichText::new("App Shortcuts")
-            .size(13.0)
-            .strong()
-            .color(TEXT_COLOR),
+        egui::RichText::new("Use valid .exe paths for this machine; mileage may vary.")
+            .size(12.0)
+            .color(TEXT_MUTED),
     );
     ui.add_space(8.0);
+
+    let trigger_w = 140.0;
+    let delete_w = 24.0;
+    let spacing = ui.spacing().item_spacing.x;
+    {
+        let row_w = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(vec2(row_w.max(0.0), 20.0), Sense::hover());
+        let font = FontId::proportional(12.0);
+        ui.painter().text(
+            pos2(rect.min.x, rect.center().y),
+            Align2::LEFT_CENTER,
+            "App name",
+            font.clone(),
+            TEXT_MUTED,
+        );
+        ui.painter().text(
+            pos2(rect.min.x + trigger_w + spacing, rect.center().y),
+            Align2::LEFT_CENTER,
+            "App path",
+            font,
+            TEXT_MUTED,
+        );
+    }
+    ui.add_space(4.0);
 
     let mut delete_idx: Option<usize> = None;
     for (i, shortcut) in app.form.app_shortcuts.iter_mut().enumerate() {
         let row_w = ui.available_width();
-        let trigger_w = 140.0;
-        let delete_w = 24.0;
-        let spacing = ui.spacing().item_spacing.x;
         let path_w = (row_w - trigger_w - delete_w - spacing * 2.0).max(180.0);
 
         ui.horizontal(|ui| {
@@ -373,10 +419,9 @@ fn render_app_paths(app: &mut MangoChatApp, ui: &mut egui::Ui) {
 fn render_system_placeholder(ui: &mut egui::Ui) {
     let p = theme_palette(ui.visuals().dark_mode);
     ui.label(
-        egui::RichText::new("System Commands (Read-only)")
-            .size(13.0)
-            .strong()
-            .color(TEXT_COLOR),
+        egui::RichText::new("Say these commands by themselves; mileage may vary.")
+            .size(12.0)
+            .color(TEXT_MUTED),
     );
     ui.add_space(8.0);
 
@@ -400,36 +445,65 @@ fn render_system_placeholder(ui: &mut egui::Ui) {
         .inner_margin(egui::Margin::same(10.0))
         .rounding(egui::Rounding::same(8.0))
         .show(ui, |ui| {
+            let row_w = ui.available_width();
+            let command_w = 160.0;
+            let behavior_w = (row_w - command_w - 12.0).max(240.0);
+
             egui::Grid::new("system_commands_grid")
                 .num_columns(2)
                 .striped(true)
-                .min_col_width(120.0)
+                .min_col_width(0.0)
+                .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new("Command")
-                            .size(12.0)
-                            .strong()
-                            .color(p.text_muted),
+                    ui.allocate_ui_with_layout(
+                        [command_w, 20.0].into(),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new("Command")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(p.text_muted),
+                            );
+                        },
                     );
-                    ui.label(
-                        egui::RichText::new("Behavior")
-                            .size(12.0)
-                            .strong()
-                            .color(p.text_muted),
+                    ui.allocate_ui_with_layout(
+                        [behavior_w, 20.0].into(),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.label(
+                                egui::RichText::new("Behavior")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(p.text_muted),
+                            );
+                        },
                     );
                     ui.end_row();
 
                     for (command, behavior) in rows {
-                        ui.label(
-                            egui::RichText::new(command)
-                                .size(13.0)
-                                .strong()
-                                .color(TEXT_COLOR),
+                        ui.allocate_ui_with_layout(
+                            [command_w, 22.0].into(),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(command)
+                                        .size(13.0)
+                                        .strong()
+                                        .color(TEXT_COLOR),
+                                );
+                            },
                         );
-                        ui.label(
-                            egui::RichText::new(behavior)
-                                .size(12.5)
-                                .color(TEXT_COLOR),
+                        ui.allocate_ui_with_layout(
+                            [behavior_w, 22.0].into(),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(behavior)
+                                        .size(12.5)
+                                        .color(TEXT_COLOR),
+                                );
+                            },
                         );
                         ui.end_row();
                     }
