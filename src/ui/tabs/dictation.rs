@@ -78,28 +78,28 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     );
                     ui.end_row();
 
-                    // VAD Mode
+                    // Noise suppression
                     ui.label(
-                        egui::RichText::new("VAD Mode")
+                        egui::RichText::new("Noise suppression")
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
                     egui::ComboBox::from_id_salt("vad_mode")
                         .selected_text(match app.form.vad_mode.as_str() {
-                            "lenient" => "Lenient",
-                            _ => "Strict",
+                            "lenient" => "Low",
+                            _ => "High (recommended)",
                         })
-                        .width(120.0)
+                        .width(180.0)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut app.form.vad_mode,
                                 "strict".to_string(),
-                                "Strict",
+                                "High (recommended)",
                             );
                             ui.selectable_value(
                                 &mut app.form.vad_mode,
                                 "lenient".to_string(),
-                                "Lenient",
+                                "Low",
                             );
                         });
                     ui.end_row();
