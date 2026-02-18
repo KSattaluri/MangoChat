@@ -45,20 +45,18 @@ const COMMANDS: &[(&str, fn())] = &[
     ("bug",            cmd_delete_word as fn()),
     ("buck",           cmd_delete_word as fn()),
     ("undo",           cmd_undo as fn()),
-    ("redo",           cmd_redo as fn()),
     ("copy",           cmd_copy as fn()),
     ("paste",          cmd_paste as fn()),
     ("cut",            cmd_cut as fn()),
 ];
 
-const WAKE_WORDS: &[&str] = &["mangochat", "mango", "jarvis", "jarvi", "jarbi"];
+const WAKE_WORDS: &[&str] = &["mangochat", "mango"];
 
 fn cmd_new_line()       { press_enter(); }
 fn cmd_new_paragraph()  { press_enter(); press_enter(); }
 fn cmd_delete_word()    { delete_word(); }
 fn cmd_delete_line()    { press_key_combo(&[Key::Home], true); press_key_single(Key::Backspace); }
 fn cmd_undo()           { press_ctrl_key(Key::Unicode('z')); }
-fn cmd_redo()           { press_ctrl_key(Key::Unicode('y')); }
 fn cmd_copy()           { press_ctrl_key(Key::Unicode('c')); }
 fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
@@ -215,6 +213,7 @@ pub fn process_transcript(
     paint_path: &str,
     url_commands: &[(String, String)],
     alias_commands: &[(String, String)],
+    app_shortcuts: &[(String, String)],
 ) {
     let norm = normalize(text);
     let mut parts = norm.split_whitespace();
@@ -258,7 +257,28 @@ pub fn process_transcript(
         return;
     }
 
-    // 3. Alias commands (dynamic, from settings): exact match trigger -> type replacement.
+    // 3. App shortcut commands (dynamic, from settings).
+    for (trigger, path) in app_shortcuts {
+        let t = normalize(trigger);
+        if t.is_empty() {
+            continue;
+        }
+        if phrase == t || phrase == format!("open {}", t) {
+            if t == "chrome" {
+                println!("[typing] app shortcut: focus/launch chrome -> {}", path);
+                focus_or_launch_chrome(path);
+            } else if t == "paint" {
+                println!("[typing] app shortcut: launch paint -> {}", path);
+                launch_app(path);
+            } else {
+                println!("[typing] app shortcut: launch {} -> {}", trigger, path);
+                launch_app(path);
+            }
+            return;
+        }
+    }
+
+    // 4. Alias commands (dynamic, from settings): exact match trigger -> type replacement.
     for (trigger, replacement) in alias_commands {
         let t = normalize(trigger);
         if !t.is_empty() && phrase == t {
@@ -268,7 +288,7 @@ pub fn process_transcript(
         }
     }
 
-    // 4. Static commands.
+    // 5. Static commands.
     if has_wake {
         for (keyword, action) in COMMANDS {
             if phrase == *keyword || phrase.starts_with(&format!("{} ", keyword)) {

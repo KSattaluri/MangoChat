@@ -34,6 +34,7 @@ pub struct FormState {
     pub max_session_length_minutes: u64,
     pub url_commands: Vec<crate::settings::UrlCommand>,
     pub alias_commands: Vec<crate::settings::AliasCommand>,
+    pub app_shortcuts: Vec<crate::settings::AppShortcut>,
 }
 
 impl FormState {
@@ -71,6 +72,7 @@ impl FormState {
             max_session_length_minutes: settings.max_session_length_minutes,
             url_commands: settings.url_commands.clone(),
             alias_commands: settings.alias_commands.clone(),
+            app_shortcuts: settings.app_shortcuts.clone(),
         }
     }
 
@@ -110,6 +112,21 @@ impl FormState {
         settings.max_session_length_minutes = self.max_session_length_minutes.clamp(1, 120);
         settings.url_commands = self.url_commands.clone();
         settings.alias_commands = self.alias_commands.clone();
+        settings.app_shortcuts = self.app_shortcuts.clone();
+        if let Some(chrome) = settings
+            .app_shortcuts
+            .iter()
+            .find(|s| s.trigger.trim().eq_ignore_ascii_case("chrome"))
+        {
+            settings.chrome_path = chrome.path.clone();
+        }
+        if let Some(paint) = settings
+            .app_shortcuts
+            .iter()
+            .find(|s| s.trigger.trim().eq_ignore_ascii_case("paint"))
+        {
+            settings.paint_path = paint.path.clone();
+        }
     }
 }
 

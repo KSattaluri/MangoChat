@@ -69,6 +69,8 @@ pub struct Settings {
     pub url_commands: Vec<UrlCommand>,
     #[serde(default = "default_alias_commands")]
     pub alias_commands: Vec<AliasCommand>,
+    #[serde(default = "default_app_shortcuts")]
+    pub app_shortcuts: Vec<AppShortcut>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -83,6 +85,14 @@ pub struct UrlCommand {
 pub struct AliasCommand {
     pub trigger: String,
     pub replacement: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppShortcut {
+    pub trigger: String,
+    pub path: String,
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 impl Settings {
@@ -146,6 +156,7 @@ impl Default for Settings {
             max_session_length_minutes: default_max_session_length_minutes(),
             url_commands: default_url_commands(),
             alias_commands: default_alias_commands(),
+            app_shortcuts: default_app_shortcuts(),
         }
     }
 }
@@ -227,6 +238,20 @@ fn default_alias_commands() -> Vec<AliasCommand> {
         replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
     }]
 }
+fn default_app_shortcuts() -> Vec<AppShortcut> {
+    vec![
+        AppShortcut {
+            trigger: "chrome".into(),
+            path: default_chrome_path(),
+            builtin: true,
+        },
+        AppShortcut {
+            trigger: "paint".into(),
+            path: default_paint_path(),
+            builtin: true,
+        },
+    ]
+}
 
 pub fn settings_path() -> Result<PathBuf, String> {
     if let Some(dir) = dirs::data_local_dir() {
@@ -239,13 +264,7 @@ pub fn settings_path() -> Result<PathBuf, String> {
 }
 
 fn legacy_settings_path() -> Result<PathBuf, String> {
-    if let Some(dir) = dirs::data_local_dir() {
-        return Ok(dir.join("Jarvis").join("settings.json"));
-    }
-    if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".jarvis").join("settings.json"));
-    }
-    Err("Failed to resolve data directory".into())
+    Err("Legacy settings path disabled".into())
 }
 
 pub fn load() -> Settings {
@@ -333,6 +352,38 @@ pub fn load() -> Settings {
             url: default_explorer_path(),
             builtin: true,
         });
+    }
+    for builtin in default_app_shortcuts() {
+        if let Some(existing) = settings
+            .app_shortcuts
+            .iter_mut()
+            .find(|s| s.trigger.trim().eq_ignore_ascii_case(&builtin.trigger))
+        {
+            existing.builtin = true;
+            if existing.path.trim().is_empty() {
+                existing.path = builtin.path;
+            }
+        } else {
+            settings.app_shortcuts.push(builtin);
+        }
+    }
+    if let Some(chrome) = settings
+        .app_shortcuts
+        .iter()
+        .find(|s| s.trigger.trim().eq_ignore_ascii_case("chrome"))
+    {
+        if !chrome.path.trim().is_empty() {
+            settings.chrome_path = chrome.path.clone();
+        }
+    }
+    if let Some(paint) = settings
+        .app_shortcuts
+        .iter()
+        .find(|s| s.trigger.trim().eq_ignore_ascii_case("paint"))
+    {
+        if !paint.path.trim().is_empty() {
+            settings.paint_path = paint.path.clone();
+        }
     }
     if settings.default_browser != "chrome"
         && settings.default_browser != "edge"
