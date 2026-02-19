@@ -3,6 +3,12 @@
 ## What happens when you start Mango Chat?
 When you start recording, Mango Chat listens for audio from your device and streams it to your selected provider for transcription. Place your cursor in a text field to begin dictating.
 
+## How do I quit Mango Chat?
+Open the system tray and click Quit.
+
+## Why do I need API keys?
+API keys are required to connect Mango Chat to your speech-to-text provider. You can sign up for Deepgram and AssemblyAI to get up to $250 in trial credits with no credit card.
+
 ## Where are my API keys stored?
 API keys are encrypted at rest and stored locally on your machine in `AppData/Local/MangoChat`. They are only transmitted over secure connections when authenticating with your chosen provider.
 
