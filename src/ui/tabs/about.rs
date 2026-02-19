@@ -125,7 +125,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                             format!("{} (up to date)", env!("CARGO_PKG_VERSION"))
                         }
                         UpdateUiState::Available { latest } => {
-                            format!("{} \u{2192} {} ({})", env!("CARGO_PKG_VERSION"), latest.version, latest.tag)
+                            format!("{} -> {} ({})", env!("CARGO_PKG_VERSION"), latest.version, latest.tag)
                         }
                         UpdateUiState::Checking => {
                             format!("{} (checking\u{2026})", env!("CARGO_PKG_VERSION"))

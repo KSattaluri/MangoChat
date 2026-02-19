@@ -887,7 +887,9 @@ impl MangoChatApp {
                         );
                         let mut messages = vec![msg_device, msg_provider];
                         if update_available {
-                            messages.push("Newer version available".to_string());
+                            messages.push(
+                                "Newer version available (see Settings)".to_string(),
+                            );
                         }
 
                         let now = ctx.input(|i| i.time);
@@ -904,7 +906,7 @@ impl MangoChatApp {
 
                         let full_msg = &messages[msg_idx % messages.len()];
                         use_sparkle_icon = full_msg.starts_with("Provider:")
-                            || full_msg == "Newer version available";
+                            || full_msg == "Newer version available (see Settings)";
                         let char_count = full_msg.chars().count();
                         let type_duration = char_count as f64 / chars_per_sec;
                         let hold_end = total_display - dot_duration;
@@ -942,7 +944,7 @@ impl MangoChatApp {
                         if update_available {
                             let messages = [
                                 "Not listening".to_string(),
-                                "Newer version available".to_string(),
+                                "Newer version available (see Settings)".to_string(),
                             ];
                             let now = ctx.input(|i| i.time);
                             let chars_per_sec = 30.0;
@@ -953,7 +955,8 @@ impl MangoChatApp {
                             let (msg_start, msg_idx): (f64, usize) =
                                 ui.data(|d| d.get_temp(state_id)).unwrap_or((now, 0));
                             let full_msg = &messages[msg_idx % messages.len()];
-                            use_sparkle_icon = full_msg == "Newer version available";
+                            use_sparkle_icon =
+                                full_msg == "Newer version available (see Settings)";
                             let char_count = full_msg.chars().count();
                             let type_duration = char_count as f64 / chars_per_sec;
                             let hold_end = total_display - dot_duration;
