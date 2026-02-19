@@ -23,8 +23,12 @@ pub struct Settings {
     pub mic_device: String,
     #[serde(default = "default_vad_mode")]
     pub vad_mode: String,
+    #[serde(default = "default_true")]
+    pub session_hotkey_enabled: bool,
     #[serde(default)]
     pub screenshot_enabled: bool,
+    #[serde(default = "default_true")]
+    pub screenshot_hotkey_enabled: bool,
     #[serde(default = "default_screenshot_retention_count")]
     pub screenshot_retention_count: u32,
     #[serde(default = "default_start_cue")]
@@ -121,7 +125,9 @@ impl Settings {
     /// Provider/API-key-related fields are intentionally left to the caller.
     pub fn non_provider_reset_defaults() -> Self {
         let mut s = Self::default();
+        s.session_hotkey_enabled = false;
         s.screenshot_enabled = true;
+        s.screenshot_hotkey_enabled = true;
         s.compact_background_enabled = true;
         s.auto_minimize = true;
         s.window_anchor = "bottom_left".to_string();
@@ -155,7 +161,9 @@ impl Default for Settings {
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
+            session_hotkey_enabled: true,
             screenshot_enabled: false,
+            screenshot_hotkey_enabled: true,
             screenshot_retention_count: default_screenshot_retention_count(),
             start_cue: default_start_cue(),
             theme: default_theme(),
@@ -196,6 +204,9 @@ fn default_language() -> String {
 }
 fn default_vad_mode() -> String {
     "strict".into()
+}
+fn default_true() -> bool {
+    true
 }
 fn default_start_cue() -> String {
     "audio1.wav".into()
@@ -480,3 +491,4 @@ fn save_settings_without_api_keys(settings: &Settings) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
     Ok(())
 }
+

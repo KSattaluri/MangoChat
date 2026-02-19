@@ -12,7 +12,9 @@ pub struct FormState {
     pub language: String,
     pub mic: String,
     pub vad_mode: String,
+    pub session_hotkey_enabled: bool,
     pub screenshot_enabled: bool,
+    pub screenshot_hotkey_enabled: bool,
     pub screenshot_retention_count: u32,
     pub start_cue: String,
     pub text_size: String,
@@ -48,7 +50,9 @@ impl FormState {
             language: settings.language.clone(),
             mic: settings.mic_device.clone(),
             vad_mode: settings.vad_mode.clone(),
+            session_hotkey_enabled: settings.session_hotkey_enabled,
             screenshot_enabled: settings.screenshot_enabled,
+            screenshot_hotkey_enabled: settings.screenshot_hotkey_enabled,
             screenshot_retention_count: settings.screenshot_retention_count,
             start_cue: settings.start_cue.clone(),
             text_size: settings.text_size.clone(),
@@ -84,7 +88,9 @@ impl FormState {
         }
         settings.mic_device = self.mic.clone();
         settings.vad_mode = self.vad_mode.clone();
+        settings.session_hotkey_enabled = self.session_hotkey_enabled;
         settings.screenshot_enabled = self.screenshot_enabled;
+        settings.screenshot_hotkey_enabled = self.screenshot_hotkey_enabled;
         settings.screenshot_retention_count = self.screenshot_retention_count.clamp(1, 200);
         settings.start_cue = self.start_cue.clone();
         settings.theme = "dark".to_string();
@@ -127,7 +133,9 @@ impl FormState {
         let defaults = Settings::non_provider_reset_defaults();
         self.mic = defaults.mic_device;
         self.vad_mode = defaults.vad_mode;
+        self.session_hotkey_enabled = defaults.session_hotkey_enabled;
         self.screenshot_enabled = defaults.screenshot_enabled;
+        self.screenshot_hotkey_enabled = defaults.screenshot_hotkey_enabled;
         self.screenshot_retention_count = defaults.screenshot_retention_count;
         self.start_cue = defaults.start_cue;
         self.text_size = defaults.text_size;
@@ -140,14 +148,10 @@ impl FormState {
         self.window_anchor = defaults.window_anchor;
         self.snip_editor_path = defaults.snip_editor_path;
         self.snip_edit_revert = defaults.snip_edit_revert;
-        self.default_browser = defaults.default_browser;
-        self.chrome_path = defaults.chrome_path;
-        self.paint_path = defaults.paint_path;
         self.provider_inactivity_timeout_secs = defaults.provider_inactivity_timeout_secs;
         self.max_session_length_minutes = defaults.max_session_length_minutes;
-        self.url_commands = defaults.url_commands;
-        self.alias_commands = defaults.alias_commands;
-        self.app_shortcuts = defaults.app_shortcuts;
     }
 }
+
+
 
