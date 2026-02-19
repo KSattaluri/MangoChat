@@ -439,7 +439,7 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
             let items = [
                 (
                     "What happens when you start Mango Chat?",
-                    "When Mango Chat starts, it actively listens for audio from your device and streams it to the provider to receive transcripts. Place your cursor in a text field to begin transcribing your speech.",
+                    "When you start recording, Mango Chat listens for audio from your device and streams it to your selected provider for transcription. Place your cursor in a text field to begin dictating.",
                 ),
                 (
                     "Where are my API keys stored?",
@@ -447,11 +447,11 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                 ),
                 (
                     "Does Mango Chat collect telemetry or personal information?",
-                    "No. Mango Chat does not collect or transmit any personal information. Audio is streamed directly to your chosen provider and nowhere else.",
+                    "Mango Chat has no built-in telemetry. During recording, audio is sent only to your selected provider for transcription.",
                 ),
                 (
                     "What are the hotkeys to start and stop Mango Chat?",
-                    "In addition to the start/stop buttons on the UI, you can use Right Ctrl to start and stop recording.",
+                    "In addition to the start/stop buttons on the UI, you can use Right Ctrl to start and stop recording when that hotkey is enabled in settings.",
                 ),
                 (
                     "Why do I sometimes experience delays or inaccurate transcription?",
@@ -459,7 +459,7 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                 ),
                 (
                     "How do I take a screenshot?",
-                    "Move your cursor to the monitor you want, press Right Alt (when screenshot capture is enabled), then select the region.",
+                    "When screenshot capture is enabled, move your cursor to the monitor you want, press Right Alt, then select the region.",
                 ),
                 (
                     "What happens after I capture a screenshot?",
