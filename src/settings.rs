@@ -259,10 +259,20 @@ fn default_url_commands() -> Vec<UrlCommand> {
     ]
 }
 fn default_alias_commands() -> Vec<AliasCommand> {
-    vec![AliasCommand {
-        trigger: "codex".into(),
-        replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
-    }]
+    vec![
+        AliasCommand {
+            trigger: "codex".into(),
+            replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+        },
+        AliasCommand {
+            trigger: "claude".into(),
+            replacement: "claude --dangerously-skip-permissions".into(),
+        },
+        AliasCommand {
+            trigger: "bombay".into(),
+            replacement: "mumbai".into(),
+        },
+    ]
 }
 fn default_app_shortcuts() -> Vec<AppShortcut> {
     vec![
