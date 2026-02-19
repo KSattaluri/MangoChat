@@ -143,14 +143,19 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         _ => env!("CARGO_PKG_VERSION").to_string(),
                     };
                     let display_version = truncate_chars(&version_text, 72);
-                    ui.add_sized(
-                        [360.0, 20.0],
-                        egui::Label::new(
-                            egui::RichText::new(display_version)
-                                .size(12.0)
-                                .color(TEXT_MUTED),
-                        )
-                        .wrap_mode(egui::TextWrapMode::Truncate),
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(360.0, 20.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(display_version)
+                                        .size(12.0)
+                                        .color(TEXT_MUTED),
+                                )
+                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            );
+                        },
                     );
                     ui.end_row();
 
@@ -358,7 +363,7 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
             let items = [
                 (
                     "What happens when you start Mango Chat?",
-                    "When Mango Chat starts, it actively listens for audio from your device. Place your cursor in a text field to begin transcribing your speech.",
+                    "When Mango Chat starts, it actively listens for audio from your device and streams it to the provider to receive transcripts. Place your cursor in a text field to begin transcribing your speech.",
                 ),
                 (
                     "What are the hotkeys to start and stop Mango Chat?",
@@ -396,6 +401,16 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
 
             let q_size = app.faq_text_size + 2.0;
             let a_size = (app.faq_text_size - 0.5).max(9.0);
+            let fmt_normal = |sz: f32| egui::text::TextFormat {
+                font_id: egui::FontId::proportional(sz),
+                color: TEXT_MUTED,
+                ..Default::default()
+            };
+            let fmt_accent = |sz: f32| egui::text::TextFormat {
+                font_id: egui::FontId::proportional(sz),
+                color: accent.base,
+                ..Default::default()
+            };
             for (i, (q, a)) in items.iter().enumerate() {
                 ui.label(
                     egui::RichText::new(*q)
@@ -404,14 +419,47 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                         .color(accent.base),
                 );
                 ui.add_space(3.0);
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(*a)
-                            .size(a_size)
-                            .color(TEXT_MUTED),
-                    )
-                    .wrap(),
-                );
+                // Highlight "Right Ctrl" and "Right Alt" in accent color
+                let parts: Vec<&str> = a.split("Right Ctrl").collect();
+                if parts.len() > 1 {
+                    let mut job = egui::text::LayoutJob::default();
+                    job.wrap = egui::text::TextWrapping {
+                        max_width: ui.available_width(),
+                        ..Default::default()
+                    };
+                    for (j, part) in parts.iter().enumerate() {
+                        job.append(part, 0.0, fmt_normal(a_size));
+                        if j < parts.len() - 1 {
+                            job.append("Right Ctrl", 0.0, fmt_accent(a_size));
+                        }
+                    }
+                    ui.label(job);
+                } else {
+                    let parts: Vec<&str> = a.split("Right Alt").collect();
+                    if parts.len() > 1 {
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap = egui::text::TextWrapping {
+                            max_width: ui.available_width(),
+                            ..Default::default()
+                        };
+                        for (j, part) in parts.iter().enumerate() {
+                            job.append(part, 0.0, fmt_normal(a_size));
+                            if j < parts.len() - 1 {
+                                job.append("Right Alt", 0.0, fmt_accent(a_size));
+                            }
+                        }
+                        ui.label(job);
+                    } else {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(*a)
+                                    .size(a_size)
+                                    .color(TEXT_MUTED),
+                            )
+                            .wrap(),
+                        );
+                    }
+                }
                 if i < items.len() - 1 {
                     ui.add_space(14.0);
                 }
