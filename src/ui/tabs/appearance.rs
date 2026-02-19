@@ -33,7 +33,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 .show(ui, |ui| {
                     // ── Accent color ──
                     ui.label(
-                        egui::RichText::new("Accent color")
+                        egui::RichText::new("Theme color")
                             .size(13.0)
                             .color(TEXT_COLOR),
                     );
@@ -64,16 +64,6 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     }
                     ui.end_row();
 
-                    // Help text spans into the control column
-                    ui.label("");
-                    ui.label(
-                        egui::RichText::new(
-                            "Applies to visualizer, controls, and highlights.",
-                        )
-                        .size(11.0)
-                        .color(TEXT_MUTED),
-                    );
-                    ui.end_row();
 
                     // ── Transparent background ──
                     ui.label(

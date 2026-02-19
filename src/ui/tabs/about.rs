@@ -366,6 +366,14 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                     "When Mango Chat starts, it actively listens for audio from your device and streams it to the provider to receive transcripts. Place your cursor in a text field to begin transcribing your speech.",
                 ),
                 (
+                    "Where are my API keys stored?",
+                    "API keys are encrypted at rest and stored locally on your machine in AppData/Local/MangoChat. They are only transmitted over secure connections when authenticating with your chosen provider.",
+                ),
+                (
+                    "Does Mango Chat collect telemetry or personal information?",
+                    "No. Mango Chat does not collect or transmit any personal information. Audio is streamed directly to your chosen provider and nowhere else.",
+                ),
+                (
                     "What are the hotkeys to start and stop Mango Chat?",
                     "In addition to the start/stop buttons on the UI, you can use Right Ctrl to start and stop recording.",
                 ),
