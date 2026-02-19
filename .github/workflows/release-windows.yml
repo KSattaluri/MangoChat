@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   preflight-signing:
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: windows-latest
     environment: release
 
@@ -57,6 +58,7 @@ jobs:
           timestamp-digest: SHA256
 
   build-and-release:
+    if: ${{ !contains(github.ref_name, '-') }}
     needs: preflight-signing
     runs-on: windows-latest
     environment: release

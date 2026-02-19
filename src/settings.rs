@@ -42,8 +42,6 @@ pub struct Settings {
     #[serde(default)]
     pub auto_update_enabled: bool,
     #[serde(default)]
-    pub update_include_prerelease: bool,
-    #[serde(default)]
     pub update_feed_url_override: String,
     #[serde(default = "default_window_monitor_mode")]
     pub window_monitor_mode: String, // follow_cursor | fixed
@@ -168,7 +166,6 @@ impl Default for Settings {
             compact_background_enabled: false,
             auto_minimize: false,
             auto_update_enabled: false,
-            update_include_prerelease: false,
             update_feed_url_override: String::new(),
             window_monitor_mode: default_window_monitor_mode(),
             window_monitor_id: String::new(),

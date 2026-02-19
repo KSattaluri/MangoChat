@@ -26,7 +26,6 @@ pub struct ReleaseInfo {
     pub tag: String,
     pub version: Version,
     pub html_url: String,
-    pub prerelease: bool,
     pub assets: Vec<ReleaseAsset>,
 }
 
@@ -69,11 +68,10 @@ fn parse_tag_version(tag: &str) -> Option<Version> {
 
 pub fn spawn_check_with_override(
     tx: Sender<WorkerMessage>,
-    include_prerelease: bool,
     feed_url_override: Option<String>,
 ) {
     std::thread::spawn(move || {
-        let result = check_for_updates(include_prerelease, feed_url_override.as_deref());
+        let result = check_for_updates(feed_url_override.as_deref());
         let _ = tx.send(WorkerMessage::CheckFinished(result));
     });
 }
@@ -123,10 +121,7 @@ pub fn default_release_page_url() -> String {
     )
 }
 
-fn check_for_updates(
-    include_prerelease: bool,
-    feed_url_override: Option<&str>,
-) -> Result<CheckOutcome, String> {
+fn check_for_updates(feed_url_override: Option<&str>) -> Result<CheckOutcome, String> {
     let current = current_version()?;
     let url = release_feed_url(feed_url_override);
 
@@ -150,7 +145,7 @@ fn check_for_updates(
         if rel.draft {
             continue;
         }
-        if rel.prerelease && !include_prerelease {
+        if rel.prerelease {
             continue;
         }
         let Some(version) = parse_tag_version(&rel.tag_name) else {
@@ -160,7 +155,6 @@ fn check_for_updates(
             tag: rel.tag_name,
             version,
             html_url: rel.html_url,
-            prerelease: rel.prerelease,
             assets: rel
                 .assets
                 .into_iter()

@@ -125,8 +125,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                             format!("{} (up to date)", env!("CARGO_PKG_VERSION"))
                         }
                         UpdateUiState::Available { latest } => {
-                            let pre = if latest.prerelease { " pre-release" } else { "" };
-                            format!("{} \u{2192} {} ({}{})", env!("CARGO_PKG_VERSION"), latest.version, latest.tag, pre)
+                            format!("{} \u{2192} {} ({})", env!("CARGO_PKG_VERSION"), latest.version, latest.tag)
                         }
                         UpdateUiState::Checking => {
                             format!("{} (checking\u{2026})", env!("CARGO_PKG_VERSION"))
@@ -175,21 +174,6 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     app.form.auto_update_enabled = auto_update;
                     ui.end_row();
 
-                    ui.label(
-                        egui::RichText::new("Include pre-release builds")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    let mut include_pre = app.form.update_include_prerelease;
-                    egui::ComboBox::from_id_salt("update_include_prerelease_select")
-                        .selected_text(if include_pre { "Yes" } else { "No" })
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut include_pre, true, "Yes");
-                            ui.selectable_value(&mut include_pre, false, "No");
-                        });
-                    app.form.update_include_prerelease = include_pre;
-                    ui.end_row();
                 });
 
             ui.add_space(4.0);
