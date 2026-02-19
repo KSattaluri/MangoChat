@@ -158,22 +158,6 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     );
                     ui.end_row();
 
-                    ui.label(
-                        egui::RichText::new("Auto-check for updates")
-                            .size(13.0)
-                            .color(TEXT_COLOR),
-                    );
-                    let mut auto_update = app.form.auto_update_enabled;
-                    egui::ComboBox::from_id_salt("auto_update_enabled_select")
-                        .selected_text(if auto_update { "Yes" } else { "No" })
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut auto_update, true, "Yes");
-                            ui.selectable_value(&mut auto_update, false, "No");
-                        });
-                    app.form.auto_update_enabled = auto_update;
-                    ui.end_row();
-
                 });
 
             ui.add_space(4.0);

@@ -1536,7 +1536,6 @@ impl eframe::App for MangoChatApp {
         self.process_events();
 
         if !self.update_startup_check_done
-            && self.settings.auto_update_enabled
             && !self.update_check_inflight
             && !self.update_install_inflight
         {
