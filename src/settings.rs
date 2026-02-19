@@ -259,10 +259,20 @@ fn default_url_commands() -> Vec<UrlCommand> {
     ]
 }
 fn default_alias_commands() -> Vec<AliasCommand> {
-    vec![AliasCommand {
-        trigger: "codex".into(),
-        replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
-    }]
+    vec![
+        AliasCommand {
+            trigger: "codex".into(),
+            replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+        },
+        AliasCommand {
+            trigger: "claude".into(),
+            replacement: "claude --dangerously-skip-permissions".into(),
+        },
+        AliasCommand {
+            trigger: "bombay".into(),
+            replacement: "mumbai".into(),
+        },
+    ]
 }
 fn default_app_shortcuts() -> Vec<AppShortcut> {
     vec![
@@ -330,7 +340,7 @@ pub fn load() -> Settings {
                 }
             }
         }
-        Err(e) => eprintln!("[settings] secure key load failed: {}", e),
+        Err(e) => app_err!("[settings] secure key load failed: {}", e),
     }
 
     if had_plaintext_keys {
@@ -340,7 +350,7 @@ pub fn load() -> Settings {
                 settings.api_key.clear();
                 let _ = save_settings_without_api_keys(&settings);
             }
-            Err(e) => eprintln!("[settings] secure key migration failed: {}", e),
+            Err(e) => app_err!("[settings] secure key migration failed: {}", e),
         }
     }
     settings.api_keys = resolved_api_keys;

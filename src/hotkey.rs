@@ -36,10 +36,10 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
                 if state.snip_active.swap(true, Ordering::SeqCst) {
                     let since = state.snip_started_ms.load(Ordering::SeqCst);
                     if now_ms.saturating_sub(since) < SNIP_TIMEOUT_MS {
-                        println!("[hotkey] Alt pressed but snip already active, ignoring");
+                        app_log!("[hotkey] Alt pressed but snip already active, ignoring");
                         return;
                     }
-                    println!(
+                    app_log!(
                         "[hotkey] snip_active was stale ({}s), resetting",
                         (now_ms - since) / 1000
                     );
@@ -48,7 +48,7 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
                     }
                 }
                 state.snip_started_ms.store(now_ms, Ordering::SeqCst);
-                println!("[hotkey] Right Alt -> snip");
+                app_log!("[hotkey] Right Alt -> snip");
                 let _ = event_tx.send(AppEvent::SnipTrigger);
             };
 
@@ -63,11 +63,11 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
                     let was_recording = state.hotkey_recording.load(Ordering::SeqCst);
                     if was_recording {
                         state.hotkey_recording.store(false, Ordering::SeqCst);
-                        println!("[hotkey] Right Ctrl -> stop recording");
+                        app_log!("[hotkey] Right Ctrl -> stop recording");
                         let _ = event_tx.send(AppEvent::HotkeyRelease);
                     } else {
                         state.hotkey_recording.store(true, Ordering::SeqCst);
-                        println!("[hotkey] Right Ctrl -> start recording");
+                        app_log!("[hotkey] Right Ctrl -> start recording");
                         let _ = event_tx.send(AppEvent::HotkeyPush);
                     }
                 }
@@ -115,7 +115,7 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
         };
 
         if let Err(e) = listen(callback) {
-            eprintln!("rdev listener error: {:?}", e);
+            app_err!("rdev listener error: {:?}", e);
         }
 
         LISTENER_ACTIVE.store(false, Ordering::SeqCst);

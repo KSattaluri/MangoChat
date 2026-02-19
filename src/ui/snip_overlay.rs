@@ -26,7 +26,7 @@ impl MangoChatApp {
                 self.snip_focus_pending = true;
             }
             Err(e) => {
-                eprintln!("[ui] capture error: {}", e);
+                app_err!("[ui] capture error: {}", e);
                 state.snip_active.store(false, Ordering::SeqCst);
             }
         }
@@ -57,7 +57,7 @@ impl MangoChatApp {
                             &path,
                             Some(self.settings.snip_editor_path.as_str()),
                         ) {
-                            eprintln!("[snip] editor error: {}", e);
+                            app_err!("[snip] editor error: {}", e);
                         }
                         match self.settings.snip_edit_revert.as_str() {
                             "image" => {
@@ -71,9 +71,9 @@ impl MangoChatApp {
                             _ => {} // "stay" — keep edit mode
                         }
                     }
-                    println!("[snip] saved to {}", path.to_string_lossy());
+                    app_log!("[snip] saved to {}", path.to_string_lossy());
                 }
-                Err(e) => eprintln!("[snip] save error: {}", e),
+                Err(e) => app_err!("[snip] save error: {}", e),
             }
         }
         self.close_snip();
@@ -84,7 +84,7 @@ impl MangoChatApp {
             *guard = None;
         }
         self.close_snip();
-        println!("[snip] cancelled");
+        app_log!("[snip] cancelled");
     }
 
     pub fn close_snip(&mut self) {

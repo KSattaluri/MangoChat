@@ -50,7 +50,7 @@ pub fn load_api_keys() -> Result<HashMap<String, String>, String> {
         let encrypted = match base64::engine::general_purpose::STANDARD.decode(enc_b64.as_bytes()) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
+                app_err!(
                     "[secrets] invalid base64 blob for provider '{}': {}",
                     provider, e
                 );
@@ -64,14 +64,14 @@ pub fn load_api_keys() -> Result<HashMap<String, String>, String> {
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!(
+                    app_err!(
                         "[secrets] decrypted invalid UTF-8 for provider '{}': {}",
                         provider, e
                     );
                 }
             },
             Err(e) => {
-                eprintln!(
+                app_err!(
                     "[secrets] failed to decrypt key for provider '{}': {}",
                     provider, e
                 );

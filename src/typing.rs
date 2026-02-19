@@ -89,7 +89,7 @@ pub fn open_url_in_chrome(browser_path: &str, url: &str) {
     #[cfg(not(windows))]
     {
         let _ = (browser_path, url);
-        println!("[typing] open_url_in_browser not supported on this OS");
+        app_log!("[typing] open_url_in_browser not supported on this OS");
     }
 }
 
@@ -114,7 +114,7 @@ pub fn open_in_explorer(path: &str) {
     #[cfg(not(windows))]
     {
         let _ = path;
-        println!("[typing] explorer command not supported on this OS");
+        app_log!("[typing] explorer command not supported on this OS");
     }
 }
 
@@ -134,7 +134,7 @@ fn focus_or_launch_chrome(chrome_path: &str) {
     #[cfg(not(windows))]
     {
         let _ = chrome_path;
-        println!("[typing] chrome command not supported on this OS");
+        app_log!("[typing] chrome command not supported on this OS");
     }
 }
 
@@ -235,10 +235,10 @@ pub fn process_transcript(
             || phrase == format!("open {} com", t)
         {
             if t == "explorer" {
-                println!("[typing] explorer command: \"{}\" -> {}", trigger, url);
+                app_log!("[typing] explorer command: \"{}\" -> {}", trigger, url);
                 open_in_explorer(url);
             } else {
-                println!("[typing] url command: \"{}\" -> {}", trigger, url);
+                app_log!("[typing] url command: \"{}\" -> {}", trigger, url);
                 open_url_in_chrome(chrome_path, url);
             }
             return;
@@ -247,12 +247,12 @@ pub fn process_transcript(
 
     // 2. App-launch commands.
     if phrase == "chrome" || phrase == "open chrome" {
-        println!("[typing] command: focus chrome");
+        app_log!("[typing] command: focus chrome");
         focus_or_launch_chrome(chrome_path);
         return;
     }
     if phrase == "paint" || phrase == "open paint" {
-        println!("[typing] command: launch paint");
+        app_log!("[typing] command: launch paint");
         launch_app(paint_path);
         return;
     }
@@ -265,13 +265,13 @@ pub fn process_transcript(
         }
         if phrase == t || phrase == format!("open {}", t) {
             if t == "chrome" {
-                println!("[typing] app shortcut: focus/launch chrome -> {}", path);
+                app_log!("[typing] app shortcut: focus/launch chrome -> {}", path);
                 focus_or_launch_chrome(path);
             } else if t == "paint" {
-                println!("[typing] app shortcut: launch paint -> {}", path);
+                app_log!("[typing] app shortcut: launch paint -> {}", path);
                 launch_app(path);
             } else {
-                println!("[typing] app shortcut: launch {} -> {}", trigger, path);
+                app_log!("[typing] app shortcut: launch {} -> {}", trigger, path);
                 launch_app(path);
             }
             return;
@@ -282,7 +282,7 @@ pub fn process_transcript(
     for (trigger, replacement) in alias_commands {
         let t = normalize(trigger);
         if !t.is_empty() && phrase == t {
-            println!("[typing] alias command: \"{}\" -> \"{}\"", trigger, replacement);
+            app_log!("[typing] alias command: \"{}\" -> \"{}\"", trigger, replacement);
             type_text(replacement);
             return;
         }
@@ -292,23 +292,23 @@ pub fn process_transcript(
     if has_wake {
         for (keyword, action) in COMMANDS {
             if phrase == *keyword || phrase.starts_with(&format!("{} ", keyword)) {
-                println!("[typing] command: \"{}\"", keyword);
+                app_log!("[typing] command: \"{}\"", keyword);
                 action();
                 let remainder = phrase[keyword.len()..].trim();
                 if !remainder.is_empty() {
-                    println!("[typing] typing remainder: \"{}\"", remainder);
+                    app_log!("[typing] typing remainder: \"{}\"", remainder);
                     type_text(remainder);
                 }
                 return;
             }
         }
         // Wake word but no known command — type original.
-        println!("[typing] unknown command in: \"{}\"", phrase);
+        app_log!("[typing] unknown command in: \"{}\"", phrase);
         type_text(text);
     } else {
         // Standalone: exact match only.
         if let Some((keyword, action)) = match_command(&phrase) {
-            println!("[typing] command: \"{}\"", keyword);
+            app_log!("[typing] command: \"{}\"", keyword);
             action();
         } else {
             type_text(text);

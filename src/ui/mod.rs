@@ -100,6 +100,7 @@ pub struct MangoChatApp {
     pub update_install_inflight: bool,
     pub update_startup_check_done: bool,
     pub faq_text_size: f32,
+    pub diagnostics_last_export_path: Option<String>,
 }
 
 impl MangoChatApp {
@@ -233,7 +234,7 @@ impl MangoChatApp {
     ) -> Self {
         if let Ok(removed) = updater::cleanup_stale_temp_installers(7) {
             if removed > 0 {
-                println!("[updater] cleaned up {} stale installer(s) from temp", removed);
+                app_log!("[updater] cleaned up {} stale installer(s) from temp", removed);
             }
         }
 
@@ -244,17 +245,17 @@ impl MangoChatApp {
 
         // Create tray icon here (inside the event loop) so it stays alive
         let tray_icon = setup_tray(accent_palette(&settings.accent_color));
-        println!("[tray] icon created: {}", tray_icon.is_some());
+        app_log!("[tray] icon created: {}", tray_icon.is_some());
 
         // Background thread for tray events so quit is handled even if the UI thread stalls.
         {
             std::thread::spawn(move || {
                 while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
                     let id = event.id.0.as_str();
-                    println!("[tray-thread] menu event: {}", id);
+                    app_log!("[tray-thread] menu event: {}", id);
                     match id {
                         "quit" => {
-                            println!("[tray-thread] quit — calling process::exit");
+                            app_log!("[tray-thread] quit — calling process::exit");
                             std::process::exit(0);
                         }
                         _ => {}
@@ -310,6 +311,7 @@ impl MangoChatApp {
             update_install_inflight: false,
             update_startup_check_done: false,
             faq_text_size: 12.0,
+            diagnostics_last_export_path: None,
         }
     }
 
@@ -348,6 +350,28 @@ impl MangoChatApp {
         }
         if let Err(e) = updater::open_release_page(&updater::default_release_page_url()) {
             self.set_status(&e, "error");
+        }
+    }
+
+    pub fn open_logs_folder(&mut self) {
+        match crate::diagnostics::open_logs_folder() {
+            Ok(()) => self.set_status("Opened logs folder", "idle"),
+            Err(e) => self.set_status(&e, "error"),
+        }
+    }
+
+    pub fn export_diagnostics_zip(&mut self) {
+        let Some(path) = crate::diagnostics::default_export_zip_path().ok() else {
+            self.set_status("Failed to resolve diagnostics export path", "error");
+            return;
+        };
+        match crate::diagnostics::export_diagnostics_zip_to(&path) {
+            Ok(path) => {
+                let text = format!("Diagnostics exported: {}", path.to_string_lossy());
+                self.set_status(&text, "idle");
+                self.diagnostics_last_export_path = Some(path.to_string_lossy().to_string());
+            }
+            Err(e) => self.set_status(&e, "error"),
         }
     }
 
@@ -469,7 +493,7 @@ impl MangoChatApp {
         }
 
         if let Err(e) = crate::start_cue::play_start_cue(&self.settings.start_cue) {
-            eprintln!("[ui] start cue error: {}", e);
+            app_err!("[ui] start cue error: {}", e);
         }
 
         self.is_recording = true;
@@ -510,11 +534,11 @@ impl MangoChatApp {
             sample_rate,
         ) {
             Ok(capture) => {
-                println!("[ui] audio capture started");
+                app_log!("[ui] audio capture started");
                 self.audio_capture = Some(capture);
             }
             Err(e) => {
-                eprintln!("[ui] audio capture error: {}", e);
+                app_err!("[ui] audio capture error: {}", e);
                 self.set_status(&format!("Mic error: {}", e), "error");
                 self.is_recording = false;
                 return;
@@ -597,7 +621,7 @@ impl MangoChatApp {
             return;
         }
         if let Err(e) = crate::start_cue::play_stop_cue() {
-            eprintln!("[ui] stop cue error: {}", e);
+            app_err!("[ui] stop cue error: {}", e);
         }
         self.is_recording = false;
         self.audio_capture = None;
@@ -668,7 +692,7 @@ impl MangoChatApp {
                     self.key_check_result.insert(provider, (ok, message));
                 }
                 AppEvent::AudioInputLost { message } => {
-                    eprintln!("[ui] audio input lost: {}", message);
+                    app_err!("[ui] audio input lost: {}", message);
                     if self.is_recording {
                         self.stop_recording();
                     }

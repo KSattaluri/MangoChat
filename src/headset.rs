@@ -25,7 +25,7 @@ pub fn start_mute_watcher(event_tx: EventSender<AppEvent>) {
     #[cfg(windows)]
     std::thread::spawn(move || unsafe {
         if let Err(e) = CoInitializeEx(None, COINIT_MULTITHREADED).ok() {
-            eprintln!("[headset] CoInitializeEx failed: {}", e);
+            app_err!("[headset] CoInitializeEx failed: {}", e);
             return;
         }
 
@@ -33,7 +33,7 @@ pub fn start_mute_watcher(event_tx: EventSender<AppEvent>) {
             match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("[headset] MMDeviceEnumerator init failed: {}", e);
+                    app_err!("[headset] MMDeviceEnumerator init failed: {}", e);
                     CoUninitialize();
                     return;
                 }
@@ -47,10 +47,10 @@ pub fn start_mute_watcher(event_tx: EventSender<AppEvent>) {
                     if let Some(prev) = last_mute {
                         if prev != muted {
                             if muted {
-                                println!("[headset] capture muted -> stop");
+                                app_log!("[headset] capture muted -> stop");
                                 let _ = event_tx.send(AppEvent::HotkeyRelease);
                             } else {
-                                println!("[headset] capture unmuted -> start");
+                                app_log!("[headset] capture unmuted -> start");
                                 let _ = event_tx.send(AppEvent::HotkeyPush);
                             }
                         }
@@ -58,7 +58,7 @@ pub fn start_mute_watcher(event_tx: EventSender<AppEvent>) {
                     last_mute = Some(muted);
                 }
                 Err(e) => {
-                    eprintln!("[headset] mute poll error: {}", e);
+                    app_err!("[headset] mute poll error: {}", e);
                 }
             }
             std::thread::sleep(Duration::from_millis(250));

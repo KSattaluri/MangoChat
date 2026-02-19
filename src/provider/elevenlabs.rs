@@ -76,7 +76,7 @@ impl SttProvider for ElevenLabsProvider {
             .unwrap_or("");
 
         // Log raw ElevenLabs events for debugging idle/timeout behavior.
-        println!("[ElevenLabs Realtime] event: {}", event);
+        app_log!("[ElevenLabs Realtime] event: {}", event);
 
         match msg_type {
             "session_started" => vec![ProviderEvent::Status("session started".into())],

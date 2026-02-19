@@ -215,7 +215,7 @@ pub async fn run_session(
     loop {
         attempts += 1;
         if attempts > 1 {
-            println!(
+            app_log!(
                 "[{}] reconnecting (attempt {})",
                 provider.name(),
                 attempts
@@ -230,7 +230,7 @@ pub async fn run_session(
     let config = provider.connection_config(&settings);
     let provider_name = provider.name();
     let provider_id = provider_id_from_name(provider_name);
-    println!(
+    app_log!(
         "[{}] starting session: url={}",
         provider_name, config.url
     );
@@ -278,13 +278,13 @@ pub async fn run_session(
         }
     };
     attempts = 0;
-    println!("[{}] websocket connected", provider_name);
+    app_log!("[{}] websocket connected", provider_name);
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     // Send init message if the provider requires one.
     if let Some(ref init) = config.init_message {
-        println!("[{}] sending init message", provider_name);
+        app_log!("[{}] sending init message", provider_name);
         if let Err(e) = ws_tx
             .send(tungstenite::Message::Text(init.to_string().into()))
             .await
@@ -370,7 +370,7 @@ pub async fn run_session(
                     };
                     // Empty buffer = commit signal (VAD detected end of speech).
                     if pcm_data.is_empty() {
-                        println!("[{}] VAD commit", pname_send);
+                        app_log!("[{}] VAD commit", pname_send);
                         let commit_activity = activity_id_send.load(Ordering::SeqCst);
                         if !pending_pcm.is_empty() {
                             if min_chunk_bytes > 0 && pending_pcm.len() < min_chunk_bytes {
@@ -414,7 +414,7 @@ pub async fn run_session(
                         }
                         match &commit_message {
                             CommitMessage::Json(msg) => {
-                                println!("[{}] sending commit message", pname_send);
+                                app_log!("[{}] sending commit message", pname_send);
                                 if ws_tx
                                     .send(tungstenite::Message::Text(msg.to_string().into()))
                                     .await
@@ -432,7 +432,7 @@ pub async fn run_session(
                                     s.first_delta_logged = false;
                                     s.first_final_logged = false;
                                 }
-                                println!(
+                                app_log!(
                                     "[{}] [{}] commit_sent id={}",
                                     pname_send,
                                     wall_ts(),
@@ -474,7 +474,7 @@ pub async fn run_session(
                                     if !should_flush {
                                         return;
                                     }
-                                    println!(
+                                    app_log!(
                                         "[{}] [{}] commit_timeout_flush id={} after={}ms",
                                         pname_flush,
                                         wall_ts(),
@@ -509,7 +509,7 @@ pub async fn run_session(
                                 peak = abs;
                             }
                         }
-                        println!(
+                        app_log!(
                             "[{}] audio sent: frames={}, bytes_total={}, peak={}",
                             pname_send, frames, bytes, peak
                         );
@@ -566,7 +566,7 @@ pub async fn run_session(
                 }
                 _ = keepalive_interval.tick(), if keepalive_message.is_some() => {
                     if let Some(ref msg) = keepalive_message {
-                        println!("[{}] keepalive", pname_send);
+                        app_log!("[{}] keepalive", pname_send);
                         let _ = ws_tx
                             .send(tungstenite::Message::Text(msg.to_string().into()))
                             .await;
@@ -577,7 +577,7 @@ pub async fn run_session(
                     let last = last_activity_send.load(Ordering::SeqCst);
                     let idle_for_ms = now_ms().saturating_sub(last);
                     if idle_for_ms >= inactivity_timeout_ms {
-                        println!(
+                        app_log!(
                             "[{}] inactivity timeout hit: {}s (idle={}ms), stopping session",
                             pname_send, inactivity_timeout_secs, idle_for_ms
                         );
@@ -593,12 +593,12 @@ pub async fn run_session(
 
         // Send close message or trailing commit before closing.
         if let Some(ref msg) = close_message {
-            println!("[{}] sending close message", pname_send);
+            app_log!("[{}] sending close message", pname_send);
             let _ = ws_tx
                 .send(tungstenite::Message::Text(msg.to_string().into()))
                 .await;
         } else {
-            println!("[{}] audio channel closed; sending trailing commit", pname_send);
+            app_log!("[{}] audio channel closed; sending trailing commit", pname_send);
             match &commit_message {
                 CommitMessage::Json(msg) => {
                     let _ = ws_tx
@@ -609,7 +609,7 @@ pub async fn run_session(
             }
         }
         tokio::time::sleep(Duration::from_millis(2000)).await;
-        println!("[{}] closing websocket", pname_send);
+        app_log!("[{}] closing websocket", pname_send);
         let _ = ws_tx.close().await;
         timed_out
     });
@@ -629,7 +629,7 @@ pub async fn run_session(
                     let msg = match msg {
                         Some(Ok(m)) => m,
                         Some(Err(e)) => {
-                            eprintln!("[{}] websocket error: {}", pname_recv, e);
+                            app_err!("[{}] websocket error: {}", pname_recv, e);
                             break;
                         }
                         None => break,
@@ -639,7 +639,7 @@ pub async fn run_session(
                         tungstenite::Message::Text(t) => t,
                         tungstenite::Message::Close(frame) => {
                             if let Some(frame) = frame {
-                                eprintln!(
+                                app_err!(
                                     "[{}] websocket closed: {} {}",
                                     pname_recv, frame.code, frame.reason
                                 );
@@ -649,7 +649,7 @@ pub async fn run_session(
                                     &format!("Disconnected: {} {}", frame.code, frame.reason),
                                 );
                             } else {
-                                eprintln!("[{}] websocket closed", pname_recv);
+                                app_err!("[{}] websocket closed", pname_recv);
                                 emit_status(&tx_recv, "error", "Disconnected");
                             }
                             break;
@@ -675,7 +675,7 @@ pub async fn run_session(
                                 if let Some(start) = s.current_commit_at {
                                     let cid = s.current_commit_id;
                                     if cid > 0 && !s.first_delta_logged {
-                                    println!(
+                                    app_log!(
                                         "[{}] [{}] first_delta_after_commit_ms id={} ms={}",
                                         pname_recv,
                                         wall_ts(),
@@ -687,7 +687,7 @@ pub async fn run_session(
                                 }
                             }
                         }
-                        println!("[{}] [{:.1}s] transcript delta: {}", pname_recv, ts, delta);
+                        app_log!("[{}] [{:.1}s] transcript delta: {}", pname_recv, ts, delta);
                         emit_transcript(&tx_recv, &delta, false);
                     }
                     ProviderEvent::TranscriptFinal(transcript) => {
@@ -696,7 +696,7 @@ pub async fn run_session(
                                 if let Some(start) = s.current_commit_at {
                                     let cid = s.current_commit_id;
                                     if cid > 0 && !s.first_final_logged {
-                                        println!(
+                                        app_log!(
                                             "[{}] [{}] first_final_after_commit_ms id={} ms={}",
                                             pname_recv,
                                             wall_ts(),
@@ -710,7 +710,7 @@ pub async fn run_session(
                                 s.window_open = false;
                             }
                         }
-                        println!(
+                        app_log!(
                             "[{}] [{:.1}s] transcript final: \"{}\"",
                             pname_recv, ts, transcript
                         );
@@ -741,15 +741,15 @@ pub async fn run_session(
                         });
                     }
                     ProviderEvent::SendControl(msg) => {
-                        println!("[{}] [{:.1}s] sending control message", pname_recv, ts);
+                        app_log!("[{}] [{:.1}s] sending control message", pname_recv, ts);
                         let _ = ctrl_tx.send(msg).await;
                     }
                     ProviderEvent::Error(msg) => {
-                        eprintln!("[{}] [{:.1}s] error: {}", pname_recv, ts, msg);
+                        app_err!("[{}] [{:.1}s] error: {}", pname_recv, ts, msg);
                         emit_status(&tx_recv, "error", &msg);
                     }
                     ProviderEvent::Status(msg) => {
-                        println!("[{}] [{:.1}s] {}", pname_recv, ts, msg);
+                        app_log!("[{}] [{:.1}s] {}", pname_recv, ts, msg);
                     }
                     ProviderEvent::Ignore => {}
                 }
@@ -761,7 +761,7 @@ pub async fn run_session(
         for event in remaining {
             if let ProviderEvent::TranscriptFinal(transcript) = event {
                 let ts = t0.elapsed().as_secs_f32();
-                println!(
+                app_log!(
                     "[{}] [{:.1}s] flush final: \"{}\"",
                     pname_recv, ts, transcript
                 );
