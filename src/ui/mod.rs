@@ -728,14 +728,22 @@ impl MangoChatApp {
                     self.update_install_inflight = false;
                     match result {
                         Ok(path) => {
-                            self.update_state = UpdateUiState::InstallLaunched {
-                                path: path.clone(),
-                            };
-                            self.set_status(
-                                "Installer launched. Closing app for upgrade...",
-                                "idle",
-                            );
-                            self.should_quit = true;
+                            match updater::schedule_silent_install_and_relaunch(&path) {
+                                Ok(()) => {
+                                    self.update_state = UpdateUiState::InstallLaunched {
+                                        path: path.clone(),
+                                    };
+                                    self.set_status(
+                                        "Installing update and restarting...",
+                                        "idle",
+                                    );
+                                    self.should_quit = true;
+                                }
+                                Err(e) => {
+                                    self.update_state = UpdateUiState::Error(e.clone());
+                                    self.set_status(&e, "error");
+                                }
+                            }
                         }
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());

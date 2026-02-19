@@ -185,12 +185,12 @@ fn check_for_updates(feed_url_override: Option<&str>) -> Result<CheckOutcome, St
 
 pub fn spawn_install(tx: Sender<WorkerMessage>, release: ReleaseInfo) {
     std::thread::spawn(move || {
-        let result = download_and_launch_installer(&release);
+        let result = download_installer_for_update(&release);
         let _ = tx.send(WorkerMessage::InstallFinished(result));
     });
 }
 
-fn download_and_launch_installer(release: &ReleaseInfo) -> Result<String, String> {
+fn download_installer_for_update(release: &ReleaseInfo) -> Result<String, String> {
     let asset = release
         .assets
         .iter()
@@ -250,12 +250,54 @@ fn download_and_launch_installer(release: &ReleaseInfo) -> Result<String, String
 
     verify_authenticode_signature(&path)?;
 
-    Command::new(&path)
-        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-        .spawn()
-        .map_err(|e| format!("failed to launch installer: {e}"))?;
-
     Ok(path.display().to_string())
+}
+
+pub fn schedule_silent_install_and_relaunch(installer_path: &str) -> Result<(), String> {
+    let current_pid = std::process::id();
+    let app_exe = std::env::current_exe()
+        .map_err(|e| format!("failed to resolve current exe: {e}"))?;
+
+    let installer = PathBuf::from(installer_path);
+    if !installer.exists() {
+        return Err(format!(
+            "installer not found at expected path: {}",
+            installer.display()
+        ));
+    }
+
+    let temp = std::env::temp_dir();
+    let script_path = temp.join(format!("mangochat-self-update-{}.cmd", current_pid));
+    let installer_escaped = installer.display().to_string().replace('"', "\"\"");
+    let app_exe_escaped = app_exe.display().to_string().replace('"', "\"\"");
+    let script = format!(
+        "@echo off\r\n\
+setlocal\r\n\
+set \"UPDATER_PID={pid}\"\r\n\
+set \"INSTALLER={installer}\"\r\n\
+set \"APP_EXE={app}\"\r\n\
+:waitloop\r\n\
+tasklist /FI \"PID eq %UPDATER_PID%\" 2>NUL | findstr /R /C:\" %UPDATER_PID% \" >NUL\r\n\
+if %ERRORLEVEL%==0 (\r\n\
+  timeout /T 1 /NOBREAK >NUL\r\n\
+  goto waitloop\r\n\
+)\r\n\
+start \"\" /wait \"%INSTALLER%\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART\r\n\
+start \"\" \"%APP_EXE%\"\r\n\
+del \"%~f0\"\r\n",
+        pid = current_pid,
+        installer = installer_escaped,
+        app = app_exe_escaped,
+    );
+    fs::write(&script_path, script)
+        .map_err(|e| format!("failed to write updater script: {e}"))?;
+
+    Command::new("cmd")
+        .args(["/C", &script_path.display().to_string()])
+        .spawn()
+        .map_err(|e| format!("failed to launch updater helper script: {e}"))?;
+
+    Ok(())
 }
 
 pub fn open_release_page(url: &str) -> Result<(), String> {
