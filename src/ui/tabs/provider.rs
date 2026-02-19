@@ -114,7 +114,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     let is_default = app.form.provider == provider_id;
                     let default_resp = ui
                         .allocate_ui_with_layout(
-                            vec2(default_w, 24.0),
+                            vec2(default_w, 40.0),
                             egui::Layout::centered_and_justified(
                                 egui::Direction::LeftToRight,
                             ),
@@ -134,11 +134,11 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
 
                     let provider_color = MangoChatApp::provider_color(&provider_id, p);
                     ui.allocate_ui_with_layout(
-                        vec2(provider_w, 34.0),
+                        vec2(provider_w, 40.0),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.add_sized(
-                                [provider_w, 16.0],
+                                [provider_w, 18.0],
                                 egui::Label::new(
                                     egui::RichText::new(*provider_name)
                                         .size(13.0)
@@ -147,11 +147,12 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                 )
                                 .wrap_mode(egui::TextWrapMode::Truncate),
                             );
+                            ui.add_space(2.0);
                             ui.add_sized(
-                                [provider_w, 14.0],
+                                [provider_w, 16.0],
                                 egui::Label::new(
                                     egui::RichText::new(model_label)
-                                        .size(11.0)
+                                        .size(11.5)
                                         .color(TEXT_MUTED),
                                 )
                                 .wrap_mode(egui::TextWrapMode::Truncate),
@@ -160,36 +161,45 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     );
 
                     let key_resp = ui
-                        .scope(|ui| {
-                            let dark = ui.visuals().dark_mode;
-                            let input_bg = if dark {
-                                Color32::from_rgb(0x1a, 0x1d, 0x24)
-                            } else {
-                                Color32::from_rgb(0xff, 0xff, 0xff)
-                            };
-                            let input_stroke = if dark {
-                                Color32::from_rgb(0x2c, 0x2f, 0x36)
-                            } else {
-                                Color32::from_rgb(0xd1, 0xd5, 0xdb)
-                            };
-                            let visuals = ui.visuals_mut();
-                            visuals.extreme_bg_color = input_bg;
-                            visuals.widgets.inactive.bg_fill = input_bg;
-                            visuals.widgets.hovered.bg_fill = input_bg;
-                            visuals.widgets.active.bg_fill = input_bg;
-                            visuals.widgets.inactive.bg_stroke =
-                                Stroke::new(1.0, input_stroke);
-                            visuals.widgets.hovered.bg_stroke =
-                                Stroke::new(1.0, input_stroke);
-                            visuals.widgets.active.bg_stroke =
-                                Stroke::new(1.0, input_stroke);
-                            ui.add_sized(
-                                [api_w, 34.0],
-                                egui::TextEdit::singleline(key_value)
-                                    .password(true)
-                                    .font(FontId::proportional(12.5)),
-                            )
-                        })
+                        .allocate_ui_with_layout(
+                            vec2(api_w, 40.0),
+                            egui::Layout::centered_and_justified(
+                                egui::Direction::LeftToRight,
+                            ),
+                            |ui| {
+                                ui.scope(|ui| {
+                                    let dark = ui.visuals().dark_mode;
+                                    let input_bg = if dark {
+                                        Color32::from_rgb(0x1a, 0x1d, 0x24)
+                                    } else {
+                                        Color32::from_rgb(0xff, 0xff, 0xff)
+                                    };
+                                    let input_stroke = if dark {
+                                        Color32::from_rgb(0x2c, 0x2f, 0x36)
+                                    } else {
+                                        Color32::from_rgb(0xd1, 0xd5, 0xdb)
+                                    };
+                                    let visuals = ui.visuals_mut();
+                                    visuals.extreme_bg_color = input_bg;
+                                    visuals.widgets.inactive.bg_fill = input_bg;
+                                    visuals.widgets.hovered.bg_fill = input_bg;
+                                    visuals.widgets.active.bg_fill = input_bg;
+                                    visuals.widgets.inactive.bg_stroke =
+                                        Stroke::new(1.0, input_stroke);
+                                    visuals.widgets.hovered.bg_stroke =
+                                        Stroke::new(1.0, input_stroke);
+                                    visuals.widgets.active.bg_stroke =
+                                        Stroke::new(1.0, input_stroke);
+                                    ui.add_sized(
+                                        [api_w, 22.0],
+                                        egui::TextEdit::singleline(key_value)
+                                            .password(true)
+                                            .font(FontId::proportional(13.0)),
+                                    )
+                                })
+                                .inner
+                            },
+                        )
                         .inner;
                     if key_resp.changed() {
                         app.key_check_result.remove(&provider_id);
@@ -207,7 +217,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     let result = app.key_check_result.get(&provider_id).cloned();
                     let validate_resp = ui
                         .allocate_ui_with_layout(
-                            vec2(validate_w, 34.0),
+                            vec2(validate_w, 40.0),
                             egui::Layout::centered_and_justified(
                                 egui::Direction::LeftToRight,
                             ),
