@@ -322,51 +322,92 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
          Write-Output $sig.Status.ToString()",
         escaped_path
     );
-    let mut child = Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("signature verification failed to run: {e}"))?;
+    let mut shells: Vec<String> = Vec::new();
+    if let Ok(windir) = std::env::var("WINDIR") {
+        shells.push(
+            Path::new(&windir)
+                .join(r"System32\WindowsPowerShell\v1.0\powershell.exe")
+                .to_string_lossy()
+                .to_string(),
+        );
+        shells.push(
+            Path::new(&windir)
+                .join(r"Sysnative\WindowsPowerShell\v1.0\powershell.exe")
+                .to_string_lossy()
+                .to_string(),
+        );
+    }
+    shells.push("powershell".to_string());
+    shells.push("pwsh".to_string());
+    shells.dedup();
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(POWERSHELL_VERIFY_TIMEOUT_SECS);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
+    let mut last_err = String::new();
+    for shell in shells {
+        let mut child = match Command::new(&shell)
+            .args(["-NoProfile", "-Command", &ps])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                last_err = format!("{}: {}", shell, e);
+                continue;
+            }
+        };
+
+        let deadline =
+            std::time::Instant::now() + Duration::from_secs(POWERSHELL_VERIFY_TIMEOUT_SECS);
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!(
+                            "signature verification timed out after {}s",
+                            POWERSHELL_VERIFY_TIMEOUT_SECS
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(e) => {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err(format!(
-                        "signature verification timed out after {}s",
-                        POWERSHELL_VERIFY_TIMEOUT_SECS
-                    ));
+                    return Err(format!("signature verification process error: {e}"));
                 }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("signature verification process error: {e}"));
             }
         }
-    }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("signature verification failed to collect output: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(format!("signature verification command failed: {}", stderr));
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("signature verification failed to collect output: {e}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stderr_lc = stderr.to_ascii_lowercase();
+            let missing_cmd = stderr_lc.contains("get-authenticodesignature")
+                && stderr_lc.contains("not recognized");
+            if missing_cmd {
+                last_err = format!("{}: {}", shell, stderr);
+                continue;
+            }
+            return Err(format!(
+                "signature verification command failed ({}): {}",
+                shell, stderr
+            ));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let status = stdout.lines().last().unwrap_or("").trim();
+        if !status.eq_ignore_ascii_case("Valid") {
+            return Err(format!("installer signature is not valid (status: {})", status));
+        }
+        return Ok(());
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().last().unwrap_or("").trim();
-    let status = line;
-
-    if !status.eq_ignore_ascii_case("Valid") {
-        return Err(format!("installer signature is not valid (status: {})", status));
-    }
-    Ok(())
+    Err(format!(
+        "signature verification failed to run with available shells: {}",
+        last_err
+    ))
 }
 
 pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String> {
