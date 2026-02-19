@@ -246,6 +246,82 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     app.open_update_release_page();
                 }
             });
+
+            // --- Diagnostics ---
+            ui.add_space(14.0);
+            {
+                let rect = ui.available_rect_before_wrap();
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(rect.min.x, rect.min.y),
+                        egui::pos2(rect.max.x, rect.min.y),
+                    ],
+                    egui::Stroke::new(0.5, BTN_BORDER),
+                );
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Diagnostics")
+                        .size(13.0)
+                        .strong()
+                        .color(TEXT_MUTED),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("(API keys excluded)")
+                        .size(11.5)
+                        .color(TEXT_MUTED),
+                );
+            });
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Open logs folder")
+                                .size(11.0)
+                                .color(TEXT_COLOR),
+                        )
+                        .stroke(egui::Stroke::new(1.0, BTN_BORDER)),
+                    )
+                    .clicked()
+                {
+                    app.open_logs_folder();
+                }
+
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("Export diagnostics ZIP")
+                                .size(11.0)
+                                .color(egui::Color32::BLACK),
+                        )
+                        .fill(accent.base)
+                        .stroke(egui::Stroke::new(1.0, accent.ring)),
+                    )
+                    .clicked()
+                {
+                    app.export_diagnostics_zip();
+                }
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Need help? Email the ZIP to {}",
+                        crate::diagnostics::support_email()
+                    ))
+                    .size(11.5)
+                    .color(accent.base),
+                );
+            });
+            ui.add_space(4.0);
+            if let Some(path) = app.diagnostics_last_export_path.as_ref() {
+                ui.label(
+                    egui::RichText::new(format!("Find the logs at: {}", path))
+                        .size(10.5)
+                        .color(accent.base),
+                );
+            }
         });
 }
 

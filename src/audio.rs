@@ -52,7 +52,7 @@ impl AudioCapture {
         };
 
         let device_name = device.name().unwrap_or_else(|_| "unknown".into());
-        println!("[audio] using device: {}", device_name);
+        app_log!("[audio] using device: {}", device_name);
 
         // Try target sample rate mono, fall back to 48kHz
         let (config, decimate) = match try_config(&device, target_rate) {
@@ -60,7 +60,7 @@ impl AudioCapture {
             None => match try_config(&device, 48000) {
                 Some(cfg) => {
                     let d = (cfg.sample_rate.0 / target_rate.max(1)).max(1);
-                    println!(
+                    app_log!(
                         "[audio] {}Hz unavailable, using {}Hz with {}:1 decimation",
                         target_rate,
                         cfg.sample_rate.0,
@@ -73,7 +73,7 @@ impl AudioCapture {
                     let default = device
                         .default_input_config()
                         .map_err(|e| format!("No input config: {}", e))?;
-                    println!(
+                    app_log!(
                         "[audio] using default config: {}Hz {}ch",
                         default.sample_rate().0,
                         default.channels()
@@ -93,7 +93,7 @@ impl AudioCapture {
         };
 
         let effective_rate = config.sample_rate.0 / decimate;
-        println!(
+        app_log!(
             "[audio] stream config: {}Hz, {}ch, decimate={}, effective={}Hz",
             config.sample_rate.0, config.channels, decimate, effective_rate
         );
@@ -124,7 +124,7 @@ impl AudioCapture {
                     let _ = raw_tx.try_send(samples);
                 },
                 move |err| {
-                    eprintln!("[audio] stream error: {}", err);
+                    app_err!("[audio] stream error: {}", err);
                     let _ = err_event_tx.send(AppEvent::AudioInputLost {
                         message: err.to_string(),
                     });
@@ -375,7 +375,7 @@ fn process_audio(
             let _ = audio_tx.try_send(pcm.clone());
             post_roll_remaining_ms -= chunk_ms;
             if post_roll_remaining_ms <= 0.0 {
-                println!(
+                app_log!(
                     "[audio] VAD commit: post_roll_ms={:.1} mode={}",
                     post_roll_ms, vad_label
                 );
@@ -415,7 +415,7 @@ fn process_audio(
                 }
             }
             if is_sending {
-                println!(
+                app_log!(
                     "[audio] VAD stop: peak={:.5} mode={} hangover_ms={} stop_silence_ms={:.1} preroll_ms={:.1}",
                     peak, vad_label, hangover_ms, stop_silence_ms, preroll_ms
                 );
@@ -429,7 +429,7 @@ fn process_audio(
                         silence_ms = 0.0;
                     }
                 } else {
-                    println!(
+                    app_log!(
                         "[audio] dropping micro-turn: voiced_ms={:.1} < min_turn_ms={:.1}",
                         voiced_ms, min_turn_ms
                     );
@@ -442,7 +442,7 @@ fn process_audio(
         }
 
         if has_voice && !is_sending {
-            println!(
+            app_log!(
                 "[audio] VAD start: peak={:.5} mode={} preroll_ms={:.1}",
                 peak, vad_label, preroll_ms
             );
@@ -463,7 +463,7 @@ fn process_audio(
     if let Ok(mut data) = state.fft_data.lock() {
         *data = [0.0; BAR_COUNT];
     }
-    println!("[audio] processing thread stopped");
+    app_log!("[audio] processing thread stopped");
 }
 
 fn send_commit_signal(audio_tx: &mpsc::Sender<Vec<u8>>, context: &str) {
@@ -474,12 +474,12 @@ fn send_commit_signal(audio_tx: &mpsc::Sender<Vec<u8>>, context: &str) {
                 std::thread::sleep(std::time::Duration::from_millis(4));
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                eprintln!("[audio] {} failed: channel closed", context);
+                app_err!("[audio] {} failed: channel closed", context);
                 return;
             }
         }
         if attempt == 25 {
-            eprintln!(
+            app_err!(
                 "[audio] {} dropped after retries: audio channel remained full",
                 context
             );

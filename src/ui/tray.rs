@@ -25,11 +25,11 @@ pub fn setup_tray(_accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
         .build()
     {
         Ok(tray) => {
-            println!("[tray] built successfully");
+            app_log!("[tray] built successfully");
             Some(tray)
         }
         Err(e) => {
-            eprintln!("[tray] build error: {}", e);
+            app_err!("[tray] build error: {}", e);
             None
         }
     };
@@ -41,7 +41,7 @@ fn make_tray_icon() -> Option<tray_icon::Icon> {
     let img = match image::load_from_memory(MANGO_PNG) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("[tray] failed to decode mango.png: {}", e);
+            app_err!("[tray] failed to decode mango.png: {}", e);
             return None;
         }
     };
@@ -54,7 +54,7 @@ fn make_tray_icon() -> Option<tray_icon::Icon> {
     match tray_icon::Icon::from_rgba(rgba.into_raw(), w, h) {
         Ok(i) => Some(i),
         Err(e) => {
-            eprintln!("[tray] icon error: {}", e);
+            app_err!("[tray] icon error: {}", e);
             None
         }
     }

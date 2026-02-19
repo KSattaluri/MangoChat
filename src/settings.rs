@@ -330,7 +330,7 @@ pub fn load() -> Settings {
                 }
             }
         }
-        Err(e) => eprintln!("[settings] secure key load failed: {}", e),
+        Err(e) => app_err!("[settings] secure key load failed: {}", e),
     }
 
     if had_plaintext_keys {
@@ -340,7 +340,7 @@ pub fn load() -> Settings {
                 settings.api_key.clear();
                 let _ = save_settings_without_api_keys(&settings);
             }
-            Err(e) => eprintln!("[settings] secure key migration failed: {}", e),
+            Err(e) => app_err!("[settings] secure key migration failed: {}", e),
         }
     }
     settings.api_keys = resolved_api_keys;

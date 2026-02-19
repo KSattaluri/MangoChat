@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod diagnostics;
 mod audio;
 mod hotkey;
 mod headset;
@@ -24,12 +26,14 @@ use std::time::Duration;
 use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS, load_provider_totals, save_provider_totals};
 
 fn main() {
+    let _ = diagnostics::init_session_logging();
+    diagnostics::install_panic_hook();
     env_logger::init();
 
     let _single_instance_guard = match single_instance::acquire("MangoChat.App.Singleton") {
         Some(g) => g,
         None => {
-            eprintln!("[mangochat] another instance is already running; exiting");
+            app_err!("[mangochat] another instance is already running; exiting");
             return;
         }
     };
@@ -101,7 +105,7 @@ fn main() {
     hotkey::start_listener(app_state.clone(), event_tx.clone());
     // Windows-only test hook for headset mic stem mute/unmute.
     headset::start_mute_watcher(event_tx.clone());
-    println!("[mangochat] hotkeys active, hold Right Ctrl to dictate");
+    app_log!("[mangochat] hotkeys active, hold Right Ctrl to dictate");
 
     // Periodic usage logging thread
     {
@@ -121,7 +125,7 @@ fn main() {
             let hours_sent = snapshot.ms_sent as f64 / 3_600_000.0;
             let hours_suppressed = snapshot.ms_suppressed as f64 / 3_600_000.0;
             let mb_sent = snapshot.bytes_sent as f64 / (1024.0 * 1024.0);
-            println!(
+            app_log!(
                 "[usage] provider={} model={} sent={:.2}h suppressed={:.2}h bytes={:.1}MB commits={}",
                 if snapshot.provider.is_empty() { "-" } else { snapshot.provider.as_str() },
                 if snapshot.model.is_empty() { "-" } else { snapshot.model.as_str() },
@@ -165,7 +169,7 @@ fn main() {
         ..Default::default()
     };
 
-    println!("[mangochat] starting eframe...");
+    app_log!("[mangochat] starting eframe...");
 
     eframe::run_native(
         "Mango Chat",
@@ -176,7 +180,7 @@ fn main() {
             } else {
                 cc.egui_ctx.set_visuals(egui::Visuals::dark());
             }
-            println!("[mangochat] eframe app created");
+            app_log!("[mangochat] eframe app created");
             Ok(Box::new(ui::MangoChatApp::new(
                 app_state,
                 event_tx,
@@ -189,6 +193,7 @@ fn main() {
     )
     .expect("Failed to start eframe");
 }
+
 
 
 
