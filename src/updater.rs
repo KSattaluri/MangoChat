@@ -12,7 +12,6 @@ const REPO_OWNER: &str = "KSattaluri";
 const REPO_NAME: &str = "MangoChat";
 const REPO_RELEASE_PAGE_NAME: &str = "MangoChat";
 const APP_USER_AGENT: &str = "mangochat-updater";
-const EXPECTED_SIGNER_SUBJECT_SUBSTR: &str = "Kalyan Sattaluri";
 const POWERSHELL_VERIFY_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone)]
@@ -320,9 +319,7 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
     let ps = format!(
         "$ErrorActionPreference='Stop'; \
          $sig = Get-AuthenticodeSignature -FilePath '{}'; \
-         $subject=''; \
-         if ($sig.SignerCertificate) {{ $subject=$sig.SignerCertificate.Subject }}; \
-         Write-Output ($sig.Status.ToString() + '|' + $subject)",
+         Write-Output $sig.Status.ToString()",
         escaped_path
     );
     let mut child = Command::new("powershell")
@@ -364,21 +361,10 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout.lines().last().unwrap_or("").trim();
-    let mut parts = line.splitn(2, '|');
-    let status = parts.next().unwrap_or("").trim();
-    let subject = parts.next().unwrap_or("").trim();
+    let status = line;
 
     if !status.eq_ignore_ascii_case("Valid") {
         return Err(format!("installer signature is not valid (status: {})", status));
-    }
-    if !subject
-        .to_ascii_lowercase()
-        .contains(&EXPECTED_SIGNER_SUBJECT_SUBSTR.to_ascii_lowercase())
-    {
-        return Err(format!(
-            "unexpected installer signer subject: '{}'",
-            subject
-        ));
     }
     Ok(())
 }
