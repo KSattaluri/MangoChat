@@ -22,12 +22,12 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
-            ui.add_space(6.0);
+            ui.add_space(4.0);
 
             // --- All dictation settings in one aligned grid ---
             egui::Grid::new("dictation_grid")
                 .num_columns(2)
-                .spacing([16.0, 12.0])
+                .spacing([16.0, 6.0])
                 .show(ui, |ui| {
                     // Microphone
                     ui.label(
@@ -43,7 +43,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             let selected_mic = if app.form.mic.is_empty() {
                                 "Default".to_string()
                             } else {
-                                truncate_chars(&app.form.mic, 64)
+                                truncate_chars(&app.form.mic, 38)
                             };
                             egui::ComboBox::from_id_salt("mic_select")
                                 .selected_text(selected_mic)
@@ -62,22 +62,57 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                         );
                                     }
                                 });
-                            if ui
-                                .add_sized(
-                                    [72.0, 24.0],
-                                    egui::Button::new("Refresh"),
-                                )
-                                .clicked()
-                            {
-                                app.mic_devices = audio::list_input_devices();
-                                if !app.form.mic.is_empty()
-                                    && !app.mic_devices.contains(&app.form.mic)
-                                {
-                                    app.form.mic.clear();
-                                }
-                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add_sized(
+                                            [72.0, 22.0],
+                                            egui::Button::new(
+                                                egui::RichText::new("Refresh")
+                                                    .color(TEXT_COLOR),
+                                            )
+                                            .fill(accent.base.gamma_multiply(0.22))
+                                            .stroke(egui::Stroke::new(
+                                                1.0,
+                                                accent.base.gamma_multiply(0.85),
+                                            )),
+                                        )
+                                        .clicked()
+                                    {
+                                        app.mic_devices = audio::list_input_devices();
+                                        if !app.form.mic.is_empty()
+                                            && !app.mic_devices.contains(&app.form.mic)
+                                        {
+                                            app.form.mic.clear();
+                                        }
+                                    }
+                                },
+                            );
                         },
                     );
+                    ui.end_row();
+
+                    // Session hotkey
+                    ui.label(
+                        egui::RichText::new("Session hotkey")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Right Ctrl")
+                                .size(13.0)
+                                .strong()
+                                .color(accent.base),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new("(to start/stop recording)")
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                        );
+                    });
                     ui.end_row();
 
                     // Noise suppression
@@ -104,11 +139,6 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                                 "Low",
                             );
                         });
-                    ui.end_row();
-
-                    // Spacer row between dropdowns and session limits
-                    ui.allocate_space(egui::vec2(0.0, 8.0));
-                    ui.allocate_space(egui::vec2(0.0, 8.0));
                     ui.end_row();
 
                     // Max session length
@@ -182,6 +212,28 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             });
                         app.form.screenshot_enabled = enabled;
                     }
+                    ui.end_row();
+
+                    // ── Screenshot hotkey ──
+                    ui.label(
+                        egui::RichText::new("Screenshot hotkey")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Right Alt")
+                                .size(13.0)
+                                .strong()
+                                .color(accent.base),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(
+                            egui::RichText::new("(takes screenshot of current monitor)")
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                        );
+                    });
                     ui.end_row();
 
                     // ── Retention count ──
@@ -306,9 +358,9 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         ui.add_space(8.0);
                         ui.label(
                             egui::RichText::new(
-                                "Does not reset provider/API keys or usage logs.",
+                                "(does not reset provider/API keys or usage logs)",
                             )
-                            .size(11.0)
+                            .size(12.0)
                             .color(TEXT_MUTED),
                         );
                     });

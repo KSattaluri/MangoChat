@@ -15,14 +15,13 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ("system", "Mango Chat aliases"),
         ("apps", "App locations"),
     ];
-    ui.columns(tabs.len(), |cols| {
-        for (i, (id, label)) in tabs.iter().enumerate() {
-            let active = app.commands_sub_tab == *id;
-            cols[i].with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                if widgets::sub_tab_button(ui, label, active, accent).clicked() {
-                    app.commands_sub_tab = id.to_string();
-                }
-            });
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        for (id, label) in tabs {
+            let active = app.commands_sub_tab == id;
+            if widgets::sub_tab_button(ui, label, active, accent).clicked() {
+                app.commands_sub_tab = id.to_string();
+            }
         }
     });
     ui.add_space(10.0);
@@ -190,7 +189,7 @@ fn render_browser_commands(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     if ui
         .add_sized(
-            [ui.available_width(), 28.0],
+            [ui.available_width() - 16.0, 28.0],
             egui::Button::new(
                 egui::RichText::new("+ Add Command")
                     .size(13.0)
@@ -288,7 +287,7 @@ fn render_text_aliases(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     if ui
         .add_sized(
-            [ui.available_width(), 28.0],
+            [ui.available_width() - 16.0, 28.0],
             egui::Button::new(
                 egui::RichText::new("+ Add Alias")
                     .size(13.0)
@@ -396,7 +395,7 @@ fn render_app_paths(app: &mut MangoChatApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     if ui
         .add_sized(
-            [ui.available_width(), 28.0],
+            [ui.available_width() - 16.0, 28.0],
             egui::Button::new(
                 egui::RichText::new("+ Add Shortcut")
                     .size(13.0)

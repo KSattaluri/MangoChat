@@ -244,51 +244,162 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
         });
 }
 
-pub fn render_faq(app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
+pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let accent = app.current_accent();
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width().max(0.0));
-            ui.label(
-                egui::RichText::new("Frequently Asked Questions")
-                    .size(13.0)
-                    .strong()
-                    .color(TEXT_COLOR),
-            );
+            egui::Frame::none()
+                .inner_margin(egui::Margin { left: 4.0, right: 16.0, top: 0.0, bottom: 0.0 })
+                .show(ui, |ui| {
+            // Title row with text size controls
+            {
+                let row_h = 24.0;
+                let row_rect = ui.available_rect_before_wrap();
+                let row_rect = egui::Rect::from_min_size(
+                    row_rect.min,
+                    egui::vec2(row_rect.width(), row_h),
+                );
+                ui.allocate_rect(row_rect, egui::Sense::hover());
+
+                // Title on the left
+                ui.painter().text(
+                    egui::pos2(row_rect.min.x, row_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "Frequently Asked Questions",
+                    egui::FontId::proportional(13.0),
+                    TEXT_COLOR,
+                );
+
+                // Controls on the right: "Text size" [-] [+]
+                let btn_w = 26.0;
+                let btn_h = 22.0;
+                let gap = 6.0;
+                let edge_pad = 8.0;
+
+                let plus_right = row_rect.max.x - edge_pad;
+                let plus_left = plus_right - btn_w;
+                let minus_right = plus_left - gap;
+                let minus_left = minus_right - btn_w;
+                let label_right = minus_left - gap;
+
+                let cy = row_rect.center().y;
+                let btn_top = cy - btn_h * 0.5;
+                let btn_bottom = cy + btn_h * 0.5;
+
+                // "Text size" label
+                ui.painter().text(
+                    egui::pos2(label_right, cy),
+                    egui::Align2::RIGHT_CENTER,
+                    "Text size",
+                    egui::FontId::proportional(13.0),
+                    accent.base,
+                );
+
+                // Minus button
+                let minus_rect = egui::Rect::from_min_max(
+                    egui::pos2(minus_left, btn_top),
+                    egui::pos2(minus_right, btn_bottom),
+                );
+                let minus_resp = ui.allocate_rect(minus_rect, egui::Sense::click());
+                let minus_fill = if minus_resp.hovered() {
+                    accent.base.gamma_multiply(0.35)
+                } else {
+                    accent.base.gamma_multiply(0.22)
+                };
+                ui.painter().rect(
+                    minus_rect,
+                    4.0,
+                    minus_fill,
+                    egui::Stroke::new(1.0, accent.base.gamma_multiply(0.85)),
+                );
+                ui.painter().text(
+                    minus_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "\u{2212}",
+                    egui::FontId::proportional(14.0),
+                    TEXT_COLOR,
+                );
+                if minus_resp.clicked() {
+                    app.faq_text_size = (app.faq_text_size - 1.0).max(9.0);
+                }
+
+                // Plus button
+                let plus_rect = egui::Rect::from_min_max(
+                    egui::pos2(plus_left, btn_top),
+                    egui::pos2(plus_right, btn_bottom),
+                );
+                let plus_resp = ui.allocate_rect(plus_rect, egui::Sense::click());
+                let plus_fill = if plus_resp.hovered() {
+                    accent.base.gamma_multiply(0.35)
+                } else {
+                    accent.base.gamma_multiply(0.22)
+                };
+                ui.painter().rect(
+                    plus_rect,
+                    4.0,
+                    plus_fill,
+                    egui::Stroke::new(1.0, accent.base.gamma_multiply(0.85)),
+                );
+                ui.painter().text(
+                    plus_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "+",
+                    egui::FontId::proportional(14.0),
+                    TEXT_COLOR,
+                );
+                if plus_resp.clicked() {
+                    app.faq_text_size = (app.faq_text_size + 1.0).min(20.0);
+                }
+            }
             ui.add_space(12.0);
 
             let items = [
                 (
-                    "How do I start dictating?",
-                    "Hold Right Ctrl and speak. Release to commit the transcription to the active text field.",
+                    "What happens when you start Mango Chat?",
+                    "When Mango Chat starts, it actively listens for audio from your device. Place your cursor in a text field to begin transcribing your speech.",
                 ),
                 (
-                    "What providers are supported?",
-                    "OpenAI Realtime, Deepgram, ElevenLabs Realtime, and AssemblyAI. Select your provider in the Provider tab.",
+                    "What are the hotkeys to start and stop Mango Chat?",
+                    "In addition to the start/stop buttons on the UI, you can use Right Ctrl to start and stop recording.",
                 ),
                 (
-                    "How does VAD mode work?",
-                    "Strict: only sends audio during speech. Lenient: lower threshold. Off: streams all audio.",
+                    "Why do I sometimes experience delays or inaccurate transcription?",
+                    "These are provider-dependent and may be caused by audio quality, speech clarity, network latency, or inherent limitations of the model.",
                 ),
                 (
-                    "Where are settings stored?",
-                    "In AppData/Local/MangoChat/settings.json on Windows. Usage logs are in the same folder.",
+                    "How do I take a screenshot?",
+                    "Move your cursor to the monitor you want, press Right Alt (when screenshot capture is enabled), then select the region.",
                 ),
                 (
-                    "Can I use this with any app?",
-                    "Yes \u{2014} Mango Chat types into whatever window has focus when you release the hotkey.",
+                    "What happens after I capture a screenshot?",
+                    "Based on your settings, Mango Chat can copy the image path, copy the image content, or open it in Paint for editing.",
                 ),
                 (
-                    "How do I change the hotkey?",
-                    "The hotkey is currently Right Ctrl. Custom hotkeys are planned for a future release.",
+                    "Where are screenshots saved?",
+                    "Use \u{201c}Open images folder\u{201d} in Settings to open the active screenshot directory.",
+                ),
+                (
+                    "How much does transcription cost?",
+                    "It depends on the chosen provider and model. Pricing is typically per second or per hour. Deepgram and AssemblyAI often provide free trial credits \u{2014} check their sites for current details.",
+                ),
+                (
+                    "Which providers are supported?",
+                    "Deepgram, OpenAI Realtime, ElevenLabs Realtime, and AssemblyAI.",
+                ),
+                (
+                    "Can I customize commands and aliases?",
+                    "Yes. You can edit browser commands, text aliases, and app locations from the Commands tab.",
                 ),
             ];
 
+            let q_size = app.faq_text_size + 2.0;
+            let a_size = (app.faq_text_size - 0.5).max(9.0);
             for (i, (q, a)) in items.iter().enumerate() {
                 ui.label(
                     egui::RichText::new(*q)
-                        .size(12.0)
+                        .size(q_size)
                         .strong()
                         .color(accent.base),
                 );
@@ -296,7 +407,7 @@ pub fn render_faq(app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(*a)
-                            .size(11.5)
+                            .size(a_size)
                             .color(TEXT_MUTED),
                     )
                     .wrap(),
@@ -305,5 +416,6 @@ pub fn render_faq(app: &MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     ui.add_space(14.0);
                 }
             }
+            }); // Frame
         });
 }

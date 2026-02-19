@@ -99,6 +99,7 @@ pub struct MangoChatApp {
     pub update_check_inflight: bool,
     pub update_install_inflight: bool,
     pub update_startup_check_done: bool,
+    pub faq_text_size: f32,
 }
 
 impl MangoChatApp {
@@ -308,6 +309,7 @@ impl MangoChatApp {
             update_check_inflight: false,
             update_install_inflight: false,
             update_startup_check_done: false,
+            faq_text_size: 12.0,
         }
     }
 
