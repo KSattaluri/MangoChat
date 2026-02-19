@@ -108,7 +108,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         );
                         ui.add_space(6.0);
                         ui.label(
-                            egui::RichText::new("(to start/stop recording)")
+                            egui::RichText::new("(outside this window: start/stop recording)")
                                 .size(12.0)
                                 .color(TEXT_MUTED),
                         );
@@ -229,7 +229,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         );
                         ui.add_space(6.0);
                         ui.label(
-                            egui::RichText::new("(takes screenshot of current monitor)")
+                            egui::RichText::new("(outside this window: screenshot on current monitor)")
                                 .size(12.0)
                                 .color(TEXT_MUTED),
                         );

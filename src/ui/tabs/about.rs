@@ -50,10 +50,10 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                 ui.spacing_mut().item_spacing.y = 6.0;
 
                 ui.hyperlink_to(
-                    egui::RichText::new("mangochat.org")
+                    egui::RichText::new("github.com/KSattaluri/MangoChat")
                         .size(sz)
                         .color(accent.base),
-                    "https://mangochat.org",
+                    "https://github.com/KSattaluri/MangoChat",
                 );
                 ui.label(
                     egui::RichText::new("Made by Kalyan Sattaluri")
@@ -81,10 +81,10 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                 ui.label(job);
 
                 ui.hyperlink_to(
-                    egui::RichText::new("github.com/KSattaluri/MangoChat")
+                    egui::RichText::new("mangochat.org")
                         .size(sz)
                         .color(accent.base),
-                    "https://github.com/KSattaluri/MangoChat",
+                    "https://mangochat.org",
                 );
 
                 ui.spacing_mut().item_spacing.y = prev;
