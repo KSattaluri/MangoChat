@@ -29,6 +29,9 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
                 if !state.screenshot_enabled.load(Ordering::SeqCst) {
                     return;
                 }
+                if !state.screenshot_hotkey_enabled.load(Ordering::SeqCst) {
+                    return;
+                }
                 let now_ms = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
@@ -54,6 +57,9 @@ pub fn start_listener(state: Arc<AppState>, event_tx: EventSender<AppEvent>) {
 
             match event.event_type {
                 EventType::KeyPress(Key::ControlRight) => {
+                    if !state.session_hotkey_enabled.load(Ordering::SeqCst) {
+                        return;
+                    }
                     ctrl_any_held_clone.store(true, Ordering::SeqCst);
                     if key_held_clone.load(Ordering::SeqCst) {
                         return;

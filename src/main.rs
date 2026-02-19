@@ -90,8 +90,14 @@ fn main() {
 
     // Populate feature gates from settings
     app_state
+        .session_hotkey_enabled
+        .store(settings.session_hotkey_enabled, Ordering::SeqCst);
+    app_state
         .screenshot_enabled
         .store(settings.screenshot_enabled, Ordering::SeqCst);
+    app_state
+        .screenshot_hotkey_enabled
+        .store(settings.screenshot_hotkey_enabled, Ordering::SeqCst);
     if let Ok(mut usage) = app_state.usage.lock() {
         if usage.provider.is_empty() {
             usage.provider = settings.provider.clone();

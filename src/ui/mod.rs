@@ -1458,10 +1458,24 @@ impl MangoChatApp {
                                                             self.current_accent(),
                                                         );
                                                         self.state
+                                                            .session_hotkey_enabled
+                                                            .store(
+                                                                self.settings
+                                                                    .session_hotkey_enabled,
+                                                                Ordering::SeqCst,
+                                                            );
+                                                        self.state
                                                             .screenshot_enabled
                                                             .store(
                                                                 self.settings
                                                                     .screenshot_enabled,
+                                                                Ordering::SeqCst,
+                                                            );
+                                                        self.state
+                                                            .screenshot_hotkey_enabled
+                                                            .store(
+                                                                self.settings
+                                                                    .screenshot_hotkey_enabled,
                                                                 Ordering::SeqCst,
                                                             );
                                                         if self.settings_tab

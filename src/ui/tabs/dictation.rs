@@ -100,6 +100,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .color(TEXT_COLOR),
                     );
                     ui.horizontal(|ui| {
+                        let mut enabled = app.form.session_hotkey_enabled;
+                        egui::ComboBox::from_id_salt("session_hotkey_enabled_select")
+                            .selected_text(if enabled { "Yes" } else { "No" })
+                            .width(72.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut enabled, true, "Yes");
+                                ui.selectable_value(&mut enabled, false, "No");
+                            });
+                        app.form.session_hotkey_enabled = enabled;
+                        ui.add_space(8.0);
                         ui.label(
                             egui::RichText::new("Right Ctrl")
                                 .size(13.0)
@@ -221,6 +231,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             .color(TEXT_COLOR),
                     );
                     ui.horizontal(|ui| {
+                        let mut enabled = app.form.screenshot_hotkey_enabled;
+                        egui::ComboBox::from_id_salt("screenshot_hotkey_enabled_select")
+                            .selected_text(if enabled { "Yes" } else { "No" })
+                            .width(72.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut enabled, true, "Yes");
+                                ui.selectable_value(&mut enabled, false, "No");
+                            });
+                        app.form.screenshot_hotkey_enabled = enabled;
+                        ui.add_space(8.0);
                         ui.label(
                             egui::RichText::new("Right Alt")
                                 .size(13.0)
@@ -358,7 +378,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         ui.add_space(8.0);
                         ui.label(
                             egui::RichText::new(
-                                "(does not reset provider/API keys or usage logs)",
+                                "(does not reset provider API keys, usage logs, or custom commands)",
                             )
                             .size(12.0)
                             .color(TEXT_MUTED),
@@ -368,3 +388,5 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 });
         });
 }
+
+
