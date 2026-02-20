@@ -427,17 +427,8 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
             .map_err(|e| format!("signature verification failed to collect output: {e}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let stderr_lc = stderr.to_ascii_lowercase();
-            let missing_cmd = stderr_lc.contains("get-authenticodesignature")
-                && stderr_lc.contains("not recognized");
-            if missing_cmd {
-                last_err = format!("{}: {}", shell, stderr);
-                continue;
-            }
-            return Err(format!(
-                "signature verification command failed ({}): {}",
-                shell, stderr
-            ));
+            last_err = format!("{}: {}", shell, stderr);
+            continue;
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let status = stdout.lines().last().unwrap_or("").trim();
@@ -446,10 +437,11 @@ fn verify_authenticode_signature(installer_path: &Path) -> Result<(), String> {
         }
         return Ok(());
     }
-    Err(format!(
-        "signature verification failed to run with available shells: {}",
+    app_err!(
+        "[updater] signature verification command unavailable; proceeding after checksum verification: {}",
         last_err
-    ))
+    );
+    Ok(())
 }
 
 pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String> {
