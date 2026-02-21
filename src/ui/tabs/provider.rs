@@ -33,7 +33,11 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         .iter()
         .find(|(id, _)| *id == app.settings.provider.as_str())
         .map(|(_, name)| *name)
-        .unwrap_or("Unknown");
+        .unwrap_or(if app.settings.provider.trim().is_empty() {
+            "Not selected"
+        } else {
+            "Unknown"
+        });
     let current_provider_color = MangoChatApp::provider_color(&app.settings.provider, p);
     ui.horizontal(|ui| {
         ui.label(
@@ -149,6 +153,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         .inner;
                     if default_resp.clicked() && can_default {
                         app.form.provider = provider_id.clone();
+                        app.provider_default_explicitly_selected = true;
                     }
                     ui.add_space(col_gap);
 
@@ -236,6 +241,8 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                         )
                         .inner;
                     if key_resp.changed() {
+                        // Enforce sequence: API key edit -> select default -> Save.
+                        app.provider_default_explicitly_selected = false;
                         app.key_check_result.remove(&provider_id);
                         if app
                             .last_validated_provider

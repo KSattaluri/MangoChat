@@ -198,7 +198,7 @@ impl Default for Settings {
 }
 
 fn default_provider() -> String {
-    "openai".into()
+    String::new()
 }
 
 fn default_model() -> String {
@@ -383,6 +383,14 @@ pub fn load() -> Settings {
     // Migrate deprecated provider id.
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
+    }
+    // Keep provider unset unless it's a known provider id.
+    if settings.provider != "openai"
+        && settings.provider != "deepgram"
+        && settings.provider != "elevenlabs"
+        && settings.provider != "assemblyai"
+    {
+        settings.provider.clear();
     }
     // App is dark-theme only.
     settings.theme = default_theme();

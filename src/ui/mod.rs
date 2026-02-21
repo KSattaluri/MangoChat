@@ -36,8 +36,6 @@ pub enum UpdateUiState {
     Checking,
     UpToDate,
     Available { latest: ReleaseInfo },
-    Installing,
-    InstallLaunched { path: String },
     Error(String),
 }
 
@@ -86,6 +84,7 @@ pub struct MangoChatApp {
     pub key_check_inflight: HashSet<String>,
     pub key_check_result: HashMap<String, (bool, String)>,
     pub last_validated_provider: Option<String>,
+    pub provider_default_explicitly_selected: bool,
     pub session_history: Vec<SessionUsage>,
     control_tooltip: Option<ControlTooltipState>,
     recording_limit_token: u64,
@@ -221,6 +220,7 @@ impl MangoChatApp {
         self.key_check_inflight.clear();
         self.key_check_result.clear();
         self.last_validated_provider = None;
+        self.provider_default_explicitly_selected = false;
         self.commands_sub_tab = "browser".into();
     }
 
@@ -300,6 +300,7 @@ impl MangoChatApp {
             key_check_inflight: HashSet::new(),
             key_check_result: HashMap::new(),
             last_validated_provider: None,
+            provider_default_explicitly_selected: false,
             session_history: vec![],
             control_tooltip: None,
             recording_limit_token: 0,
@@ -328,19 +329,6 @@ impl MangoChatApp {
             self.update_worker_tx.clone(),
             Some(self.form.update_feed_url_override.clone()),
         );
-    }
-
-    pub fn trigger_update_install(&mut self) {
-        if self.update_install_inflight {
-            return;
-        }
-        let release = match &self.update_state {
-            UpdateUiState::Available { latest } => latest.clone(),
-            _ => return,
-        };
-        self.update_install_inflight = true;
-        self.update_state = UpdateUiState::Installing;
-        updater::spawn_install(self.update_worker_tx.clone(), release);
     }
 
     pub fn open_update_release_page(&mut self) {
@@ -487,8 +475,22 @@ impl MangoChatApp {
         if self.is_recording {
             return;
         }
-        if !self.settings.has_any_api_key() {
-            self.set_status("Set up provider keys in Settings", "idle");
+        let provider_selected = !self.settings.provider.trim().is_empty();
+        let selected_provider_has_key = provider_selected
+            && !self
+                .settings
+                .api_key_for(&self.settings.provider)
+                .trim()
+                .is_empty();
+        if !selected_provider_has_key {
+            if self.settings.has_any_api_key() {
+                self.set_status(
+                    "Select a default provider with an API key in Settings",
+                    "idle",
+                );
+            } else {
+                self.set_status("Set up provider keys in Settings", "idle");
+            }
             return;
         }
         let unavailable_now = self.selected_mic_unavailable_now();
@@ -724,27 +726,6 @@ impl MangoChatApp {
                         }
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());
-                        }
-                    }
-                }
-                WorkerMessage::InstallFinished(result) => {
-                    self.update_install_inflight = false;
-                    match result {
-                        Ok(path) => match updater::schedule_silent_install_and_relaunch(&path) {
-                            Ok(()) => {
-                                self.update_state =
-                                    UpdateUiState::InstallLaunched { path: path.clone() };
-                                self.set_status("Installing update and restarting...", "idle");
-                                self.should_quit = true;
-                            }
-                            Err(e) => {
-                                self.update_state = UpdateUiState::Error(e.clone());
-                                self.set_status(&e, "error");
-                            }
-                        },
-                        Err(e) => {
-                            self.update_state = UpdateUiState::Error(e.clone());
-                            self.set_status(&e, "error");
                         }
                     }
                 }
@@ -1047,8 +1028,15 @@ impl MangoChatApp {
                             ui.add_space(16.0);
                         }
 
+                        let provider_selected = !self.settings.provider.trim().is_empty();
+                        let selected_provider_has_key = provider_selected
+                            && !self
+                                .settings
+                                .api_key_for(&self.settings.provider)
+                                .trim()
+                                .is_empty();
                         let can_start_recording =
-                            self.is_recording || self.settings.has_any_api_key();
+                            self.is_recording || selected_provider_has_key;
                         let record_resp = ui
                             .add_enabled_ui(can_start_recording, |ui| {
                                 record_toggle(ui, self.is_recording, accent)
@@ -1312,31 +1300,60 @@ impl MangoChatApp {
                                             && self.provider_form_dirty();
                                         let show_exit =
                                             self.settings_tab == "provider" && !provider_dirty;
+                                        let default_key_present = self
+                                            .form
+                                            .api_keys
+                                            .get(&self.form.provider)
+                                            .map(|k| !k.trim().is_empty())
+                                            .unwrap_or(false);
+                                        let save_enabled = if self.settings_tab == "provider" {
+                                            show_exit
+                                                || (default_key_present
+                                                    && self.provider_default_explicitly_selected)
+                                        } else {
+                                            true
+                                        };
                                         let save_label = if show_exit { "Exit" } else { "Save" };
                                         let save_w = ui.available_width() - 16.0;
-                                        let save =
-                                            ui.add_sized(
-                                                [save_w, 24.0],
-                                                egui::Button::new(
-                                                    egui::RichText::new(save_label)
-                                                        .size(15.0)
-                                                        .strong()
-                                                        .color(if show_exit {
-                                                            TEXT_COLOR
-                                                        } else {
-                                                            Color32::BLACK
-                                                        }),
-                                                )
-                                                .fill(if show_exit { BTN_BG } else { accent.base })
-                                                .stroke(Stroke::new(
-                                                    1.0,
-                                                    if show_exit {
-                                                        BTN_BORDER
+                                        let mut save = ui
+                                            .add_enabled_ui(save_enabled, |ui| {
+                                                ui.add_sized(
+                                                    [save_w, 24.0],
+                                                    egui::Button::new(
+                                                        egui::RichText::new(save_label)
+                                                            .size(15.0)
+                                                            .strong()
+                                                            .color(if show_exit {
+                                                                TEXT_COLOR
+                                                            } else {
+                                                                Color32::BLACK
+                                                            }),
+                                                    )
+                                                    .fill(if show_exit {
+                                                        BTN_BG
                                                     } else {
-                                                        accent.ring
-                                                    },
-                                                )),
+                                                        accent.base
+                                                    })
+                                                    .stroke(Stroke::new(
+                                                        1.0,
+                                                        if show_exit {
+                                                            BTN_BORDER
+                                                        } else {
+                                                            accent.ring
+                                                        },
+                                                    )),
+                                                )
+                                            })
+                                            .inner;
+                                        if self.settings_tab == "provider"
+                                            && !show_exit
+                                            && !(default_key_present
+                                                && self.provider_default_explicitly_selected)
+                                        {
+                                            save = save.on_hover_text(
+                                                "Select a default provider after entering an API key",
                                             );
+                                        }
                                         if save.clicked() {
                                             if show_exit {
                                                 self.persist_accent_if_changed();
@@ -1344,12 +1361,6 @@ impl MangoChatApp {
                                                 self.apply_window_mode(ctx, false);
                                                 return;
                                             }
-                                            let default_key_present = self
-                                                .form
-                                                .api_keys
-                                                .get(&self.form.provider)
-                                                .map(|k| !k.trim().is_empty())
-                                                .unwrap_or(false);
                                             if self.settings_tab == "provider"
                                                 && !default_key_present
                                             {

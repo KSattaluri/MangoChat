@@ -130,12 +130,6 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         UpdateUiState::Checking => {
                             format!("{} (checking\u{2026})", env!("CARGO_PKG_VERSION"))
                         }
-                        UpdateUiState::Installing => {
-                            format!("{} (installing\u{2026})", env!("CARGO_PKG_VERSION"))
-                        }
-                        UpdateUiState::InstallLaunched { path } => {
-                            format!("{} (launched {})", env!("CARGO_PKG_VERSION"), path)
-                        }
                         UpdateUiState::Error(e) => {
                             format!("{} (error: {})", env!("CARGO_PKG_VERSION"), e)
                         }
