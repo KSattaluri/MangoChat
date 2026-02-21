@@ -125,6 +125,13 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
+      - name: Create stable latest installer filename
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist\MangoChat-Setup-*.exe -File | Select-Object -First 1
+          if (-not $installer) { throw "Installer not found in dist/" }
+          Copy-Item $installer.FullName dist\MangoChat-Setup-Latest.exe -Force
+
       - name: Generate checksums
         shell: pwsh
         run: |
