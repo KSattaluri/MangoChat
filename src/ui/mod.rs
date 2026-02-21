@@ -1369,6 +1369,9 @@ impl MangoChatApp {
                                                     "error",
                                                 );
                                             } else {
+                                                let was_recording = self.is_recording;
+                                                let mic_device_changed =
+                                                    self.settings.mic_device != self.form.mic;
                                                 self.form.apply_to_settings(&mut self.settings);
                                                 self.selected_mic_unavailable =
                                                     self.selected_mic_unavailable_now();
@@ -1445,12 +1448,14 @@ impl MangoChatApp {
                                                             self.settings.screenshot_hotkey_enabled,
                                                             Ordering::SeqCst,
                                                         );
+                                                        if was_recording
+                                                            && (self.settings_tab == "provider"
+                                                                || mic_device_changed)
+                                                        {
+                                                            self.stop_recording();
+                                                            self.start_recording();
+                                                        }
                                                         if self.settings_tab == "provider" {
-                                                            let was_recording = self.is_recording;
-                                                            if was_recording {
-                                                                self.stop_recording();
-                                                                self.start_recording();
-                                                            }
                                                             self.compact_anchor_pos = None;
                                                             self.set_status("Saved", "idle");
                                                             self.settings_open = false;
