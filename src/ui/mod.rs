@@ -1,21 +1,21 @@
-pub mod theme;
-pub mod formatting;
-pub mod window;
-pub mod tray;
-pub mod widgets;
 pub mod form_state;
+pub mod formatting;
 pub mod snip_overlay;
 pub mod tabs;
+pub mod theme;
+pub mod tray;
+pub mod widgets;
+pub mod window;
 
 use crate::audio;
 use crate::settings::Settings;
-use crate::usage::{append_usage_line, session_usage_path};
 use crate::state::{AppEvent, AppState, SessionUsage};
 use crate::updater::{self, CheckOutcome, ReleaseInfo, WorkerMessage};
+use crate::usage::{append_usage_line, session_usage_path};
 use eframe::egui;
 use egui::{
-    pos2, vec2, Color32, Pos2, Rect, Sense, Stroke, TextureHandle,
-    ViewportBuilder, ViewportCommand, ViewportId,
+    pos2, vec2, Color32, Pos2, Rect, Sense, Stroke, TextureHandle, ViewportBuilder,
+    ViewportCommand, ViewportId,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
@@ -23,12 +23,12 @@ use std::sync::mpsc::{self, Receiver as EventReceiver, Sender as EventSender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use theme::*;
-use formatting::*;
-use window::*;
-use widgets::*;
-use tray::*;
 use form_state::FormState;
+use formatting::*;
+use theme::*;
+use tray::*;
+use widgets::*;
+use window::*;
 
 #[derive(Debug, Clone)]
 pub enum UpdateUiState {
@@ -234,7 +234,10 @@ impl MangoChatApp {
     ) -> Self {
         if let Ok(removed) = updater::cleanup_stale_temp_installers(7) {
             if removed > 0 {
-                app_log!("[updater] cleaned up {} stale installer(s) from temp", removed);
+                app_log!(
+                    "[updater] cleaned up {} stale installer(s) from temp",
+                    removed
+                );
             }
         }
 
@@ -484,6 +487,10 @@ impl MangoChatApp {
         if self.is_recording {
             return;
         }
+        if !self.settings.has_any_api_key() {
+            self.set_status("Set up provider keys in Settings", "idle");
+            return;
+        }
         let unavailable_now = self.selected_mic_unavailable_now();
         self.selected_mic_unavailable = unavailable_now;
         if unavailable_now {
@@ -511,7 +518,10 @@ impl MangoChatApp {
         }
 
         let provider = crate::provider::create_provider(&self.settings.provider);
-        let current_key = self.settings.api_key_for(&self.settings.provider).to_string();
+        let current_key = self
+            .settings
+            .api_key_for(&self.settings.provider)
+            .to_string();
         let provider_settings = crate::provider::ProviderSettings {
             api_key: current_key.clone(),
             model: self.settings.model.clone(),
@@ -606,9 +616,7 @@ impl MangoChatApp {
                 if let Ok(mut tx) = state_clone.audio_tx.lock() {
                     *tx = None;
                 }
-                state_clone
-                    .hotkey_recording
-                    .store(false, Ordering::SeqCst);
+                state_clone.hotkey_recording.store(false, Ordering::SeqCst);
             }
         });
 
@@ -666,10 +674,7 @@ impl MangoChatApp {
                 AppEvent::SessionInactivityTimeout { seconds } => {
                     if self.is_recording {
                         self.stop_recording();
-                        self.set_status(
-                            &format!("Stopped after {}s inactivity", seconds),
-                            "idle",
-                        );
+                        self.set_status(&format!("Stopped after {}s inactivity", seconds), "idle");
                     }
                 }
                 AppEvent::SessionMaxDurationReached { token, minutes } => {
@@ -715,9 +720,7 @@ impl MangoChatApp {
                             self.update_state = UpdateUiState::UpToDate;
                         }
                         Ok(CheckOutcome::UpdateAvailable { latest }) => {
-                            self.update_state = UpdateUiState::Available {
-                                latest,
-                            };
+                            self.update_state = UpdateUiState::Available { latest };
                         }
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());
@@ -727,24 +730,18 @@ impl MangoChatApp {
                 WorkerMessage::InstallFinished(result) => {
                     self.update_install_inflight = false;
                     match result {
-                        Ok(path) => {
-                            match updater::schedule_silent_install_and_relaunch(&path) {
-                                Ok(()) => {
-                                    self.update_state = UpdateUiState::InstallLaunched {
-                                        path: path.clone(),
-                                    };
-                                    self.set_status(
-                                        "Installing update and restarting...",
-                                        "idle",
-                                    );
-                                    self.should_quit = true;
-                                }
-                                Err(e) => {
-                                    self.update_state = UpdateUiState::Error(e.clone());
-                                    self.set_status(&e, "error");
-                                }
+                        Ok(path) => match updater::schedule_silent_install_and_relaunch(&path) {
+                            Ok(()) => {
+                                self.update_state =
+                                    UpdateUiState::InstallLaunched { path: path.clone() };
+                                self.set_status("Installing update and restarting...", "idle");
+                                self.should_quit = true;
                             }
-                        }
+                            Err(e) => {
+                                self.update_state = UpdateUiState::Error(e.clone());
+                                self.set_status(&e, "error");
+                            }
+                        },
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());
                             self.set_status(&e, "error");
@@ -790,8 +787,7 @@ impl MangoChatApp {
             text.to_string()
         };
 
-        let pos =
-            tooltip_pos.unwrap_or(pos2(response.rect.center().x, response.rect.min.y - 6.0));
+        let pos = tooltip_pos.unwrap_or(pos2(response.rect.center().x, response.rect.min.y - 6.0));
         egui::Area::new(egui::Id::new(format!("control_tooltip_{key}")))
             .order(egui::Order::Foreground)
             .interactable(false)
@@ -851,12 +847,8 @@ impl MangoChatApp {
             .show(ctx, |ui| {
                 if compact_bg {
                     let bg_rect = ui.max_rect().expand2(vec2(12.0, 8.0));
-                    ui.painter().rect(
-                        bg_rect,
-                        12.0,
-                        p.settings_bg,
-                        Stroke::new(1.0, p.btn_border),
-                    );
+                    ui.painter()
+                        .rect(bg_rect, 12.0, p.settings_bg, Stroke::new(1.0, p.btn_border));
                 }
 
                 // --- Audio device label (compact mode only) ---
@@ -866,6 +858,7 @@ impl MangoChatApp {
                     let text_color;
                     let display_text;
                     let use_sparkle_icon;
+                    let missing_provider_keys = !self.settings.has_any_api_key();
                     let update_available =
                         matches!(self.update_state, UpdateUiState::Available { .. });
                     let trim_for_row = |text: String| -> String {
@@ -895,9 +888,7 @@ impl MangoChatApp {
                         );
                         let mut messages = vec![msg_device, msg_provider];
                         if update_available {
-                            messages.push(
-                                "Newer version available (see Settings)".to_string(),
-                            );
+                            messages.push("Newer version available (see Settings)".to_string());
                         }
 
                         let now = ctx.input(|i| i.time);
@@ -908,9 +899,8 @@ impl MangoChatApp {
 
                         // State: (msg_start_time, current_message_index)
                         let state_id = egui::Id::new("compact_status_state");
-                        let (msg_start, msg_idx): (f64, usize) = ui
-                            .data(|d| d.get_temp(state_id))
-                            .unwrap_or((now, 0));
+                        let (msg_start, msg_idx): (f64, usize) =
+                            ui.data(|d| d.get_temp(state_id)).unwrap_or((now, 0));
 
                         let full_msg = &messages[msg_idx % messages.len()];
                         use_sparkle_icon = full_msg.starts_with("Provider:")
@@ -949,11 +939,14 @@ impl MangoChatApp {
                     } else {
                         mic_color = TEXT_COLOR;
                         text_color = TEXT_MUTED;
-                        if update_available {
-                            let messages = [
-                                "Not listening".to_string(),
-                                "Newer version available (see Settings)".to_string(),
-                            ];
+                        if update_available || missing_provider_keys {
+                            let mut messages = vec!["Not listening".to_string()];
+                            if missing_provider_keys {
+                                messages.push("Set up provider keys in Settings".to_string());
+                            }
+                            if update_available {
+                                messages.push("Newer version available (see Settings)".to_string());
+                            }
                             let now = ctx.input(|i| i.time);
                             let chars_per_sec = 30.0;
                             let total_display = 8.0;
@@ -963,8 +956,8 @@ impl MangoChatApp {
                             let (msg_start, msg_idx): (f64, usize) =
                                 ui.data(|d| d.get_temp(state_id)).unwrap_or((now, 0));
                             let full_msg = &messages[msg_idx % messages.len()];
-                            use_sparkle_icon =
-                                full_msg == "Newer version available (see Settings)";
+                            use_sparkle_icon = full_msg == "Set up provider keys in Settings"
+                                || full_msg == "Newer version available (see Settings)";
                             let char_count = full_msg.chars().count();
                             let type_duration = char_count as f64 / chars_per_sec;
                             let hold_end = total_display - dot_duration;
@@ -1010,10 +1003,8 @@ impl MangoChatApp {
                             ui.spacing_mut().item_spacing.x = 0.0;
                             let (icon_rect, _) =
                                 ui.allocate_exact_size(vec2(icon_alloc, 16.0), Sense::hover());
-                            let icon_center = pos2(
-                                icon_rect.min.x + icon_s * 0.5,
-                                icon_rect.center().y,
-                            );
+                            let icon_center =
+                                pos2(icon_rect.min.x + icon_s * 0.5, icon_rect.center().y);
                             if use_sparkle_icon {
                                 draw_sparkle_status_icon(
                                     ui.painter(),
@@ -1056,7 +1047,13 @@ impl MangoChatApp {
                             ui.add_space(16.0);
                         }
 
-                        let record_resp = record_toggle(ui, self.is_recording, accent);
+                        let can_start_recording =
+                            self.is_recording || self.settings.has_any_api_key();
+                        let record_resp = ui
+                            .add_enabled_ui(can_start_recording, |ui| {
+                                record_toggle(ui, self.is_recording, accent)
+                            })
+                            .inner;
                         if record_resp.clicked() {
                             if self.is_recording {
                                 self.stop_recording();
@@ -1069,12 +1066,7 @@ impl MangoChatApp {
                         let right_controls_w = settings_w + right_edge_pad;
                         let min_viz_w = 56.0;
                         let viz_w = (ui.available_width() - right_controls_w).max(min_viz_w);
-                        let fft = self
-                            .state
-                            .fft_data
-                            .lock()
-                            .map(|d| *d)
-                            .unwrap_or([0.0; 50]);
+                        let fft = self.state.fft_data.lock().map(|d| *d).unwrap_or([0.0; 50]);
                         let t = ctx.input(|i| i.time) as f32;
                         let (viz_rect, _) =
                             ui.allocate_exact_size(vec2(viz_w, 20.0), Sense::hover());
@@ -1097,8 +1089,7 @@ impl MangoChatApp {
                         );
                         if self.selected_mic_unavailable {
                             let icon_size = vec2(20.0, 22.0);
-                            let icon_rect =
-                                Rect::from_center_size(viz_rect.center(), icon_size);
+                            let icon_rect = Rect::from_center_size(viz_rect.center(), icon_size);
                             let mic_resp = mic_unavailable_badge(ui, icon_rect);
                             self.paint_control_tooltip(
                                 ctx,
@@ -1117,8 +1108,7 @@ impl MangoChatApp {
                                 self.apply_window_mode(ctx, false);
                             }
                         } else {
-                            let settings_resp =
-                                settings_toggle(ui, self.is_recording, accent);
+                            let settings_resp = settings_toggle(ui, self.is_recording, accent);
                             self.paint_control_tooltip(
                                 ctx,
                                 &settings_resp,
@@ -1130,8 +1120,7 @@ impl MangoChatApp {
                             if settings_resp.clicked() {
                                 self.settings_open = true;
                                 self.sync_form_from_settings();
-                                self.session_history =
-                                    crate::usage::load_recent_sessions(5);
+                                self.session_history = crate::usage::load_recent_sessions(5);
                                 self.apply_window_mode(ctx, true);
                             }
                         }
@@ -1147,8 +1136,7 @@ impl MangoChatApp {
                         let btns_w = 3.0 * 28.0 + 2.0 * 14.0;
                         let pad = ((ui.available_width() - btns_w) * 0.5).max(0.0);
                         ui.add_space(pad);
-                        let p_resp =
-                            preset_icon_button(ui, "path", !self.snip_copy_image, accent);
+                        let p_resp = preset_icon_button(ui, "path", !self.snip_copy_image, accent);
                         self.paint_control_tooltip(
                             ctx,
                             &p_resp,
@@ -1240,7 +1228,11 @@ impl MangoChatApp {
                                         ] {
                                             let active = self.settings_tab == id;
                                             if widgets::tab_button(
-                                                ui, id, label, active, accent,
+                                                ui,
+                                                id,
+                                                label,
+                                                active,
+                                                accent,
                                                 nav_w - 8.0,
                                             )
                                             .clicked()
@@ -1254,9 +1246,7 @@ impl MangoChatApp {
                                 ui.separator();
                                 ui.add_space(8.0);
                                 ui.vertical(|ui| {
-                                    if self.settings_tab == "usage"
-                                        && prev_tab != "usage"
-                                    {
+                                    if self.settings_tab == "usage" && prev_tab != "usage" {
                                         self.session_history =
                                             crate::usage::load_recent_sessions(5);
                                     }
@@ -1273,51 +1263,35 @@ impl MangoChatApp {
                                             | "appearance"
                                             | "about"
                                     );
-                                    let save_reserve =
-                                        if has_save { 38.0 } else { 0.0 };
+                                    let save_reserve = if has_save { 38.0 } else { 0.0 };
                                     let content_size = vec2(
                                         ui.available_width(),
-                                        (ui.available_height() - save_reserve)
-                                            .max(200.0),
+                                        (ui.available_height() - save_reserve).max(200.0),
                                     );
 
                                     // ── Tab content ──
                                     ui.allocate_ui(content_size, |ui| {
                                         match self.settings_tab.as_str() {
                                             "provider" => {
-                                                tabs::provider::render(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::provider::render(self, ui, ctx);
                                             }
                                             "dictation" => {
-                                                tabs::dictation::render(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::dictation::render(self, ui, ctx);
                                             }
                                             "commands" => {
-                                                tabs::commands::render(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::commands::render(self, ui, ctx);
                                             }
                                             "appearance" => {
-                                                tabs::appearance::render(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::appearance::render(self, ui, ctx);
                                             }
                                             "usage" => {
-                                                tabs::usage::render(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::usage::render(self, ui, ctx);
                                             }
                                             "about" => {
-                                                tabs::about::render_about(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::about::render_about(self, ui, ctx);
                                             }
                                             "faq" => {
-                                                tabs::about::render_faq(
-                                                    self, ui, ctx,
-                                                );
+                                                tabs::about::render_faq(self, ui, ctx);
                                             }
                                             _ => {}
                                         }
@@ -1334,41 +1308,35 @@ impl MangoChatApp {
                                             | "about"
                                     ) {
                                         ui.add_space(6.0);
-                                        let provider_dirty = self.settings_tab
-                                            == "provider"
+                                        let provider_dirty = self.settings_tab == "provider"
                                             && self.provider_form_dirty();
-                                        let show_exit = self.settings_tab
-                                            == "provider"
-                                            && !provider_dirty;
-                                        let save_label =
-                                            if show_exit { "Exit" } else { "Save" };
+                                        let show_exit =
+                                            self.settings_tab == "provider" && !provider_dirty;
+                                        let save_label = if show_exit { "Exit" } else { "Save" };
                                         let save_w = ui.available_width() - 16.0;
-                                        let save = ui.add_sized(
-                                            [save_w, 24.0],
-                                            egui::Button::new(
-                                                egui::RichText::new(save_label)
-                                                    .size(15.0)
-                                                    .strong()
-                                                    .color(if show_exit {
-                                                        TEXT_COLOR
+                                        let save =
+                                            ui.add_sized(
+                                                [save_w, 24.0],
+                                                egui::Button::new(
+                                                    egui::RichText::new(save_label)
+                                                        .size(15.0)
+                                                        .strong()
+                                                        .color(if show_exit {
+                                                            TEXT_COLOR
+                                                        } else {
+                                                            Color32::BLACK
+                                                        }),
+                                                )
+                                                .fill(if show_exit { BTN_BG } else { accent.base })
+                                                .stroke(Stroke::new(
+                                                    1.0,
+                                                    if show_exit {
+                                                        BTN_BORDER
                                                     } else {
-                                                        Color32::BLACK
-                                                    }),
-                                            )
-                                            .fill(if show_exit {
-                                                BTN_BG
-                                            } else {
-                                                accent.base
-                                            })
-                                            .stroke(Stroke::new(
-                                                1.0,
-                                                if show_exit {
-                                                    BTN_BORDER
-                                                } else {
-                                                    accent.ring
-                                                },
-                                            )),
-                                        );
+                                                        accent.ring
+                                                    },
+                                                )),
+                                            );
                                         if save.clicked() {
                                             if show_exit {
                                                 self.persist_accent_if_changed();
@@ -1390,13 +1358,10 @@ impl MangoChatApp {
                                                     "error",
                                                 );
                                             } else {
-                                                self.form
-                                                    .apply_to_settings(&mut self.settings);
+                                                self.form.apply_to_settings(&mut self.settings);
                                                 self.selected_mic_unavailable =
                                                     self.selected_mic_unavailable_now();
-                                                match crate::settings::save(
-                                                    &self.settings,
-                                                ) {
+                                                match crate::settings::save(&self.settings) {
                                                     Ok(()) => {
                                                         if let Ok(mut p) =
                                                             self.state.chrome_path.lock()
@@ -1408,15 +1373,10 @@ impl MangoChatApp {
                                                         if let Ok(mut p) =
                                                             self.state.paint_path.lock()
                                                         {
-                                                            *p = self
-                                                                .settings
-                                                                .paint_path
-                                                                .clone();
+                                                            *p = self.settings.paint_path.clone();
                                                         }
-                                                        if let Ok(mut v) = self
-                                                            .state
-                                                            .url_commands
-                                                            .lock()
+                                                        if let Ok(mut v) =
+                                                            self.state.url_commands.lock()
                                                         {
                                                             *v = self
                                                                 .settings
@@ -1430,10 +1390,8 @@ impl MangoChatApp {
                                                                 })
                                                                 .collect();
                                                         }
-                                                        if let Ok(mut v) = self
-                                                            .state
-                                                            .alias_commands
-                                                            .lock()
+                                                        if let Ok(mut v) =
+                                                            self.state.alias_commands.lock()
                                                         {
                                                             *v = self
                                                                 .settings
@@ -1442,16 +1400,13 @@ impl MangoChatApp {
                                                                 .map(|c| {
                                                                     (
                                                                         c.trigger.clone(),
-                                                                        c.replacement
-                                                                            .clone(),
+                                                                        c.replacement.clone(),
                                                                     )
                                                                 })
                                                                 .collect();
                                                         }
-                                                        if let Ok(mut v) = self
-                                                            .state
-                                                            .app_shortcuts
-                                                            .lock()
+                                                        if let Ok(mut v) =
+                                                            self.state.app_shortcuts.lock()
                                                         {
                                                             *v = self
                                                                 .settings
@@ -1465,59 +1420,36 @@ impl MangoChatApp {
                                                                 })
                                                                 .collect();
                                                         }
-                                                        self._tray_icon = setup_tray(
-                                                            self.current_accent(),
+                                                        self._tray_icon =
+                                                            setup_tray(self.current_accent());
+                                                        self.state.session_hotkey_enabled.store(
+                                                            self.settings.session_hotkey_enabled,
+                                                            Ordering::SeqCst,
                                                         );
-                                                        self.state
-                                                            .session_hotkey_enabled
-                                                            .store(
-                                                                self.settings
-                                                                    .session_hotkey_enabled,
-                                                                Ordering::SeqCst,
-                                                            );
-                                                        self.state
-                                                            .screenshot_enabled
-                                                            .store(
-                                                                self.settings
-                                                                    .screenshot_enabled,
-                                                                Ordering::SeqCst,
-                                                            );
-                                                        self.state
-                                                            .screenshot_hotkey_enabled
-                                                            .store(
-                                                                self.settings
-                                                                    .screenshot_hotkey_enabled,
-                                                                Ordering::SeqCst,
-                                                            );
-                                                        if self.settings_tab
-                                                            == "provider"
-                                                        {
-                                                            let was_recording =
-                                                                self.is_recording;
+                                                        self.state.screenshot_enabled.store(
+                                                            self.settings.screenshot_enabled,
+                                                            Ordering::SeqCst,
+                                                        );
+                                                        self.state.screenshot_hotkey_enabled.store(
+                                                            self.settings.screenshot_hotkey_enabled,
+                                                            Ordering::SeqCst,
+                                                        );
+                                                        if self.settings_tab == "provider" {
+                                                            let was_recording = self.is_recording;
                                                             if was_recording {
                                                                 self.stop_recording();
                                                                 self.start_recording();
                                                             }
-                                                            self.compact_anchor_pos =
-                                                                None;
-                                                            self.set_status(
-                                                                "Saved", "idle",
-                                                            );
+                                                            self.compact_anchor_pos = None;
+                                                            self.set_status("Saved", "idle");
                                                             self.settings_open = false;
-                                                            self.apply_window_mode(
-                                                                ctx, false,
-                                                            );
+                                                            self.apply_window_mode(ctx, false);
                                                         } else {
                                                             self.apply_appearance(ctx);
-                                                            self.compact_anchor_pos =
-                                                                None;
-                                                            self.set_status(
-                                                                "Saved", "idle",
-                                                            );
+                                                            self.compact_anchor_pos = None;
+                                                            self.set_status("Saved", "idle");
                                                             self.settings_open = false;
-                                                            self.apply_window_mode(
-                                                                ctx, false,
-                                                            );
+                                                            self.apply_window_mode(ctx, false);
                                                         }
                                                     }
                                                     Err(e) => self.set_status(
@@ -1610,11 +1542,7 @@ impl eframe::App for MangoChatApp {
             }
         }
         // Compact mode should never maximize/snap-maximize.
-        if !self.settings_open
-            && ctx
-                .input(|i| i.viewport().maximized)
-                .unwrap_or(false)
-        {
+        if !self.settings_open && ctx.input(|i| i.viewport().maximized).unwrap_or(false) {
             ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
             self.apply_window_mode(ctx, false);
         }
@@ -1633,9 +1561,7 @@ impl eframe::App for MangoChatApp {
                     &self.settings.window_monitor_mode,
                     &self.settings.window_monitor_id,
                 );
-                if (clamped.x - outer.min.x).abs() > 0.5
-                    || (clamped.y - outer.min.y).abs() > 0.5
-                {
+                if (clamped.x - outer.min.x).abs() > 0.5 || (clamped.y - outer.min.y).abs() > 0.5 {
                     ctx.send_viewport_cmd(ViewportCommand::OuterPosition(clamped));
                     self.compact_anchor_pos = Some(clamped);
                 }
@@ -1712,4 +1638,3 @@ impl eframe::App for MangoChatApp {
         }
     }
 }
-

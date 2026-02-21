@@ -98,7 +98,15 @@ pub struct AppShortcut {
 impl Settings {
     /// Get the API key for a given provider.
     pub fn api_key_for(&self, provider: &str) -> &str {
-        self.api_keys.get(provider).map(|s| s.as_str()).unwrap_or("")
+        self.api_keys
+            .get(provider)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    /// True when at least one provider key is configured.
+    pub fn has_any_api_key(&self) -> bool {
+        self.api_keys.values().any(|k| !k.trim().is_empty())
     }
 
     /// Return the browser executable path based on the selected default browser.
@@ -258,9 +266,21 @@ fn default_max_session_length_minutes() -> u64 {
 }
 fn default_url_commands() -> Vec<UrlCommand> {
     vec![
-        UrlCommand { trigger: "github".into(), url: "https://github.com".into(), builtin: true },
-        UrlCommand { trigger: "youtube".into(), url: "https://youtube.com".into(), builtin: true },
-        UrlCommand { trigger: "explorer".into(), url: default_explorer_path(), builtin: true },
+        UrlCommand {
+            trigger: "github".into(),
+            url: "https://github.com".into(),
+            builtin: true,
+        },
+        UrlCommand {
+            trigger: "youtube".into(),
+            url: "https://youtube.com".into(),
+            builtin: true,
+        },
+        UrlCommand {
+            trigger: "explorer".into(),
+            url: default_explorer_path(),
+            builtin: true,
+        },
     ]
 }
 fn default_alias_commands() -> Vec<AliasCommand> {
@@ -480,8 +500,7 @@ pub fn save(settings: &Settings) -> Result<(), String> {
 fn save_settings_without_api_keys(settings: &Settings) -> Result<(), String> {
     let path = settings_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create settings dir: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create settings dir: {}", e))?;
     }
     let mut clean = settings.clone();
     clean.api_keys.clear();
@@ -491,4 +510,3 @@ fn save_settings_without_api_keys(settings: &Settings) -> Result<(), String> {
     fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
     Ok(())
 }
-
