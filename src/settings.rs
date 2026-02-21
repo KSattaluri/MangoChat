@@ -133,7 +133,7 @@ impl Settings {
     /// Provider/API-key-related fields are intentionally left to the caller.
     pub fn non_provider_reset_defaults() -> Self {
         let mut s = Self::default();
-        s.session_hotkey_enabled = false;
+        s.session_hotkey_enabled = true;
         s.screenshot_enabled = true;
         s.screenshot_hotkey_enabled = true;
         s.compact_background_enabled = true;
@@ -170,14 +170,14 @@ impl Default for Settings {
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
             session_hotkey_enabled: true,
-            screenshot_enabled: false,
+            screenshot_enabled: true,
             screenshot_hotkey_enabled: true,
             screenshot_retention_count: default_screenshot_retention_count(),
             start_cue: default_start_cue(),
             theme: default_theme(),
             text_size: default_text_size(),
             accent_color: default_accent_color(),
-            compact_background_enabled: false,
+            compact_background_enabled: true,
             auto_minimize: false,
             update_feed_url_override: String::new(),
             window_monitor_mode: default_window_monitor_mode(),
@@ -229,7 +229,7 @@ fn default_text_size() -> String {
     "medium".into()
 }
 fn default_accent_color() -> String {
-    "green".into()
+    "orange".into()
 }
 fn default_window_monitor_mode() -> String {
     "fixed".into()

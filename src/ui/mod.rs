@@ -1459,6 +1459,16 @@ impl MangoChatApp {
                                                 }
                                             }
                                         }
+                                        if self.settings_tab == "provider" {
+                                            ui.add_space(6.0);
+                                            ui.label(
+                                                egui::RichText::new(
+                                                    "Sign up for free credits at Deepgram ($200) and AssemblyAI ($50).",
+                                                )
+                                                .size(11.0)
+                                                .color(TEXT_MUTED),
+                                            );
+                                        }
                                     }
                                 });
                             });

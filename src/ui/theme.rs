@@ -10,9 +10,9 @@ pub const RED: Color32 = Color32::from_rgb(0xef, 0x44, 0x44);
 
 pub const PROVIDER_ROWS: &[(&str, &str)] = &[
     ("deepgram", "Deepgram"),
+    ("assemblyai", "AssemblyAI"),
     ("openai", "OpenAI Realtime"),
     ("elevenlabs", "ElevenLabs Realtime"),
-    ("assemblyai", "AssemblyAI"),
 ];
 
 #[derive(Clone, Copy)]

@@ -15,6 +15,16 @@ fn provider_model_label(app: &MangoChatApp, provider_id: &str) -> String {
     }
 }
 
+fn provider_dashboard_url(provider_id: &str) -> &'static str {
+    match provider_id {
+        "deepgram" => "https://console.deepgram.com/",
+        "assemblyai" => "https://www.assemblyai.com/dashboard/playground",
+        "openai" => "https://platform.openai.com/chat",
+        "elevenlabs" => "https://elevenlabs.io/app/developers",
+        _ => "https://mangochat.org",
+    }
+}
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let p = theme_palette(true);
     let accent = app.current_accent();
@@ -39,7 +49,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 .color(current_provider_color),
         );
     });
-    ui.add_space(8.0);
+    ui.add_space(6.0);
 
     // Subtract frame overhead so rows have even left/right margins.
     let frame_overhead = 34.0;
@@ -48,8 +58,13 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let validate_w = 92.0;
     let default_w = 72.0;
     let row_pad_x = 8.0;
-    let spacing_w = 32.0;
-    let api_w = (total_w - provider_w - validate_w - default_w - row_pad_x * 2.0 - spacing_w)
+    let col_gap = 10.0;
+    let api_w = (total_w
+        - provider_w
+        - validate_w
+        - default_w
+        - row_pad_x * 2.0
+        - col_gap * 3.0)
         .max(160.0);
 
     ui.horizontal(|ui| {
@@ -64,6 +79,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     .color(p.text_muted),
             ),
         );
+        ui.add_space(col_gap);
         ui.add_sized(
             [provider_w, 20.0],
             egui::Label::new(
@@ -73,6 +89,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     .color(p.text_muted),
             ),
         );
+        ui.add_space(col_gap);
         ui.add_sized(
             [api_w, 20.0],
             egui::Label::new(
@@ -82,6 +99,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     .color(p.text_muted),
             ),
         );
+        ui.add_space(col_gap);
         ui.add_sized(
             [validate_w, 20.0],
             egui::Label::new(
@@ -104,6 +122,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             .show(ui, |ui| {
                 ui.set_width(total_w.max(0.0));
                 ui.horizontal(|ui| {
+                    ui.add_space(row_pad_x);
                     let model_label = provider_model_label(app, &provider_id);
                     let key_value = app
                         .form
@@ -131,34 +150,49 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     if default_resp.clicked() && can_default {
                         app.form.provider = provider_id.clone();
                     }
+                    ui.add_space(col_gap);
 
                     let provider_color = MangoChatApp::provider_color(&provider_id, p);
                     ui.allocate_ui_with_layout(
                         vec2(provider_w, 40.0),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
-                            ui.add_sized(
-                                [provider_w, 18.0],
-                                egui::Label::new(
-                                    egui::RichText::new(*provider_name)
-                                        .size(13.0)
-                                        .strong()
-                                        .color(provider_color),
-                                )
-                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            ui.allocate_ui_with_layout(
+                                vec2(provider_w, 18.0),
+                                egui::Layout::left_to_right(egui::Align::Min),
+                                |ui| {
+                                    let name_resp = ui.add_sized(
+                                        [provider_w, 18.0],
+                                        egui::Hyperlink::from_label_and_url(
+                                            egui::RichText::new(*provider_name)
+                                                .size(13.0)
+                                                .strong()
+                                                .color(provider_color),
+                                            provider_dashboard_url(&provider_id),
+                                        ),
+                                    );
+                                    name_resp.on_hover_text("Open provider dashboard");
+                                },
                             );
                             ui.add_space(2.0);
-                            ui.add_sized(
-                                [provider_w, 16.0],
-                                egui::Label::new(
-                                    egui::RichText::new(model_label)
-                                        .size(11.5)
-                                        .color(TEXT_MUTED),
-                                )
-                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            ui.allocate_ui_with_layout(
+                                vec2(provider_w, 16.0),
+                                egui::Layout::left_to_right(egui::Align::Min),
+                                |ui| {
+                                    ui.add_sized(
+                                        [provider_w, 16.0],
+                                        egui::Label::new(
+                                            egui::RichText::new(model_label)
+                                                .size(11.5)
+                                                .color(TEXT_MUTED),
+                                        )
+                                        .wrap_mode(egui::TextWrapMode::Truncate),
+                                    );
+                                },
                             );
                         },
                     );
+                    ui.add_space(col_gap);
 
                     let key_resp = ui
                         .allocate_ui_with_layout(
@@ -211,6 +245,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             app.last_validated_provider = None;
                         }
                     }
+                    ui.add_space(col_gap);
 
                     let key_present = !key_value.trim().is_empty();
                     let inflight = app.key_check_inflight.contains(&provider_id);
@@ -310,7 +345,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     });
                 });
             });
-        ui.add_space(6.0);
+        ui.add_space(3.0);
     }
 
     if let Some(provider_id) = app.last_validated_provider.as_ref() {
@@ -335,4 +370,5 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         );
     }
 }
+
 
