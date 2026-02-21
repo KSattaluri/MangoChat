@@ -34,6 +34,7 @@ use window::*;
 pub enum UpdateUiState {
     NotChecked,
     Checking,
+    Installing,
     UpToDate,
     Available { latest: ReleaseInfo },
     Error(String),
@@ -331,16 +332,18 @@ impl MangoChatApp {
         );
     }
 
-    pub fn open_update_release_page(&mut self) {
-        if let UpdateUiState::Available { latest } = &self.update_state {
-            if let Err(e) = updater::open_release_page(&latest.html_url) {
-                self.set_status(&e, "error");
-            }
+    pub fn trigger_update_install(&mut self) {
+        if self.update_install_inflight {
             return;
         }
-        if let Err(e) = updater::open_release_page(&updater::default_release_page_url()) {
-            self.set_status(&e, "error");
-        }
+        let latest = match &self.update_state {
+            UpdateUiState::Available { latest } => latest.clone(),
+            _ => return,
+        };
+        self.update_install_inflight = true;
+        self.update_state = UpdateUiState::Installing;
+        self.set_status("Downloading installer...", "idle");
+        updater::spawn_install(self.update_worker_tx.clone(), latest);
     }
 
     pub fn open_logs_folder(&mut self) {
@@ -726,6 +729,27 @@ impl MangoChatApp {
                         }
                         Err(e) => {
                             self.update_state = UpdateUiState::Error(e.clone());
+                        }
+                    }
+                }
+                WorkerMessage::InstallFinished(result) => {
+                    self.update_install_inflight = false;
+                    match result {
+                        Ok(installer_path) => {
+                            match updater::schedule_silent_install_and_relaunch(&installer_path) {
+                                Ok(()) => {
+                                    self.set_status("Installing update...", "idle");
+                                    self.should_quit = true;
+                                }
+                                Err(e) => {
+                                    self.set_status(&e, "error");
+                                    self.trigger_update_check();
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            self.set_status(&format!("Install failed: {}", e), "error");
+                            self.trigger_update_check();
                         }
                     }
                 }

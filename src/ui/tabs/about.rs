@@ -130,6 +130,9 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                         UpdateUiState::Checking => {
                             format!("{} (checking\u{2026})", env!("CARGO_PKG_VERSION"))
                         }
+                        UpdateUiState::Installing => {
+                            format!("{} (installing\u{2026})", env!("CARGO_PKG_VERSION"))
+                        }
                         UpdateUiState::Error(e) => {
                             format!("{} (error: {})", env!("CARGO_PKG_VERSION"), e)
                         }
@@ -172,9 +175,14 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
 
                 let install_enabled = matches!(app.update_state, UpdateUiState::Available { .. })
                     && !app.update_install_inflight;
+                let install_text = if app.update_install_inflight {
+                    "Installing..."
+                } else {
+                    "Download & Install"
+                };
                 let install_btn = if install_enabled {
                     egui::Button::new(
-                        egui::RichText::new("Download & Install")
+                        egui::RichText::new(install_text)
                             .size(11.0)
                             .color(egui::Color32::BLACK),
                     )
@@ -182,7 +190,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .stroke(egui::Stroke::new(1.0, accent.ring))
                 } else {
                     egui::Button::new(
-                        egui::RichText::new("Download & Install")
+                        egui::RichText::new(install_text)
                             .size(11.0)
                             .color(TEXT_COLOR),
                     )
@@ -191,7 +199,7 @@ pub fn render_about(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Cont
                     .add_enabled(install_enabled, install_btn)
                     .clicked()
                 {
-                    app.open_update_release_page();
+                    app.trigger_update_install();
                 }
             });
 

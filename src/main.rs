@@ -30,6 +30,14 @@ fn main() {
     diagnostics::install_panic_hook();
     env_logger::init();
 
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|a| a == "--apply-update") {
+        if let Err(e) = updater::run_update_helper_from_args(&args[2..]) {
+            app_err!("[updater] helper failed: {}", e);
+        }
+        return;
+    }
+
     let _single_instance_guard = match single_instance::acquire("MangoChat.App.Singleton") {
         Some(g) => g,
         None => {

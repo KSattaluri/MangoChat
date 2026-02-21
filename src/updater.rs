@@ -1,25 +1,45 @@
 use semver::Version;
 use serde::Deserialize;
-use std::fs;
+use sha2::{Digest, Sha256};
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, SystemTime};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
+use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+
 const REPO_OWNER: &str = "KSattaluri";
 const REPO_NAME: &str = "MangoChat";
-const REPO_RELEASE_PAGE_NAME: &str = "MangoChat";
 const APP_USER_AGENT: &str = "mangochat-updater";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const UPDATE_HELPER_WAIT_TIMEOUT_MS: u32 = 120_000;
+
+#[derive(Debug, Clone)]
+pub struct ReleaseAsset {
+    pub name: String,
+    pub download_url: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct ReleaseInfo {
     pub tag: String,
     pub version: Version,
-    pub html_url: String,
+    pub assets: Vec<ReleaseAsset>,
 }
 
 #[derive(Debug, Clone)]
 pub enum WorkerMessage {
     CheckFinished(Result<CheckOutcome, String>),
+    InstallFinished(Result<String, String>),
 }
 
 #[derive(Debug, Clone)]
@@ -31,14 +51,20 @@ pub enum CheckOutcome {
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
-    html_url: String,
     prerelease: bool,
     draft: bool,
+    #[serde(default)]
+    assets: Vec<GitHubAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubAsset {
+    name: String,
+    browser_download_url: String,
 }
 
 fn current_version() -> Result<Version, String> {
-    Version::parse(env!("CARGO_PKG_VERSION"))
-        .map_err(|e| format!("invalid current version: {e}"))
+    Version::parse(env!("CARGO_PKG_VERSION")).map_err(|e| format!("invalid current version: {e}"))
 }
 
 fn parse_tag_version(tag: &str) -> Option<Version> {
@@ -46,10 +72,7 @@ fn parse_tag_version(tag: &str) -> Option<Version> {
     Version::parse(raw).ok()
 }
 
-pub fn spawn_check_with_override(
-    tx: Sender<WorkerMessage>,
-    feed_url_override: Option<String>,
-) {
+pub fn spawn_check_with_override(tx: Sender<WorkerMessage>, feed_url_override: Option<String>) {
     std::thread::spawn(move || {
         let result = check_for_updates(feed_url_override.as_deref());
         let _ = tx.send(WorkerMessage::CheckFinished(result));
@@ -94,13 +117,6 @@ fn release_feed_url(feed_url_override: Option<&str>) -> String {
     )
 }
 
-pub fn default_release_page_url() -> String {
-    format!(
-        "https://github.com/{}/{}/releases",
-        REPO_OWNER, REPO_RELEASE_PAGE_NAME
-    )
-}
-
 fn check_for_updates(feed_url_override: Option<&str>) -> Result<CheckOutcome, String> {
     let current = current_version()?;
     let url = release_feed_url(feed_url_override);
@@ -134,7 +150,14 @@ fn check_for_updates(feed_url_override: Option<&str>) -> Result<CheckOutcome, St
         let info = ReleaseInfo {
             tag: rel.tag_name,
             version,
-            html_url: rel.html_url,
+            assets: rel
+                .assets
+                .into_iter()
+                .map(|a| ReleaseAsset {
+                    name: a.name,
+                    download_url: a.browser_download_url,
+                })
+                .collect(),
         };
         let replace = best
             .as_ref()
@@ -156,13 +179,205 @@ fn check_for_updates(feed_url_override: Option<&str>) -> Result<CheckOutcome, St
     }
 }
 
-pub fn open_release_page(url: &str) -> Result<(), String> {
-    Command::new("rundll32")
-        .args(["url.dll,FileProtocolHandler", url])
-        .spawn()
-        .map_err(|e| format!("failed to open release url: {e}"))?;
+pub fn spawn_install(tx: Sender<WorkerMessage>, release: ReleaseInfo) {
+    std::thread::spawn(move || {
+        let result = download_installer_for_update(&release);
+        let _ = tx.send(WorkerMessage::InstallFinished(result));
+    });
+}
+
+fn download_installer_for_update(release: &ReleaseInfo) -> Result<String, String> {
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| {
+            let n = a.name.to_ascii_lowercase();
+            n.ends_with(".exe") && n.contains("setup")
+        })
+        .or_else(|| {
+            release
+                .assets
+                .iter()
+                .find(|a| a.name.to_ascii_lowercase().ends_with(".exe"))
+        })
+        .ok_or("no .exe installer asset found on release")?;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|e| format!("http client error: {e}"))?;
+
+    let installer_bytes = client
+        .get(&asset.download_url)
+        .header("User-Agent", APP_USER_AGENT)
+        .send()
+        .map_err(|e| format!("download request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("download failed: {e}"))?
+        .bytes()
+        .map_err(|e| format!("failed reading installer bytes: {e}"))?;
+
+    if let Some(checksums_asset) = release
+        .assets
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case("SHA256SUMS.txt"))
+    {
+        let checksums_text = client
+            .get(&checksums_asset.download_url)
+            .header("User-Agent", APP_USER_AGENT)
+            .send()
+            .map_err(|e| format!("checksums request failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("checksums download failed: {e}"))?
+            .text()
+            .map_err(|e| format!("failed reading SHA256SUMS.txt: {e}"))?;
+        verify_sha256_from_release(&checksums_text, &asset.name, installer_bytes.as_ref())?;
+    } else {
+        app_log!(
+            "[updater] SHA256SUMS.txt not present for release {}; skipping checksum verification",
+            release.tag
+        );
+    }
+
+    let mut path: PathBuf = std::env::temp_dir();
+    path.push(format!("MangoChat-Setup-{}.exe", release.version));
+    let mut file = File::create(&path).map_err(|e| format!("cannot create installer file: {e}"))?;
+    file.write_all(&installer_bytes)
+        .map_err(|e| format!("cannot write installer file: {e}"))?;
+    Ok(path.display().to_string())
+}
+
+pub fn schedule_silent_install_and_relaunch(installer_path: &str) -> Result<(), String> {
+    let current_pid = std::process::id();
+    let app_exe =
+        std::env::current_exe().map_err(|e| format!("failed to resolve current exe: {e}"))?;
+    let mut cmd = Command::new(&app_exe);
+    cmd.arg("--apply-update")
+        .arg("--wait-pid")
+        .arg(current_pid.to_string())
+        .arg("--installer")
+        .arg(installer_path)
+        .arg("--relaunch")
+        .arg(app_exe.to_string_lossy().to_string());
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.spawn()
+        .map_err(|e| format!("failed to launch updater helper: {e}"))?;
     Ok(())
 }
+
+pub fn run_update_helper_from_args(args: &[String]) -> Result<(), String> {
+    let mut wait_pid: Option<u32> = None;
+    let mut installer: Option<String> = None;
+    let mut relaunch: Option<String> = None;
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--wait-pid" => {
+                i += 1;
+                let v = args.get(i).ok_or("missing value for --wait-pid")?;
+                wait_pid = v.parse::<u32>().ok();
+            }
+            "--installer" => {
+                i += 1;
+                installer = args.get(i).cloned();
+            }
+            "--relaunch" => {
+                i += 1;
+                relaunch = args.get(i).cloned();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let installer_path = installer.ok_or("missing --installer")?;
+    let relaunch_path = relaunch.ok_or("missing --relaunch")?;
+
+    if let Some(pid) = wait_pid {
+        wait_for_pid_exit(pid);
+    }
+
+    let status = Command::new(&installer_path)
+        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+        .status()
+        .map_err(|e| format!("failed to run installer: {e}"))?;
+    if !status.success() {
+        return Err(format!("installer exited with status: {}", status));
+    }
+
+    Command::new(&relaunch_path)
+        .spawn()
+        .map_err(|e| format!("failed to relaunch app: {e}"))?;
+    Ok(())
+}
+
+fn parse_sha256sums(text: &str) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let Some(hash) = parts.next() else {
+            continue;
+        };
+        let Some(name) = parts.next() else {
+            continue;
+        };
+        let clean_name = name.trim_start_matches('*').trim_start_matches("./");
+        out.insert(clean_name.to_string(), hash.to_ascii_lowercase());
+    }
+    out
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn verify_sha256_from_release(
+    checksums_text: &str,
+    installer_name: &str,
+    installer_bytes: &[u8],
+) -> Result<(), String> {
+    let checksums = parse_sha256sums(checksums_text);
+    let expected = checksums.get(installer_name).ok_or_else(|| {
+        format!(
+            "SHA256SUMS.txt missing entry for installer '{}'",
+            installer_name
+        )
+    })?;
+    let actual = sha256_hex(installer_bytes);
+    if actual != *expected {
+        return Err(format!(
+            "installer checksum mismatch: expected {}, got {}",
+            expected, actual
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn wait_for_pid_exit(pid: u32) {
+    unsafe {
+        let Ok(handle): Result<HANDLE, _> = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            return;
+        };
+        if handle.is_invalid() {
+            return;
+        }
+        let _ = WaitForSingleObject(handle, UPDATE_HELPER_WAIT_TIMEOUT_MS);
+        let _ = CloseHandle(handle);
+    }
+}
+
+#[cfg(not(windows))]
+fn wait_for_pid_exit(_pid: u32) {}
 
 pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String> {
     let dir = std::env::temp_dir();
@@ -184,8 +399,12 @@ pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String>
         if !meta.is_file() {
             continue;
         }
-        let Ok(modified) = meta.modified() else { continue };
-        let Ok(age) = now.duration_since(modified) else { continue };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
         if age < max_age {
             continue;
         }
