@@ -269,6 +269,7 @@ pub fn schedule_silent_install_and_relaunch(installer_path: &str) -> Result<(), 
 }
 
 pub fn run_update_helper_from_args(args: &[String]) -> Result<(), String> {
+    helper_log("[helper] start");
     let mut wait_pid: Option<u32> = None;
     let mut installer: Option<String> = None;
     let mut relaunch: Option<String> = None;
@@ -294,23 +295,58 @@ pub fn run_update_helper_from_args(args: &[String]) -> Result<(), String> {
     }
     let installer_path = installer.ok_or("missing --installer")?;
     let relaunch_path = relaunch.ok_or("missing --relaunch")?;
+    helper_log(&format!("[helper] installer={}", installer_path));
+    helper_log(&format!("[helper] relaunch={}", relaunch_path));
 
     if let Some(pid) = wait_pid {
+        helper_log(&format!("[helper] waiting for pid={}", pid));
         wait_for_pid_exit(pid);
     }
 
-    let status = Command::new(&installer_path)
+    let silent_status = Command::new(&installer_path)
         .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
         .status()
         .map_err(|e| format!("failed to run installer: {e}"))?;
-    if !status.success() {
-        return Err(format!("installer exited with status: {}", status));
+    if !silent_status.success() {
+        helper_log(&format!(
+            "[helper] silent install failed with status={}, retrying interactive",
+            silent_status
+        ));
+        let interactive_status = Command::new(&installer_path)
+            .status()
+            .map_err(|e| format!("failed to run installer (interactive retry): {e}"))?;
+        if !interactive_status.success() {
+            helper_log(&format!(
+                "[helper] interactive install failed with status={}",
+                interactive_status
+            ));
+            return Err(format!(
+                "installer failed (silent={}, interactive={})",
+                silent_status, interactive_status
+            ));
+        }
     }
 
+    helper_log("[helper] install succeeded, relaunching app");
     Command::new(&relaunch_path)
         .spawn()
         .map_err(|e| format!("failed to relaunch app: {e}"))?;
+    helper_log("[helper] done");
     Ok(())
+}
+
+fn helper_log_path() -> PathBuf {
+    std::env::temp_dir().join("mangochat-updater-helper.log")
+}
+
+fn helper_log(msg: &str) {
+    let path = helper_log_path();
+    let line = format!("{}\r\n", msg);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| f.write_all(line.as_bytes()));
 }
 
 fn parse_sha256sums(text: &str) -> std::collections::HashMap<String, String> {
