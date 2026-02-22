@@ -2907,7 +2907,7 @@ dependencies = [
 
 [[package]]
 name = "mangochat"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "arboard",
  "base64",
