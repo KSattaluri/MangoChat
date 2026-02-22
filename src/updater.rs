@@ -251,7 +251,18 @@ pub fn schedule_silent_install_and_relaunch(installer_path: &str) -> Result<(), 
     let current_pid = std::process::id();
     let app_exe =
         std::env::current_exe().map_err(|e| format!("failed to resolve current exe: {e}"))?;
-    let mut cmd = Command::new(&app_exe);
+    let helper_exe = std::env::temp_dir().join("mangochat-updater-helper.exe");
+    let launcher_exe = match std::fs::copy(&app_exe, &helper_exe) {
+        Ok(_) => helper_exe.clone(),
+        Err(e) => {
+            helper_log(&format!(
+                "[helper-launch] copy to temp failed: {}; using app exe",
+                e
+            ));
+            app_exe.clone()
+        }
+    };
+    let mut cmd = Command::new(&launcher_exe);
     cmd.arg("--apply-update")
         .arg("--wait-pid")
         .arg(current_pid.to_string())
@@ -301,6 +312,7 @@ pub fn run_update_helper_from_args(args: &[String]) -> Result<(), String> {
     if let Some(pid) = wait_pid {
         helper_log(&format!("[helper] waiting for pid={}", pid));
         wait_for_pid_exit(pid);
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     let silent_status = Command::new(&installer_path)
