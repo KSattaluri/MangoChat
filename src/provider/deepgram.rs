@@ -33,7 +33,9 @@ impl SttProvider for DeepgramProvider {
              encoding=linear16&sample_rate={}&channels=1\
              &model=nova-3&language={}\
              &interim_results=true&punctuate=true\
-             &endpointing=300&utterance_end_ms=1000&smart_format=true",
+             &endpointing=300&utterance_end_ms=1000&smart_format=true\
+             &keyterm=codex&keyterm=claude\
+             &keyterm=back&keyterm=select+all&keyterm=enter&keyterm=cut&keyterm=paste",
             sample_rate, settings.language
         );
 

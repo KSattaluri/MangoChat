@@ -1,9 +1,18 @@
-use enigo::{Enigo, Key, Keyboard, Settings};
+use enigo::{Axis, Enigo, Key, Keyboard, Mouse, Settings};
 #[cfg(windows)]
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+use std::path::Path;
+#[cfg(windows)]
+use windows::core::PWSTR;
+#[cfg(windows)]
+use windows::Win32::Foundation::{BOOL, CloseHandle, HWND, LPARAM};
+#[cfg(windows)]
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible,
+    SetForegroundWindow, ShowWindow, SW_RESTORE,
 };
 
 /// Strip punctuation, lowercase, collapse whitespace.
@@ -61,6 +70,10 @@ fn cmd_copy()           { press_ctrl_key(Key::Unicode('c')); }
 fn cmd_paste()          { press_ctrl_key(Key::Unicode('v')); }
 fn cmd_cut()            { press_ctrl_key(Key::Unicode('x')); }
 fn cmd_select_all()     { press_ctrl_key(Key::Unicode('a')); }
+fn cmd_browser_address_bar() { press_ctrl_key(Key::Unicode('l')); }
+fn cmd_browser_back()    { press_alt_key(Key::LeftArrow); }
+fn cmd_browser_scroll_up() { scroll_vertical(-3); }
+fn cmd_browser_scroll_down() { scroll_vertical(3); }
 /// Open a URL in the user's chosen browser.
 /// Tries the explicit path first, then a bare command name derived from the
 /// path (so Firefox falls back to "firefox", Edge to "msedge", Chrome to
@@ -135,6 +148,97 @@ fn focus_or_launch_chrome(chrome_path: &str) {
     {
         let _ = chrome_path;
         app_log!("[typing] chrome command not supported on this OS");
+    }
+}
+
+#[cfg(windows)]
+fn foreground_process_name(hwnd: HWND) -> Option<String> {
+    let mut pid = 0u32;
+    unsafe {
+        let _ = GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32));
+    }
+    if pid == 0 {
+        return None;
+    }
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    let mut buf = vec![0u16; 1024];
+    let mut size = buf.len() as u32;
+    let res = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_FORMAT(0),
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+    };
+    let _ = unsafe { CloseHandle(handle) };
+    if res.is_err() || size == 0 {
+        return None;
+    }
+
+    let full_path = String::from_utf16_lossy(&buf[..size as usize]);
+    Path::new(&full_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.to_ascii_lowercase())
+}
+
+#[cfg(windows)]
+fn is_supported_browser_foreground() -> bool {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return false;
+    }
+
+    let exe = match foreground_process_name(hwnd) {
+        Some(n) => n,
+        None => return false,
+    };
+    exe == "chrome.exe" || exe == "msedge.exe" || exe == "firefox.exe"
+}
+
+#[cfg(not(windows))]
+fn is_supported_browser_foreground() -> bool {
+    false
+}
+
+fn try_handle_browser_navigation_command(phrase: &str) -> bool {
+    if phrase == "back" {
+        if is_supported_browser_foreground() {
+            app_log!("[typing] browser command: back");
+            cmd_browser_back();
+            return true;
+        }
+        return false;
+    }
+
+    if !is_supported_browser_foreground() {
+        return false;
+    }
+
+    match phrase {
+        "address" | "address bar" | "focus address" | "focus address bar" => {
+            app_log!("[typing] browser command: address");
+            cmd_browser_address_bar();
+            true
+        }
+        "scroll up" | "page up" => {
+            app_log!("[typing] browser command: scroll up");
+            cmd_browser_scroll_up();
+            true
+        }
+        "scroll down" | "page down" => {
+            app_log!("[typing] browser command: scroll down");
+            cmd_browser_scroll_down();
+            true
+        }
+        "go back" | "browser back" => {
+            app_log!("[typing] browser command: go back");
+            cmd_browser_back();
+            true
+        }
+        _ => false,
     }
 }
 
@@ -243,6 +347,11 @@ pub fn process_transcript(
             }
             return;
         }
+    }
+
+    // 1b. Browser navigation commands (only when a supported browser is focused).
+    if try_handle_browser_navigation_command(&phrase) {
+        return;
     }
 
     // 2. App-launch commands.
@@ -382,11 +491,26 @@ fn press_ctrl_key_with(enigo: &mut Enigo, key: Key) {
     let _ = enigo.key(Key::Control, enigo::Direction::Release);
 }
 
+/// Press Alt+<key>
+fn press_alt_key(key: Key) {
+    let Some(mut enigo) = make_enigo() else { return };
+    release_modifiers(&mut enigo);
+    let _ = enigo.key(Key::Alt, enigo::Direction::Press);
+    let _ = enigo.key(key, enigo::Direction::Click);
+    let _ = enigo.key(Key::Alt, enigo::Direction::Release);
+}
+
 /// Press a single key
 fn press_key_single(key: Key) {
     let Some(mut enigo) = make_enigo() else { return };
     release_modifiers(&mut enigo);
     let _ = enigo.key(key, enigo::Direction::Click);
+}
+
+fn scroll_vertical(ticks: i32) {
+    let Some(mut enigo) = make_enigo() else { return };
+    release_modifiers(&mut enigo);
+    let _ = enigo.scroll(ticks, Axis::Vertical);
 }
 
 /// Press keys with Shift held (e.g. Shift+Home to select to line start)
