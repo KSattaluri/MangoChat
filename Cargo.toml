@@ -3,6 +3,10 @@ name = "mangochat"
 version = "0.1.20"
 edition = "2021"
 
+[features]
+default = []
+dev-session-capture = ["whisper-rs/log_backend"]
+
 [[bin]]
 name = "mangochat"
 path = "src/main.rs"

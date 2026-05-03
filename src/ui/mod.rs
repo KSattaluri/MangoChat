@@ -268,9 +268,11 @@ impl MangoChatApp {
             std::thread::spawn(move || {
                 while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
                     let id = event.id.0.as_str();
-                    app_log!("[tray-thread] menu event: {}", id);
-                    match id {
+                        app_log!("[tray-thread] menu event: {}", id);
+                        match id {
                         "quit" => {
+                            #[cfg(feature = "dev-session-capture")]
+                            crate::diagnostics::stop_recording_session_log("tray_quit");
                             app_log!("[tray-thread] quit — calling process::exit");
                             std::process::exit(0);
                         }
@@ -635,8 +637,8 @@ impl MangoChatApp {
         if let Ok(mut session) = self.state.session_usage.lock() {
             *session = crate::state::SessionUsage {
                 session_id: now,
-                provider: session_provider,
-                model: session_model,
+                provider: session_provider.clone(),
+                model: session_model.clone(),
                 bytes_sent: 0,
                 ms_sent: 0,
                 ms_suppressed: 0,
@@ -645,6 +647,12 @@ impl MangoChatApp {
                 started_ms: now,
                 updated_ms: now,
             };
+        }
+        #[cfg(feature = "dev-session-capture")]
+        match crate::diagnostics::start_recording_session_log(now, &session_provider, &session_model)
+        {
+            Ok(path) => app_log!("[diagnostics] session log: {}", path.display()),
+            Err(e) => app_err!("[diagnostics] failed to start session log: {}", e),
         }
 
         let event_tx = self.event_tx.clone();
@@ -728,6 +736,8 @@ impl MangoChatApp {
             }
             *session = crate::state::SessionUsage::default();
         }
+        #[cfg(feature = "dev-session-capture")]
+        crate::diagnostics::stop_recording_session_log("stop_recording");
     }
 
     fn process_events(&mut self) {
@@ -1708,6 +1718,8 @@ impl eframe::App for MangoChatApp {
             self.should_quit = true;
         }
         if self.should_quit {
+            #[cfg(feature = "dev-session-capture")]
+            crate::diagnostics::stop_recording_session_log("app_exit");
             std::process::exit(0);
         }
 
