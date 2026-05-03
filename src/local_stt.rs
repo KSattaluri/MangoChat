@@ -172,6 +172,20 @@ pub async fn preload_whisper_runtime(state: Arc<AppState>) -> Result<(), String>
     Ok(())
 }
 
+pub fn unload_whisper_runtime(state: &Arc<AppState>, reason: &str) -> bool {
+    let mut unloaded = false;
+    if let Ok(mut guard) = state.whisper_runtime.lock() {
+        if guard.is_some() {
+            *guard = None;
+            unloaded = true;
+        }
+    }
+    if unloaded {
+        app_log!("[whisper] runtime unloaded: reason={}", reason);
+    }
+    unloaded
+}
+
 pub fn check_offline_ready(engine: &str) -> Result<(), String> {
     match engine {
         "moonshine" => {
