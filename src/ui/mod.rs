@@ -104,6 +104,18 @@ pub struct MangoChatApp {
 }
 
 impl MangoChatApp {
+    pub(crate) fn maybe_preload_whisper_for_selection(&self) {
+        if self.form.transcription_mode != "offline" || self.form.offline_engine != "whisper" {
+            return;
+        }
+        let state = self.state.clone();
+        self.runtime.spawn(async move {
+            if let Err(e) = crate::local_stt::preload_whisper_runtime(state).await {
+                app_err!("[whisper] preload failed: {}", e);
+            }
+        });
+    }
+
     pub fn current_accent(&self) -> AccentPalette {
         if self.settings_open {
             accent_palette(&self.form.accent_color)

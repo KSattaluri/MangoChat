@@ -18,6 +18,8 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let accent = app.current_accent();
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
+    let prev_transcription_mode = app.form.transcription_mode.clone();
+    let prev_offline_engine = app.form.offline_engine.clone();
 
     egui::ScrollArea::vertical()
         .max_height(ui.available_height().max(260.0))
@@ -464,6 +466,12 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                     ui.end_row();
                 });
         });
+
+    if prev_transcription_mode != app.form.transcription_mode
+        || prev_offline_engine != app.form.offline_engine
+    {
+        app.maybe_preload_whisper_for_selection();
+    }
 }
 
 

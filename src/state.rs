@@ -1,7 +1,7 @@
 use image::RgbaImage;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 /// Events sent from background threads to the UI.
@@ -86,6 +86,8 @@ pub struct AppState {
     pub alias_commands: Mutex<Vec<(String, String)>>,
     /// Dynamic app shortcuts: (trigger, executable path).
     pub app_shortcuts: Mutex<Vec<(String, String)>>,
+    /// Lazily loaded native Whisper runtime for offline dictation.
+    pub whisper_runtime: Mutex<Option<Arc<crate::whisper_runtime::WhisperRuntime>>>,
 }
 
 impl AppState {
@@ -113,6 +115,7 @@ impl AppState {
             url_commands: Mutex::new(vec![]),
             alias_commands: Mutex::new(vec![]),
             app_shortcuts: Mutex::new(vec![]),
+            whisper_runtime: Mutex::new(None),
         }
     }
 }
