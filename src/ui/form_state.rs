@@ -6,6 +6,8 @@ use super::window::WINDOW_MONITOR_MODE_FIXED;
 
 #[allow(dead_code)]
 pub struct FormState {
+    pub transcription_mode: String,
+    pub offline_engine: String,
     pub provider: String,
     pub api_keys: HashMap<String, String>,
     pub model: String,
@@ -44,6 +46,8 @@ impl FormState {
             api_keys.entry((*id).to_string()).or_default();
         }
         Self {
+            transcription_mode: settings.transcription_mode.clone(),
+            offline_engine: settings.offline_engine.clone(),
             provider: settings.provider.clone(),
             api_keys,
             model: settings.model.clone(),
@@ -77,6 +81,8 @@ impl FormState {
     }
 
     pub fn apply_to_settings(&self, settings: &mut Settings) {
+        settings.transcription_mode = self.transcription_mode.clone();
+        settings.offline_engine = self.offline_engine.clone();
         settings.provider = self.provider.clone();
         for (provider_id, _) in PROVIDER_ROWS {
             let value = self
@@ -131,6 +137,8 @@ impl FormState {
 
     pub fn reset_non_provider_defaults(&mut self) {
         let defaults = Settings::non_provider_reset_defaults();
+        self.transcription_mode = defaults.transcription_mode;
+        self.offline_engine = defaults.offline_engine;
         self.mic = defaults.mic_device;
         self.vad_mode = defaults.vad_mode;
         self.session_hotkey_enabled = defaults.session_hotkey_enabled;

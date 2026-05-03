@@ -10,15 +10,15 @@ use tokio::sync::mpsc;
 use webrtc_vad::{SampleRate as VADSampleRate, Vad, VadMode as VADMode};
 
 const DEFAULT_SAMPLE_RATE: u32 = 24000;
-const HANGOVER_STRICT_MS: u128 = 480;
+const HANGOVER_STRICT_MS: u128 = 260;
 const HANGOVER_LENIENT_MS: u128 = 700;
 const PREROLL_STRICT_MS: f64 = 220.0;
 const PREROLL_LENIENT_MS: f64 = 300.0;
 const MIN_TURN_STRICT_MS: f64 = 35.0;
 const MIN_TURN_LENIENT_MS: f64 = 10.0;
-const STOP_SILENCE_STRICT_MS: f64 = 80.0;
+const STOP_SILENCE_STRICT_MS: f64 = 50.0;
 const STOP_SILENCE_LENIENT_MS: f64 = 60.0;
-const POST_ROLL_STRICT_MS: f64 = 80.0;
+const POST_ROLL_STRICT_MS: f64 = 40.0;
 const POST_ROLL_LENIENT_MS: f64 = 80.0;
 const VAD_SAMPLE_RATE: u32 = 16000;
 const VAD_FRAME_MS: usize = 20;

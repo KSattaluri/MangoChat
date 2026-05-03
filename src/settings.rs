@@ -5,6 +5,10 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default = "default_transcription_mode")]
+    pub transcription_mode: String,
+    #[serde(default = "default_offline_engine")]
+    pub offline_engine: String,
     #[serde(default = "default_provider")]
     pub provider: String,
     /// Per-provider API keys: {"openai": "sk-...", "deepgram": "dg-...", ...}
@@ -161,6 +165,8 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            transcription_mode: default_transcription_mode(),
+            offline_engine: default_offline_engine(),
             provider: default_provider(),
             api_keys: HashMap::new(),
             api_key: String::new(),
@@ -197,6 +203,12 @@ impl Default for Settings {
     }
 }
 
+fn default_transcription_mode() -> String {
+    "cloud".into()
+}
+fn default_offline_engine() -> String {
+    "moonshine".into()
+}
 fn default_provider() -> String {
     String::new()
 }
@@ -383,6 +395,12 @@ pub fn load() -> Settings {
     // Migrate deprecated provider id.
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
+    }
+    if settings.transcription_mode != "cloud" && settings.transcription_mode != "offline" {
+        settings.transcription_mode = default_transcription_mode();
+    }
+    if settings.offline_engine != "moonshine" && settings.offline_engine != "whisper" {
+        settings.offline_engine = default_offline_engine();
     }
     // Keep provider unset unless it's a known provider id.
     if settings.provider != "openai"
