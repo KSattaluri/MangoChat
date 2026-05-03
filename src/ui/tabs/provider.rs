@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{Color32, FontId, Stroke, vec2};
+use egui::{vec2, Color32, FontId, Stroke};
 
 use crate::ui::theme::*;
 use crate::ui::widgets::*;
@@ -25,357 +25,465 @@ fn provider_dashboard_url(provider_id: &str) -> &'static str {
     }
 }
 
+fn current_source_label(app: &MangoChatApp) -> (&'static str, Color32) {
+    let p = theme_palette(true);
+    if app.settings.transcription_mode == "offline" {
+        match app.settings.offline_engine.as_str() {
+            "moonshine" => ("Moonshine (Local)", MangoChatApp::provider_color("assemblyai", p)),
+            _ => ("Whisper.cpp (Local)", MangoChatApp::provider_color("openai", p)),
+        }
+    } else {
+        let name = PROVIDER_ROWS
+            .iter()
+            .find(|(id, _)| *id == app.settings.provider.as_str())
+            .map(|(_, name)| *name)
+            .unwrap_or(if app.settings.provider.trim().is_empty() {
+                "Not selected"
+            } else {
+                "Unknown"
+            });
+        (name, MangoChatApp::provider_color(&app.settings.provider, p))
+    }
+}
+
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let p = theme_palette(true);
     let accent = app.current_accent();
+    let prev_transcription_mode = app.form.transcription_mode.clone();
+    let prev_offline_engine = app.form.offline_engine.clone();
 
-    let current_provider_name = PROVIDER_ROWS
-        .iter()
-        .find(|(id, _)| *id == app.settings.provider.as_str())
-        .map(|(_, name)| *name)
-        .unwrap_or(if app.settings.provider.trim().is_empty() {
-            "Not selected"
-        } else {
-            "Unknown"
-        });
-    let current_provider_color = MangoChatApp::provider_color(&app.settings.provider, p);
+    let (current_source_name, current_source_color) = current_source_label(app);
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new("Current Provider:")
+            egui::RichText::new("Current Source:")
                 .size(14.0)
                 .strong()
                 .color(p.text_muted),
         );
         ui.label(
-            egui::RichText::new(current_provider_name)
+            egui::RichText::new(current_source_name)
                 .size(14.0)
                 .strong()
-                .color(current_provider_color),
+                .color(current_source_color),
         );
     });
     ui.add_space(6.0);
 
-    // Subtract frame overhead so rows have even left/right margins.
-    let frame_overhead = 34.0;
-    let total_w = ui.available_width() - frame_overhead;
-    let provider_w = 220.0;
-    let validate_w = 92.0;
-    let default_w = 72.0;
-    let row_pad_x = 8.0;
-    let col_gap = 10.0;
-    let api_w = (total_w
-        - provider_w
-        - validate_w
-        - default_w
-        - row_pad_x * 2.0
-        - col_gap * 3.0)
-        .max(160.0);
+    egui::Frame::none()
+        .fill(p.btn_bg)
+        .stroke(Stroke::new(1.0, p.btn_border))
+        .rounding(6.0)
+        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .show(ui, |ui| {
+            egui::Grid::new("provider_source_grid")
+                .num_columns(2)
+                .spacing([16.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Transcription source")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("provider_transcription_mode_select")
+                            .selected_text(match app.form.transcription_mode.as_str() {
+                                "offline" => "Local",
+                                _ => "Cloud",
+                            })
+                            .width(180.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut app.form.transcription_mode,
+                                    "cloud".to_string(),
+                                    "Cloud",
+                                );
+                                ui.selectable_value(
+                                    &mut app.form.transcription_mode,
+                                    "offline".to_string(),
+                                    "Local",
+                                );
+                            });
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Cloud uses your API-backed providers. Local uses an embedded engine.",
+                            )
+                            .size(12.0)
+                            .color(TEXT_MUTED),
+                        );
+                    });
+                    ui.end_row();
 
-    ui.horizontal(|ui| {
-        ui.set_width((total_w - row_pad_x * 2.0).max(0.0));
-        ui.add_space(row_pad_x);
-        ui.add_sized(
-            [default_w, 20.0],
-            egui::Label::new(
-                egui::RichText::new("Default")
-                    .size(13.0)
-                    .strong()
-                    .color(p.text_muted),
-            ),
-        );
-        ui.add_space(col_gap);
-        ui.add_sized(
-            [provider_w, 20.0],
-            egui::Label::new(
-                egui::RichText::new("Provider")
-                    .size(13.0)
-                    .strong()
-                    .color(p.text_muted),
-            ),
-        );
-        ui.add_space(col_gap);
-        ui.add_sized(
-            [api_w, 20.0],
-            egui::Label::new(
-                egui::RichText::new("API Key")
-                    .size(13.0)
-                    .strong()
-                    .color(p.text_muted),
-            ),
-        );
-        ui.add_space(col_gap);
-        ui.add_sized(
-            [validate_w, 20.0],
-            egui::Label::new(
-                egui::RichText::new("Validate")
-                    .size(13.0)
-                    .strong()
-                    .color(p.text_muted),
-            ),
-        );
-    });
-    ui.add_space(2.0);
+                    ui.label(
+                        egui::RichText::new("Local engine")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.add_enabled_ui(app.form.transcription_mode == "offline", |ui| {
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("provider_offline_engine_select")
+                                .selected_text(match app.form.offline_engine.as_str() {
+                                    "moonshine" => "Moonshine",
+                                    _ => "Whisper.cpp",
+                                })
+                                .width(180.0)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut app.form.offline_engine,
+                                        "whisper".to_string(),
+                                        "Whisper.cpp",
+                                    );
+                                    ui.selectable_value(
+                                        &mut app.form.offline_engine,
+                                        "moonshine".to_string(),
+                                        "Moonshine",
+                                    );
+                                });
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Whisper.cpp is the recommended local default right now. Moonshine remains available for comparison.",
+                                )
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                            );
+                        });
+                    });
+                    ui.end_row();
+                });
+        });
 
-    for (provider_id, provider_name) in PROVIDER_ROWS {
-        let provider_id = (*provider_id).to_string();
+    ui.add_space(10.0);
+
+    if app.form.transcription_mode == "offline" {
         egui::Frame::none()
             .fill(p.btn_bg)
             .stroke(Stroke::new(1.0, p.btn_border))
             .rounding(6.0)
-            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
             .show(ui, |ui| {
-                ui.set_width(total_w.max(0.0));
-                ui.horizontal(|ui| {
-                    ui.add_space(row_pad_x);
-                    let model_label = provider_model_label(app, &provider_id);
-                    let key_value = app
-                        .form
-                        .api_keys
-                        .entry(provider_id.clone())
-                        .or_default();
-                    let can_default = !key_value.trim().is_empty();
-                    let is_default = app.form.provider == provider_id;
-                    let default_resp = ui
-                        .allocate_ui_with_layout(
-                            vec2(default_w, 40.0),
-                            egui::Layout::centered_and_justified(
-                                egui::Direction::LeftToRight,
-                            ),
-                            |ui| {
-                                provider_default_button(
-                                    ui,
-                                    can_default,
-                                    is_default,
-                                    accent,
-                                )
-                            },
-                        )
-                        .inner;
-                    if default_resp.clicked() && can_default {
-                        app.form.provider = provider_id.clone();
-                        app.provider_default_explicitly_selected = true;
+                let engine_color = match app.form.offline_engine.as_str() {
+                    "moonshine" => MangoChatApp::provider_color("assemblyai", p),
+                    _ => MangoChatApp::provider_color("openai", p),
+                };
+                let engine_name = match app.form.offline_engine.as_str() {
+                    "moonshine" => "Moonshine",
+                    _ => "Whisper.cpp",
+                };
+                ui.label(
+                    egui::RichText::new(engine_name)
+                        .size(13.0)
+                        .strong()
+                        .color(engine_color),
+                );
+                ui.add_space(4.0);
+                let detail = match app.form.offline_engine.as_str() {
+                    "moonshine" => {
+                        "Local streaming-style engine kept on this branch for comparison. Accuracy is still under review."
                     }
-                    ui.add_space(col_gap);
+                    _ => {
+                        "Local native Whisper path. Better quality today, but still batch-per-utterance and heavier on CPU."
+                    }
+                };
+                ui.label(
+                    egui::RichText::new(detail)
+                        .size(12.0)
+                        .color(TEXT_MUTED),
+                );
+            });
+    } else {
+        // Subtract frame overhead so rows have even left/right margins.
+        let frame_overhead = 34.0;
+        let total_w = ui.available_width() - frame_overhead;
+        let provider_w = 220.0;
+        let validate_w = 92.0;
+        let default_w = 72.0;
+        let row_pad_x = 8.0;
+        let col_gap = 10.0;
+        let api_w = (total_w
+            - provider_w
+            - validate_w
+            - default_w
+            - row_pad_x * 2.0
+            - col_gap * 3.0)
+            .max(160.0);
 
-                    let provider_color = MangoChatApp::provider_color(&provider_id, p);
-                    ui.allocate_ui_with_layout(
-                        vec2(provider_w, 40.0),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            ui.allocate_ui_with_layout(
-                                vec2(provider_w, 18.0),
-                                egui::Layout::left_to_right(egui::Align::Min),
-                                |ui| {
-                                    let name_resp = ui.add_sized(
-                                        [provider_w, 18.0],
-                                        egui::Hyperlink::from_label_and_url(
-                                            egui::RichText::new(*provider_name)
-                                                .size(13.0)
-                                                .strong()
-                                                .color(provider_color),
-                                            provider_dashboard_url(&provider_id),
-                                        ),
-                                    );
-                                    name_resp.on_hover_text("Open provider dashboard");
-                                },
-                            );
-                            ui.add_space(2.0);
-                            ui.allocate_ui_with_layout(
-                                vec2(provider_w, 16.0),
-                                egui::Layout::left_to_right(egui::Align::Min),
-                                |ui| {
-                                    ui.add_sized(
-                                        [provider_w, 16.0],
-                                        egui::Label::new(
-                                            egui::RichText::new(model_label)
-                                                .size(11.5)
-                                                .color(TEXT_MUTED),
-                                        )
-                                        .wrap_mode(egui::TextWrapMode::Truncate),
-                                    );
-                                },
-                            );
-                        },
-                    );
-                    ui.add_space(col_gap);
+        ui.horizontal(|ui| {
+            ui.set_width((total_w - row_pad_x * 2.0).max(0.0));
+            ui.add_space(row_pad_x);
+            ui.add_sized(
+                [default_w, 20.0],
+                egui::Label::new(
+                    egui::RichText::new("Default")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text_muted),
+                ),
+            );
+            ui.add_space(col_gap);
+            ui.add_sized(
+                [provider_w, 20.0],
+                egui::Label::new(
+                    egui::RichText::new("Provider")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text_muted),
+                ),
+            );
+            ui.add_space(col_gap);
+            ui.add_sized(
+                [api_w, 20.0],
+                egui::Label::new(
+                    egui::RichText::new("API Key")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text_muted),
+                ),
+            );
+            ui.add_space(col_gap);
+            ui.add_sized(
+                [validate_w, 20.0],
+                egui::Label::new(
+                    egui::RichText::new("Validate")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text_muted),
+                ),
+            );
+        });
+        ui.add_space(2.0);
 
-                    let key_resp = ui
-                        .allocate_ui_with_layout(
-                            vec2(api_w, 40.0),
-                            egui::Layout::centered_and_justified(
-                                egui::Direction::LeftToRight,
-                            ),
-                            |ui| {
-                                ui.scope(|ui| {
-                                    let dark = ui.visuals().dark_mode;
-                                    let input_bg = if dark {
-                                        Color32::from_rgb(0x1a, 0x1d, 0x24)
-                                    } else {
-                                        Color32::from_rgb(0xff, 0xff, 0xff)
-                                    };
-                                    let input_stroke = if dark {
-                                        Color32::from_rgb(0x2c, 0x2f, 0x36)
-                                    } else {
-                                        Color32::from_rgb(0xd1, 0xd5, 0xdb)
-                                    };
-                                    let visuals = ui.visuals_mut();
-                                    visuals.extreme_bg_color = input_bg;
-                                    visuals.widgets.inactive.bg_fill = input_bg;
-                                    visuals.widgets.hovered.bg_fill = input_bg;
-                                    visuals.widgets.active.bg_fill = input_bg;
-                                    visuals.widgets.inactive.bg_stroke =
-                                        Stroke::new(1.0, input_stroke);
-                                    visuals.widgets.hovered.bg_stroke =
-                                        Stroke::new(1.0, input_stroke);
-                                    visuals.widgets.active.bg_stroke =
-                                        Stroke::new(1.0, input_stroke);
-                                    ui.add_sized(
-                                        [api_w, 22.0],
-                                        egui::TextEdit::singleline(key_value)
-                                            .password(true)
-                                            .font(FontId::proportional(13.0)),
-                                    )
-                                })
-                                .inner
-                            },
-                        )
-                        .inner;
-                    if key_resp.changed() {
-                        // Enforce sequence: API key edit -> select default -> Save.
-                        app.provider_default_explicitly_selected = false;
-                        app.key_check_result.remove(&provider_id);
-                        if app
-                            .last_validated_provider
-                            .as_deref()
-                            == Some(provider_id.as_str())
-                        {
-                            app.last_validated_provider = None;
+        for (provider_id, provider_name) in PROVIDER_ROWS {
+            let provider_id = (*provider_id).to_string();
+            egui::Frame::none()
+                .fill(p.btn_bg)
+                .stroke(Stroke::new(1.0, p.btn_border))
+                .rounding(6.0)
+                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                .show(ui, |ui| {
+                    ui.set_width(total_w.max(0.0));
+                    ui.horizontal(|ui| {
+                        ui.add_space(row_pad_x);
+                        let model_label = provider_model_label(app, &provider_id);
+                        let key_value = app.form.api_keys.entry(provider_id.clone()).or_default();
+                        let can_default = !key_value.trim().is_empty();
+                        let is_default = app.form.provider == provider_id;
+                        let default_resp = ui
+                            .allocate_ui_with_layout(
+                                vec2(default_w, 40.0),
+                                egui::Layout::centered_and_justified(
+                                    egui::Direction::LeftToRight,
+                                ),
+                                |ui| provider_default_button(ui, can_default, is_default, accent),
+                            )
+                            .inner;
+                        if default_resp.clicked() && can_default {
+                            app.form.provider = provider_id.clone();
+                            app.provider_default_explicitly_selected = true;
                         }
-                    }
-                    ui.add_space(col_gap);
+                        ui.add_space(col_gap);
 
-                    let key_present = !key_value.trim().is_empty();
-                    let inflight = app.key_check_inflight.contains(&provider_id);
-                    let result = app.key_check_result.get(&provider_id).cloned();
-                    let validate_resp = ui
-                        .allocate_ui_with_layout(
-                            vec2(validate_w, 40.0),
-                            egui::Layout::centered_and_justified(
-                                egui::Direction::LeftToRight,
-                            ),
+                        let provider_color = MangoChatApp::provider_color(&provider_id, p);
+                        ui.allocate_ui_with_layout(
+                            vec2(provider_w, 40.0),
+                            egui::Layout::top_down(egui::Align::Min),
                             |ui| {
-                                provider_validate_button(
-                                    ui,
-                                    key_present,
-                                    inflight,
-                                    result.as_ref().map(|(ok, _)| *ok),
-                                    accent,
-                                )
+                                ui.allocate_ui_with_layout(
+                                    vec2(provider_w, 18.0),
+                                    egui::Layout::left_to_right(egui::Align::Min),
+                                    |ui| {
+                                        let name_resp = ui.add_sized(
+                                            [provider_w, 18.0],
+                                            egui::Hyperlink::from_label_and_url(
+                                                egui::RichText::new(*provider_name)
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(provider_color),
+                                                provider_dashboard_url(&provider_id),
+                                            ),
+                                        );
+                                        name_resp.on_hover_text("Open provider dashboard");
+                                    },
+                                );
+                                ui.add_space(2.0);
+                                ui.allocate_ui_with_layout(
+                                    vec2(provider_w, 16.0),
+                                    egui::Layout::left_to_right(egui::Align::Min),
+                                    |ui| {
+                                        ui.add_sized(
+                                            [provider_w, 16.0],
+                                            egui::Label::new(
+                                                egui::RichText::new(model_label)
+                                                    .size(11.5)
+                                                    .color(TEXT_MUTED),
+                                            )
+                                            .wrap_mode(egui::TextWrapMode::Truncate),
+                                        );
+                                    },
+                                );
                             },
-                        )
-                        .inner;
-                    if validate_resp.clicked() && key_present && !inflight {
-                        app.key_check_inflight.insert(provider_id.clone());
-                        app.key_check_result.remove(&provider_id);
-                        app.last_validated_provider = Some(provider_id.clone());
-                        let provider_name = PROVIDER_ROWS
-                            .iter()
-                            .find(|(id, _)| *id == provider_id.as_str())
-                            .map(|(_, name)| (*name).to_string())
-                            .unwrap_or_else(|| provider_id.clone());
-                        let provider =
-                            crate::provider::create_provider(&provider_id);
-                        let provider_settings = crate::provider::ProviderSettings {
-                            api_key: key_value.clone(),
-                            model: app.form.model.clone(),
-                            transcription_model: app
-                                .settings
-                                .transcription_model
-                                .clone(),
-                            language: app.form.language.clone(),
-                        };
-                        let event_tx = app.event_tx.clone();
-                        let validated_provider_id = provider_id.clone();
-                        app.runtime.spawn(async move {
-                            let result =
-                                crate::provider::session::validate_key(
-                                    provider,
-                                    provider_settings,
-                                )
-                                .await;
-                            let (ok, message) = match result {
-                                Ok(()) => (
-                                    true,
-                                    format!(
-                                        "{} API key is valid",
-                                        provider_name
-                                    ),
+                        );
+                        ui.add_space(col_gap);
+
+                        let key_resp = ui
+                            .allocate_ui_with_layout(
+                                vec2(api_w, 40.0),
+                                egui::Layout::centered_and_justified(
+                                    egui::Direction::LeftToRight,
                                 ),
-                                Err(e) => (
-                                    false,
-                                    format!(
-                                        "{} validation failed: {}",
-                                        provider_name, e
-                                    ),
+                                |ui| {
+                                    ui.scope(|ui| {
+                                        let dark = ui.visuals().dark_mode;
+                                        let input_bg = if dark {
+                                            Color32::from_rgb(0x1a, 0x1d, 0x24)
+                                        } else {
+                                            Color32::from_rgb(0xff, 0xff, 0xff)
+                                        };
+                                        let input_stroke = if dark {
+                                            Color32::from_rgb(0x2c, 0x2f, 0x36)
+                                        } else {
+                                            Color32::from_rgb(0xd1, 0xd5, 0xdb)
+                                        };
+                                        let visuals = ui.visuals_mut();
+                                        visuals.extreme_bg_color = input_bg;
+                                        visuals.widgets.inactive.bg_fill = input_bg;
+                                        visuals.widgets.hovered.bg_fill = input_bg;
+                                        visuals.widgets.active.bg_fill = input_bg;
+                                        visuals.widgets.inactive.bg_stroke =
+                                            Stroke::new(1.0, input_stroke);
+                                        visuals.widgets.hovered.bg_stroke =
+                                            Stroke::new(1.0, input_stroke);
+                                        visuals.widgets.active.bg_stroke =
+                                            Stroke::new(1.0, input_stroke);
+                                        ui.add_sized(
+                                            [api_w, 22.0],
+                                            egui::TextEdit::singleline(key_value)
+                                                .password(true)
+                                                .font(FontId::proportional(13.0)),
+                                        )
+                                    })
+                                    .inner
+                                },
+                            )
+                            .inner;
+                        if key_resp.changed() {
+                            app.provider_default_explicitly_selected = false;
+                            app.key_check_result.remove(&provider_id);
+                            if app.last_validated_provider.as_deref() == Some(provider_id.as_str())
+                            {
+                                app.last_validated_provider = None;
+                            }
+                        }
+                        ui.add_space(col_gap);
+
+                        let key_present = !key_value.trim().is_empty();
+                        let inflight = app.key_check_inflight.contains(&provider_id);
+                        let result = app.key_check_result.get(&provider_id).cloned();
+                        let validate_resp = ui
+                            .allocate_ui_with_layout(
+                                vec2(validate_w, 40.0),
+                                egui::Layout::centered_and_justified(
+                                    egui::Direction::LeftToRight,
                                 ),
+                                |ui| {
+                                    provider_validate_button(
+                                        ui,
+                                        key_present,
+                                        inflight,
+                                        result.as_ref().map(|(ok, _)| *ok),
+                                        accent,
+                                    )
+                                },
+                            )
+                            .inner;
+                        if validate_resp.clicked() && key_present && !inflight {
+                            app.key_check_inflight.insert(provider_id.clone());
+                            app.key_check_result.remove(&provider_id);
+                            app.last_validated_provider = Some(provider_id.clone());
+                            let provider_name = PROVIDER_ROWS
+                                .iter()
+                                .find(|(id, _)| *id == provider_id.as_str())
+                                .map(|(_, name)| (*name).to_string())
+                                .unwrap_or_else(|| provider_id.clone());
+                            let provider = crate::provider::create_provider(&provider_id);
+                            let provider_settings = crate::provider::ProviderSettings {
+                                api_key: key_value.clone(),
+                                model: app.form.model.clone(),
+                                transcription_model: app.settings.transcription_model.clone(),
+                                language: app.form.language.clone(),
                             };
-                            let _ = event_tx.send(
-                                crate::state::AppEvent::ApiKeyValidated {
+                            let event_tx = app.event_tx.clone();
+                            let validated_provider_id = provider_id.clone();
+                            app.runtime.spawn(async move {
+                                let result =
+                                    crate::provider::session::validate_key(provider, provider_settings)
+                                        .await;
+                                let (ok, message) = match result {
+                                    Ok(()) => (
+                                        true,
+                                        format!("{} API key is valid", provider_name),
+                                    ),
+                                    Err(e) => (
+                                        false,
+                                        format!("{} validation failed: {}", provider_name, e),
+                                    ),
+                                };
+                                let _ = event_tx.send(crate::state::AppEvent::ApiKeyValidated {
                                     provider: validated_provider_id,
                                     ok,
                                     message,
-                                },
-                            );
+                                });
+                            });
+                        }
+                        validate_resp.on_hover_text(if inflight {
+                            "Validating..."
+                        } else if let Some((ok, msg)) = &result {
+                            if *ok { "Validated" } else { msg.as_str() }
+                        } else if key_present {
+                            "Validate key"
+                        } else {
+                            "Enter API key first"
                         });
-                    }
-                    validate_resp.on_hover_text(if inflight {
-                        "Validating..."
-                    } else if let Some((ok, msg)) = &result {
-                        if *ok {
-                            "Validated"
+                        default_resp.on_hover_text(if can_default {
+                            if is_default {
+                                "Default provider"
+                            } else {
+                                "Set as default provider"
+                            }
                         } else {
-                            msg.as_str()
-                        }
-                    } else if key_present {
-                        "Validate key"
-                    } else {
-                        "Enter API key first"
-                    });
-                    default_resp.on_hover_text(if can_default {
-                        if is_default {
-                            "Default provider"
-                        } else {
-                            "Set as default provider"
-                        }
-                    } else {
-                        "Enter API key first"
+                            "Enter API key first"
+                        });
                     });
                 });
-            });
-        ui.add_space(3.0);
-    }
+            ui.add_space(3.0);
+        }
 
-    if let Some(provider_id) = app.last_validated_provider.as_ref() {
-        if let Some((ok, msg)) = app.key_check_result.get(provider_id) {
-            let color = if *ok { accent.base } else { RED };
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(msg).size(11.0).color(color));
+        if let Some(provider_id) = app.last_validated_provider.as_ref() {
+            if let Some((ok, msg)) = app.key_check_result.get(provider_id) {
+                let color = if *ok { accent.base } else { RED };
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(msg).size(11.0).color(color));
+            }
+        }
+        if app
+            .form
+            .api_keys
+            .get(&app.form.provider)
+            .map(|k| k.trim().is_empty())
+            .unwrap_or(true)
+        {
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("Default provider must have an API key.")
+                    .size(11.0)
+                    .color(TEXT_MUTED),
+            );
         }
     }
-    if app
-        .form
-        .api_keys
-        .get(&app.form.provider)
-        .map(|k| k.trim().is_empty())
-        .unwrap_or(true)
+
+    if prev_transcription_mode != app.form.transcription_mode
+        || prev_offline_engine != app.form.offline_engine
     {
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new("Default provider must have an API key.")
-                .size(11.0)
-                .color(TEXT_MUTED),
-        );
+        app.maybe_preload_whisper_for_selection();
     }
 }
-
-

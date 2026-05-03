@@ -137,8 +137,6 @@ impl FormState {
 
     pub fn reset_non_provider_defaults(&mut self) {
         let defaults = Settings::non_provider_reset_defaults();
-        self.transcription_mode = defaults.transcription_mode;
-        self.offline_engine = defaults.offline_engine;
         self.mic = defaults.mic_device;
         self.vad_mode = defaults.vad_mode;
         self.session_hotkey_enabled = defaults.session_hotkey_enabled;

@@ -207,7 +207,7 @@ fn default_transcription_mode() -> String {
     "cloud".into()
 }
 fn default_offline_engine() -> String {
-    "moonshine".into()
+    "whisper".into()
 }
 fn default_provider() -> String {
     String::new()
