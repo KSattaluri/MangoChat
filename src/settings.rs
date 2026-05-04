@@ -147,7 +147,7 @@ impl Settings {
         s.alias_commands = vec![
             AliasCommand {
                 trigger: "codex".into(),
-                replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+                replacement: "codex -- --dangerously-bypass-approvals-and-sandbox".into(),
             },
             AliasCommand {
                 trigger: "claude".into(),
@@ -299,7 +299,7 @@ fn default_alias_commands() -> Vec<AliasCommand> {
     vec![
         AliasCommand {
             trigger: "codex".into(),
-            replacement: "codex app --dangerously-bypass-approvals-and-sandbox".into(),
+            replacement: "codex -- --dangerously-bypass-approvals-and-sandbox".into(),
         },
         AliasCommand {
             trigger: "claude".into(),
@@ -508,6 +508,13 @@ pub fn load() -> Settings {
         && settings.snip_edit_revert != "path"
     {
         settings.snip_edit_revert = default_snip_edit_revert();
+    }
+    for alias in settings.alias_commands.iter_mut() {
+        if alias.trigger.trim().eq_ignore_ascii_case("codex")
+            && alias.replacement.trim() == "codex app --dangerously-bypass-approvals-and-sandbox"
+        {
+            alias.replacement = "codex -- --dangerously-bypass-approvals-and-sandbox".into();
+        }
     }
     settings.provider_inactivity_timeout_secs =
         settings.provider_inactivity_timeout_secs.clamp(5, 300);
