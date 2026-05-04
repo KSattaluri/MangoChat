@@ -2,16 +2,18 @@
 
 Free, open-source, lightweight voice dictation for Windows.
 
-Mango Chat is a native Rust desktop app that streams microphone audio to your selected speech-to-text provider for low-latency transcription.
+Mango Chat is a native Rust desktop app for Windows dictation and speech-driven commands. It supports both cloud transcription providers and a local Whisper.cpp path.
 
 ## Highlights
 
 - Native Windows app (Rust + egui), low memory footprint
-- Multi-provider speech-to-text support:
+- Cloud speech-to-text providers:
   - OpenAI Realtime
   - Deepgram
   - ElevenLabs Realtime
   - AssemblyAI
+- Local speech-to-text option:
+  - Whisper.cpp
 - Local VAD (voice activity detection) to suppress silence before upload
 - Built-in + custom voice commands
 - Screenshot/snip workflow with clipboard modes
@@ -36,12 +38,11 @@ Install location is per-user under `%LOCALAPPDATA%\Programs\MangoChat`.
 
 1. Open Settings (gear icon).
 2. Go to `Provider`.
-3. Select a provider.
-4. Paste your API key.
-5. Click `Verify`.
-6. Click `Save`.
+3. Choose `Cloud` or `Local`.
+4. If using `Cloud`, select a provider, paste your API key, and click `Verify`.
+5. Click `Save`.
 
-API keys are encrypted with Windows DPAPI and stored locally.
+API keys are encrypted with Windows DPAPI and stored locally. Local Whisper mode does not require a provider key.
 
 ## Provider Cost Notes
 
@@ -61,10 +62,25 @@ See the full FAQ here:
 
 - Windows 10/11
 - Rust stable toolchain
+- Visual Studio C++ build tools
+- Inno Setup for installer builds
+
+If you want to build the native local Whisper path from source, also install:
+
+- LLVM (`libclang.dll`)
+- CMake
 
 ### Run locally
 
 ```powershell
+cargo run
+```
+
+For the native local Whisper path on Windows, this shell may also need:
+
+```powershell
+$env:LIBCLANG_PATH='C:\Program Files\LLVM\bin'
+$env:CMAKE='C:\Program Files\CMake\bin\cmake.exe'
 cargo run
 ```
 
