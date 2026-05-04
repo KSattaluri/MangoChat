@@ -399,9 +399,7 @@ pub fn load() -> Settings {
     if settings.transcription_mode != "cloud" && settings.transcription_mode != "offline" {
         settings.transcription_mode = default_transcription_mode();
     }
-    if settings.offline_engine != "moonshine" && settings.offline_engine != "whisper" {
-        settings.offline_engine = default_offline_engine();
-    }
+    settings.offline_engine = default_offline_engine();
     // Keep provider unset unless it's a known provider id.
     if settings.provider != "openai"
         && settings.provider != "deepgram"
