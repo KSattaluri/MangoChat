@@ -1,8 +1,8 @@
 use crate::state::{AppEvent, AppState};
 use crate::typing;
-use crate::whisper_runtime::{pcm16le_to_f32_mono, WhisperRuntime};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use reqwest::multipart;
 use serde_json::json;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -22,6 +22,7 @@ const MOONSHINE_MODEL_ARCH: i32 = 2;
 const WORKER_SEND_CHUNK_MS: usize = 80;
 const WHISPER_PROVIDER_ID: &str = "whisper";
 const WHISPER_MODEL_LABEL: &str = "base.en-q5_1";
+const WHISPER_SERVER_PORT: u16 = 18183;
 
 fn whisper_thread_count() -> usize {
     std::thread::available_parallelism()
@@ -78,25 +79,6 @@ fn sanitize_transcript_text(text: &str) -> String {
     cleaned.trim().to_string()
 }
 
-fn normalize_alpha_words(text: &str) -> String {
-    text.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphabetic() || ch.is_ascii_whitespace() {
-                ch.to_ascii_lowercase()
-            } else {
-                ' '
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn should_suppress_whisper_short_hallucination(text: &str, _utterance_ms: u64) -> bool {
-    normalize_alpha_words(text) == "you"
-}
-
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -118,11 +100,32 @@ fn moonshine_model_path() -> PathBuf {
         .join("quantized")
 }
 
+fn whisper_bin_dir() -> PathBuf {
+    repo_root()
+        .join(".native-build")
+        .join("whisper.cpp")
+        .join("build")
+        .join("bin")
+        .join("Release")
+}
+
+fn whisper_server_exe_path() -> PathBuf {
+    whisper_bin_dir().join("whisper-server.exe")
+}
+
 fn whisper_model_path() -> PathBuf {
     repo_root()
         .join(".models")
         .join("whispercpp")
         .join(format!("ggml-{}.bin", WHISPER_MODEL_LABEL))
+}
+
+fn whisper_health_url() -> String {
+    format!("http://127.0.0.1:{}/health", WHISPER_SERVER_PORT)
+}
+
+fn whisper_inference_url() -> String {
+    format!("http://127.0.0.1:{}/inference", WHISPER_SERVER_PORT)
 }
 
 pub fn check_offline_ready(engine: &str) -> Result<(), String> {
@@ -152,7 +155,14 @@ pub fn check_offline_ready(engine: &str) -> Result<(), String> {
             Ok(())
         }
         "whisper" => {
+            let server = whisper_server_exe_path();
             let model = whisper_model_path();
+            if !server.exists() {
+                return Err(format!(
+                    "whisper-server.exe not found at {}",
+                    server.display()
+                ));
+            }
             if !model.exists() {
                 return Err(format!(
                     "Whisper model not found at {}",
@@ -633,17 +643,148 @@ async fn run_moonshine_session(
     Ok(())
 }
 
-async fn whisper_transcribe_utterance(
-    runtime: &Arc<WhisperRuntime>,
-    pcm: Vec<u8>,
-) -> Result<String, String> {
-    let runtime = runtime.clone();
-    tokio::task::spawn_blocking(move || {
-        let samples = pcm16le_to_f32_mono(&pcm);
-        runtime.transcribe(&samples)
-    })
-    .await
-    .map_err(|e| format!("Whisper task join error: {}", e))?
+struct WhisperServer {
+    child: Child,
+}
+
+impl WhisperServer {
+    async fn spawn() -> Result<Self, String> {
+        let exe = whisper_server_exe_path();
+        let model = whisper_model_path();
+        let current_dir = whisper_bin_dir();
+        let threads = whisper_thread_count();
+
+        let mut child = Command::new(&exe)
+            .current_dir(&current_dir)
+            .arg("--host")
+            .arg("127.0.0.1")
+            .arg("--port")
+            .arg(WHISPER_SERVER_PORT.to_string())
+            .arg("-t")
+            .arg(threads.to_string())
+            .arg("-m")
+            .arg(&model)
+            .arg("-l")
+            .arg("en")
+            .arg("-nt")
+            .arg("-sns")
+            .arg("-ng")
+            .arg("-fa")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to start whisper-server: {}", e))?;
+
+        let pid = child.id().unwrap_or(0);
+        app_log!(
+            "[whisper] server starting: pid={} threads={} model={} path={}",
+            pid,
+            threads,
+            WHISPER_MODEL_LABEL,
+            model.display()
+        );
+
+        if let Some(stdout) = child.stdout.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        app_log!("[whisper] {}", line);
+                    }
+                }
+            });
+        }
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        app_log!("[whisper] {}", line);
+                    }
+                }
+            });
+        }
+
+        let client = reqwest::Client::new();
+        let health_url = whisper_health_url();
+        for _ in 0..120 {
+            match client.get(&health_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    app_log!("[whisper] server ready: pid={} url={}", pid, health_url);
+                    return Ok(Self { child });
+                }
+                Ok(_) | Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        }
+
+        let _ = child.kill().await;
+        Err("Whisper server did not become ready in time".into())
+    }
+
+    async fn shutdown(mut self) {
+        let _ = self.child.kill().await;
+    }
+}
+
+fn build_wav_bytes_from_pcm16(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
+    let data_len = pcm.len() as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    let byte_rate = sample_rate * 2;
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(pcm);
+    wav
+}
+
+async fn whisper_transcribe_utterance(pcm: &[u8]) -> Result<String, String> {
+    let wav = build_wav_bytes_from_pcm16(pcm, OFFLINE_SAMPLE_RATE);
+    let part = multipart::Part::bytes(wav)
+        .file_name("utterance.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| format!("Failed to build Whisper multipart body: {}", e))?;
+    let form = multipart::Form::new()
+        .part("file", part)
+        .text("response_format", "json")
+        .text("language", "en")
+        .text("temperature", "0.0")
+        .text("temperature_inc", "0.2");
+    let resp = reqwest::Client::new()
+        .post(whisper_inference_url())
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("Whisper request failed: {}", e))?;
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read Whisper response: {}", e))?;
+    if !status.is_success() {
+        return Err(format!("Whisper server error {}: {}", status, body));
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Invalid Whisper JSON: {}", e))?;
+    Ok(json
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 async fn run_whisper_session(
@@ -652,25 +793,7 @@ async fn run_whisper_session(
     audio_rx: &mut mpsc::Receiver<Vec<u8>>,
     inactivity_timeout_secs: u64,
 ) -> Result<(), String> {
-    let model_path = whisper_model_path();
-    let threads = whisper_thread_count() as i32;
-    app_log!(
-        "[whisper] runtime starting: threads={} model={} path={}",
-        threads,
-        WHISPER_MODEL_LABEL,
-        model_path.display()
-    );
-    let runtime = tokio::task::spawn_blocking(move || {
-        WhisperRuntime::new(&model_path, threads)
-    })
-    .await
-    .map_err(|e| format!("Whisper runtime init join error: {}", e))??;
-    let runtime = Arc::new(runtime);
-    app_log!(
-        "[whisper] runtime ready: threads={} model={}",
-        threads,
-        WHISPER_MODEL_LABEL
-    );
+    let server = WhisperServer::spawn().await?;
     emit_status(&event_tx, "live", "Listening (offline)");
 
     let provider = WHISPER_PROVIDER_ID;
@@ -707,26 +830,16 @@ async fn run_whisper_session(
                     );
                     update_commit_usage(&state);
                     let started = now_ms();
-                    let pcm = std::mem::take(&mut utterance_pcm);
-                    let text = whisper_transcribe_utterance(&runtime, pcm).await?;
+                    let text = whisper_transcribe_utterance(&utterance_pcm).await?;
                     let elapsed = now_ms().saturating_sub(started);
-                    if should_suppress_whisper_short_hallucination(&text, utterance_ms) {
-                        app_log!(
-                            "[whisper] rx final suppressed: seq={} elapsed_ms={} ms={} text=\"{}\"",
-                            utterance_seq,
-                            elapsed,
-                            utterance_ms,
-                            short_text(&text, 120)
-                        );
-                    } else {
-                        app_log!(
-                            "[whisper] rx final: seq={} elapsed_ms={} text=\"{}\"",
-                            utterance_seq,
-                            elapsed,
-                            short_text(&text, 120)
-                        );
-                        handle_final_transcript(&event_tx, &state, text);
-                    }
+                    app_log!(
+                        "[whisper] rx final: seq={} elapsed_ms={} text=\"{}\"",
+                        utterance_seq,
+                        elapsed,
+                        short_text(&text, 120)
+                    );
+                    handle_final_transcript(&event_tx, &state, text);
+                    utterance_pcm.clear();
                     emit_status(&event_tx, "live", "Listening (offline)");
                     continue;
                 }
@@ -758,27 +871,17 @@ async fn run_whisper_session(
             utterance_ms
         );
         update_commit_usage(&state);
-        let pcm = std::mem::take(&mut utterance_pcm);
-        if let Ok(text) = whisper_transcribe_utterance(&runtime, pcm).await {
-            if should_suppress_whisper_short_hallucination(&text, utterance_ms) {
-                app_log!(
-                    "[whisper] rx final suppressed: seq={} ms={} text=\"{}\"",
-                    utterance_seq,
-                    utterance_ms,
-                    short_text(&text, 120)
-                );
-            } else {
-                app_log!(
-                    "[whisper] rx final: seq={} text=\"{}\"",
-                    utterance_seq,
-                    short_text(&text, 120)
-                );
-                handle_final_transcript(&event_tx, &state, text);
-            }
+        if let Ok(text) = whisper_transcribe_utterance(&utterance_pcm).await {
+            app_log!(
+                "[whisper] rx final: seq={} text=\"{}\"",
+                utterance_seq,
+                short_text(&text, 120)
+            );
+            handle_final_transcript(&event_tx, &state, text);
         }
     }
 
-    drop(runtime);
+    server.shutdown().await;
     state.hotkey_recording.store(false, Ordering::SeqCst);
     Ok(())
 }

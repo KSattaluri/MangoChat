@@ -6,7 +6,6 @@ mod audio;
 mod hotkey;
 mod headset;
 mod local_stt;
-mod whisper_runtime;
 mod provider;
 mod settings;
 mod secrets;

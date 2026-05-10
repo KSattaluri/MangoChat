@@ -35,7 +35,6 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 semver = "1"
 sha2 = "0.10"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
-whisper-rs = "0.16"
 
 [build-dependencies]
 winres = "0.1"
