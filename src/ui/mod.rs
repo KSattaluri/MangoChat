@@ -106,10 +106,6 @@ pub struct MangoChatApp {
 impl MangoChatApp {
     pub(crate) fn maybe_preload_whisper_for_selection(&self) {
         if self.form.transcription_mode != "offline" || self.form.offline_engine != "whisper" {
-            crate::local_stt::unload_whisper_runtime(
-                &self.state,
-                "selection_changed_away_from_local_whisper",
-            );
             return;
         }
         let state = self.state.clone();
@@ -1499,14 +1495,6 @@ impl MangoChatApp {
                                                 let mic_device_changed =
                                                     self.settings.mic_device != self.form.mic;
                                                 self.form.apply_to_settings(&mut self.settings);
-                                                if self.settings.transcription_mode != "offline"
-                                                    || self.settings.offline_engine != "whisper"
-                                                {
-                                                    crate::local_stt::unload_whisper_runtime(
-                                                        &self.state,
-                                                        "settings_saved_without_local_whisper",
-                                                    );
-                                                }
                                                 self.selected_mic_unavailable =
                                                     self.selected_mic_unavailable_now();
                                                 match crate::settings::save(&self.settings) {
