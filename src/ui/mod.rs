@@ -140,12 +140,6 @@ impl MangoChatApp {
     }
 
     pub fn provider_form_dirty(&self) -> bool {
-        if self.form.transcription_mode != self.settings.transcription_mode {
-            return true;
-        }
-        if self.form.offline_engine != self.settings.offline_engine {
-            return true;
-        }
         if self.form.provider != self.settings.provider {
             return true;
         }
@@ -1417,8 +1411,6 @@ impl MangoChatApp {
                                             && self.provider_form_dirty();
                                         let show_exit =
                                             self.settings_tab == "provider" && !provider_dirty;
-                                        let cloud_mode_selected =
-                                            self.form.transcription_mode == "cloud";
                                         let default_key_present = self
                                             .form
                                             .api_keys
@@ -1426,8 +1418,7 @@ impl MangoChatApp {
                                             .map(|k| !k.trim().is_empty())
                                             .unwrap_or(false);
                                         let save_enabled = if self.settings_tab == "provider" {
-                                            !cloud_mode_selected
-                                                || show_exit
+                                            show_exit
                                                 || (default_key_present
                                                     && self.provider_default_explicitly_selected)
                                         } else {
@@ -1466,7 +1457,6 @@ impl MangoChatApp {
                                             })
                                             .inner;
                                         if self.settings_tab == "provider"
-                                            && cloud_mode_selected
                                             && !show_exit
                                             && !(default_key_present
                                                 && self.provider_default_explicitly_selected)
@@ -1483,7 +1473,6 @@ impl MangoChatApp {
                                                 return;
                                             }
                                             if self.settings_tab == "provider"
-                                                && cloud_mode_selected
                                                 && !default_key_present
                                             {
                                                 self.set_status(
