@@ -80,10 +80,9 @@ This is intentionally aligned with the same user-visible recording session conce
 
 ## Current Offline Whisper Behavior
 
-Current local transcription on this branch is:
+Current offline Whisper on this branch is:
 
 - native and in-process via Rust
-- Whisper.cpp only
 - not using `whisper-server.exe`
 - still batch-per-utterance
 - driven by Mango Chat VAD commit boundaries

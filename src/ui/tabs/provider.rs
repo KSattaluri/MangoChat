@@ -28,7 +28,10 @@ fn provider_dashboard_url(provider_id: &str) -> &'static str {
 fn current_source_label(app: &MangoChatApp) -> (&'static str, Color32) {
     let p = theme_palette(true);
     if app.settings.transcription_mode == "offline" {
-        ("Whisper.cpp (Local)", MangoChatApp::provider_color("openai", p))
+        match app.settings.offline_engine.as_str() {
+            "moonshine" => ("Moonshine (Local)", MangoChatApp::provider_color("assemblyai", p)),
+            _ => ("Whisper.cpp (Local)", MangoChatApp::provider_color("openai", p)),
+        }
     } else {
         let name = PROVIDER_ROWS
             .iter()
@@ -49,6 +52,7 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let frame_overhead = 34.0;
     let content_w = ui.available_width() - frame_overhead;
     let prev_transcription_mode = app.form.transcription_mode.clone();
+    let prev_offline_engine = app.form.offline_engine.clone();
 
     let (current_source_name, current_source_color) = current_source_label(app);
     ui.horizontal(|ui| {
@@ -109,11 +113,35 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             );
 
             if app.form.transcription_mode == "offline" {
-                app.form.offline_engine = "whisper".to_string();
                 ui.add_space(10.0);
                 ui.label(
+                    egui::RichText::new("Local engine")
+                        .size(13.0)
+                        .color(TEXT_COLOR),
+                );
+                ui.add_space(4.0);
+                egui::ComboBox::from_id_salt("provider_offline_engine_select")
+                    .selected_text(match app.form.offline_engine.as_str() {
+                        "moonshine" => "Moonshine",
+                        _ => "Whisper.cpp",
+                    })
+                    .width(control_w)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut app.form.offline_engine,
+                            "whisper".to_string(),
+                            "Whisper.cpp",
+                        );
+                        ui.selectable_value(
+                            &mut app.form.offline_engine,
+                            "moonshine".to_string(),
+                            "Moonshine",
+                        );
+                    });
+                ui.add_space(4.0);
+                ui.label(
                     egui::RichText::new(
-                        "Local mode currently uses the embedded Whisper.cpp path.",
+                        "Whisper.cpp is the recommended local default right now. Moonshine remains available for comparison.",
                     )
                     .size(12.0)
                     .color(TEXT_MUTED),
@@ -130,17 +158,31 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
             .rounding(6.0)
             .inner_margin(egui::Margin::symmetric(10.0, 8.0))
             .show(ui, |ui| {
+                let engine_color = match app.form.offline_engine.as_str() {
+                    "moonshine" => MangoChatApp::provider_color("assemblyai", p),
+                    _ => MangoChatApp::provider_color("openai", p),
+                };
+                let engine_name = match app.form.offline_engine.as_str() {
+                    "moonshine" => "Moonshine",
+                    _ => "Whisper.cpp",
+                };
                 ui.label(
-                    egui::RichText::new("Whisper.cpp")
+                    egui::RichText::new(engine_name)
                         .size(13.0)
                         .strong()
-                        .color(MangoChatApp::provider_color("openai", p)),
+                        .color(engine_color),
                 );
                 ui.add_space(4.0);
+                let detail = match app.form.offline_engine.as_str() {
+                    "moonshine" => {
+                        "Local streaming-style engine kept on this branch for comparison. Accuracy is still under review."
+                    }
+                    _ => {
+                        "Local native Whisper path. Better quality today, but still batch-per-utterance and heavier on CPU."
+                    }
+                };
                 ui.label(
-                    egui::RichText::new(
-                        "Local native Whisper path. Better quality today, but still batch-per-utterance and heavier on CPU.",
-                    )
+                    egui::RichText::new(detail)
                         .size(12.0)
                         .color(TEXT_MUTED),
                 );
@@ -433,7 +475,9 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         }
     }
 
-    if prev_transcription_mode != app.form.transcription_mode {
+    if prev_transcription_mode != app.form.transcription_mode
+        || prev_offline_engine != app.form.offline_engine
+    {
         app.maybe_preload_whisper_for_selection();
     }
 }

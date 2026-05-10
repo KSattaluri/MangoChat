@@ -105,10 +105,10 @@ pub struct MangoChatApp {
 
 impl MangoChatApp {
     pub(crate) fn maybe_preload_whisper_for_selection(&self) {
-        if self.form.transcription_mode != "offline" {
+        if self.form.transcription_mode != "offline" || self.form.offline_engine != "whisper" {
             crate::local_stt::unload_whisper_runtime(
                 &self.state,
-                "selection_changed_away_from_local_mode",
+                "selection_changed_away_from_local_whisper",
             );
             return;
         }
@@ -145,6 +145,9 @@ impl MangoChatApp {
 
     pub fn provider_form_dirty(&self) -> bool {
         if self.form.transcription_mode != self.settings.transcription_mode {
+            return true;
+        }
+        if self.form.offline_engine != self.settings.offline_engine {
             return true;
         }
         if self.form.provider != self.settings.provider {
@@ -501,7 +504,7 @@ impl MangoChatApp {
         }
         let offline_mode = self.settings.transcription_mode == "offline";
         if offline_mode {
-            if let Err(e) = crate::local_stt::check_offline_ready() {
+            if let Err(e) = crate::local_stt::check_offline_ready(&self.settings.offline_engine) {
                 self.set_status(&e, "error");
                 return;
             }
@@ -624,12 +627,15 @@ impl MangoChatApp {
         let gen = self.state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let now = now_ms();
         let session_provider = if offline_mode {
-            "whisper".to_string()
+            self.settings.offline_engine.clone()
         } else {
             self.settings.provider.clone()
         };
         let session_model = if offline_mode {
-            "local-whisper".to_string()
+            match self.settings.offline_engine.as_str() {
+                "whisper" => "local-whisper".to_string(),
+                _ => "tiny-en".to_string(),
+            }
         } else {
             self.settings.model.clone()
         };
@@ -662,6 +668,7 @@ impl MangoChatApp {
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
         let inactivity_timeout_secs = self.settings.provider_inactivity_timeout_secs;
+        let offline_engine = self.settings.offline_engine.clone();
 
         self.runtime.spawn(async move {
             if let Some(provider) = provider {
@@ -676,6 +683,7 @@ impl MangoChatApp {
                 .await;
             } else {
                 crate::local_stt::run_session(
+                    &offline_engine,
                     event_tx,
                     state_clone.clone(),
                     audio_rx,
@@ -968,7 +976,11 @@ impl MangoChatApp {
                         };
                         let msg_device = trim_for_row(format!("Listening: {}", dev));
                         let msg_backend = if self.settings.transcription_mode == "offline" {
-                            "Offline engine: Whisper.cpp".to_string()
+                            let engine = match self.settings.offline_engine.as_str() {
+                                "whisper" => "Whisper.cpp",
+                                _ => "Moonshine",
+                            };
+                            format!("Offline engine: {engine}")
                         } else {
                             format!(
                                 "Provider: {}",
@@ -1488,7 +1500,7 @@ impl MangoChatApp {
                                                     self.settings.mic_device != self.form.mic;
                                                 self.form.apply_to_settings(&mut self.settings);
                                                 if self.settings.transcription_mode != "offline"
-                                                    || self.settings.transcription_mode != "offline"
+                                                    || self.settings.offline_engine != "whisper"
                                                 {
                                                     crate::local_stt::unload_whisper_runtime(
                                                         &self.state,
