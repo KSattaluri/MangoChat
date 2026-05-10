@@ -30,9 +30,7 @@ use usage::{load_usage, save_usage, usage_path, USAGE_SAVE_INTERVAL_SECS, load_p
 fn main() {
     let _ = diagnostics::init_session_logging();
     diagnostics::install_panic_hook();
-    diagnostics::init_runtime_logger();
-    #[cfg(feature = "dev-session-capture")]
-    whisper_rs::install_logging_hooks();
+    env_logger::init();
 
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).is_some_and(|a| a == "--apply-update") {

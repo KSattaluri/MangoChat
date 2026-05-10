@@ -7,8 +7,6 @@ use std::sync::{Mutex, OnceLock};
 use zip::write::FileOptions;
 
 static LOG_FILE: OnceLock<Mutex<File>> = OnceLock::new();
-#[cfg(feature = "dev-session-capture")]
-static SESSION_LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
 const LOG_ROTATE_KEEP: usize = 5;
 const CRASH_LOG_KEEP: usize = 5;
@@ -32,11 +30,6 @@ pub fn logs_dir() -> Result<PathBuf, String> {
     Ok(data_dir()?.join("logs"))
 }
 
-#[cfg(feature = "dev-session-capture")]
-pub fn session_logs_dir() -> Result<PathBuf, String> {
-    Ok(logs_dir()?.join("sessions"))
-}
-
 pub fn init_session_logging() -> Result<PathBuf, String> {
     let dir = logs_dir()?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create logs dir: {}", e))?;
@@ -57,23 +50,6 @@ pub fn init_session_logging() -> Result<PathBuf, String> {
         ),
     );
     Ok(active)
-}
-
-pub fn init_runtime_logger() {
-    let mut builder = env_logger::Builder::from_default_env();
-    if std::env::var_os("RUST_LOG").is_none() {
-        builder.filter_level(log::LevelFilter::Info);
-    }
-    builder.format(|buf, record| {
-        let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        let target = record.target();
-        let msg = format!("[{}] {}", target, record.args());
-        let line = format!("[{}] [{}] {}", ts, record.level(), msg);
-        writeln!(buf, "{}", line)?;
-        append_line(record.level().as_str(), &msg);
-        Ok(())
-    });
-    let _ = builder.try_init();
 }
 
 fn rotate_logs(dir: &Path) -> Result<(), String> {
@@ -130,57 +106,6 @@ pub fn append_line(level: &str, msg: &str) {
         if let Ok(mut f) = lock.lock() {
             let _ = f.write_all(line.as_bytes());
             let _ = f.flush();
-        }
-    }
-    #[cfg(feature = "dev-session-capture")]
-    {
-        if let Some(lock) = SESSION_LOG_FILE.get() {
-            if let Ok(mut guard) = lock.lock() {
-                if let Some(f) = guard.as_mut() {
-                    let _ = f.write_all(line.as_bytes());
-                    let _ = f.flush();
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "dev-session-capture")]
-pub fn start_recording_session_log(session_id: u64, provider: &str, model: &str) -> Result<PathBuf, String> {
-    let dir = session_logs_dir()?;
-    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create session logs dir: {}", e))?;
-    let file_name = format!(
-        "session-{}-{}-{}.log",
-        Local::now().format("%Y%m%d-%H%M%S"),
-        sanitize_name(provider),
-        session_id
-    );
-    let path = dir.join(file_name);
-    let file = File::options()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| format!("Failed to open session log: {}", e))?;
-    let lock = SESSION_LOG_FILE.get_or_init(|| Mutex::new(None));
-    if let Ok(mut guard) = lock.lock() {
-        *guard = Some(file);
-    }
-    append_line(
-        "INFO",
-        &format!(
-            "recording_session_start session_id={} provider={} model={}",
-            session_id, provider, model
-        ),
-    );
-    Ok(path)
-}
-
-#[cfg(feature = "dev-session-capture")]
-pub fn stop_recording_session_log(reason: &str) {
-    append_line("INFO", &format!("recording_session_stop reason={}", reason));
-    if let Some(lock) = SESSION_LOG_FILE.get() {
-        if let Ok(mut guard) = lock.lock() {
-            *guard = None;
         }
     }
 }
@@ -305,8 +230,7 @@ fn collect_recent_logs(limit: usize) -> Result<Vec<PathBuf>, String> {
             continue;
         };
         if !(name.starts_with("app") && name.ends_with(".log")
-            || name.starts_with("crash-") && name.ends_with(".log")
-            || name.starts_with("session-") && name.ends_with(".log"))
+            || name.starts_with("crash-") && name.ends_with(".log"))
         {
             continue;
         }
@@ -347,25 +271,6 @@ fn add_file<W: Write + Seek>(
         .map_err(|e| format!("Failed to add {}: {}", name, e))?;
     zip.write_all(&bytes)
         .map_err(|e| format!("Failed to write {}: {}", name, e))
-}
-
-#[cfg(feature = "dev-session-capture")]
-fn sanitize_name(input: &str) -> String {
-    let cleaned: String = input
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if cleaned.is_empty() {
-        "unknown".to_string()
-    } else {
-        cleaned
-    }
 }
 
 #[macro_export]
