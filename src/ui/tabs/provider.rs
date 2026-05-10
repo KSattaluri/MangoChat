@@ -49,8 +49,6 @@ fn current_source_label(app: &MangoChatApp) -> (&'static str, Color32) {
 pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
     let p = theme_palette(true);
     let accent = app.current_accent();
-    let frame_overhead = 34.0;
-    let content_w = ui.available_width() - frame_overhead;
     let prev_transcription_mode = app.form.transcription_mode.clone();
     let prev_offline_engine = app.form.offline_engine.clone();
 
@@ -77,76 +75,82 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
         .rounding(6.0)
         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
         .show(ui, |ui| {
-            let control_w = content_w.min(320.0).max(180.0);
-
-            ui.label(
-                egui::RichText::new("Transcription source")
-                    .size(13.0)
-                    .color(TEXT_COLOR),
-            );
-            ui.add_space(4.0);
-            egui::ComboBox::from_id_salt("provider_transcription_mode_select")
-                .selected_text(match app.form.transcription_mode.as_str() {
-                    "offline" => "Local",
-                    _ => "Cloud",
-                })
-                .width(control_w)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut app.form.transcription_mode,
-                        "cloud".to_string(),
-                        "Cloud",
+            egui::Grid::new("provider_source_grid")
+                .num_columns(2)
+                .spacing([16.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Transcription source")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
                     );
-                    ui.selectable_value(
-                        &mut app.form.transcription_mode,
-                        "offline".to_string(),
-                        "Local",
-                    );
-                });
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new(
-                    "Cloud uses your API-backed providers. Local uses an embedded engine.",
-                )
-                .size(12.0)
-                .color(TEXT_MUTED),
-            );
-
-            if app.form.transcription_mode == "offline" {
-                ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new("Local engine")
-                        .size(13.0)
-                        .color(TEXT_COLOR),
-                );
-                ui.add_space(4.0);
-                egui::ComboBox::from_id_salt("provider_offline_engine_select")
-                    .selected_text(match app.form.offline_engine.as_str() {
-                        "moonshine" => "Moonshine",
-                        _ => "Whisper.cpp",
-                    })
-                    .width(control_w)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut app.form.offline_engine,
-                            "whisper".to_string(),
-                            "Whisper.cpp",
-                        );
-                        ui.selectable_value(
-                            &mut app.form.offline_engine,
-                            "moonshine".to_string(),
-                            "Moonshine",
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("provider_transcription_mode_select")
+                            .selected_text(match app.form.transcription_mode.as_str() {
+                                "offline" => "Local",
+                                _ => "Cloud",
+                            })
+                            .width(180.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut app.form.transcription_mode,
+                                    "cloud".to_string(),
+                                    "Cloud",
+                                );
+                                ui.selectable_value(
+                                    &mut app.form.transcription_mode,
+                                    "offline".to_string(),
+                                    "Local",
+                                );
+                            });
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Cloud uses your API-backed providers. Local uses an embedded engine.",
+                            )
+                            .size(12.0)
+                            .color(TEXT_MUTED),
                         );
                     });
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(
-                        "Whisper.cpp is the recommended local default right now. Moonshine remains available for comparison.",
-                    )
-                    .size(12.0)
-                    .color(TEXT_MUTED),
-                );
-            }
+                    ui.end_row();
+
+                    ui.label(
+                        egui::RichText::new("Local engine")
+                            .size(13.0)
+                            .color(TEXT_COLOR),
+                    );
+                    ui.add_enabled_ui(app.form.transcription_mode == "offline", |ui| {
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("provider_offline_engine_select")
+                                .selected_text(match app.form.offline_engine.as_str() {
+                                    "moonshine" => "Moonshine",
+                                    _ => "Whisper.cpp",
+                                })
+                                .width(180.0)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut app.form.offline_engine,
+                                        "whisper".to_string(),
+                                        "Whisper.cpp",
+                                    );
+                                    ui.selectable_value(
+                                        &mut app.form.offline_engine,
+                                        "moonshine".to_string(),
+                                        "Moonshine",
+                                    );
+                                });
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(
+                                    "Whisper.cpp is the recommended local default right now. Moonshine remains available for comparison.",
+                                )
+                                .size(12.0)
+                                .color(TEXT_MUTED),
+                            );
+                        });
+                    });
+                    ui.end_row();
+                });
         });
 
     ui.add_space(10.0);
@@ -188,6 +192,8 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 );
             });
     } else {
+        // Subtract frame overhead so rows have even left/right margins.
+        let frame_overhead = 34.0;
         let total_w = ui.available_width() - frame_overhead;
         let provider_w = 220.0;
         let validate_w = 92.0;
