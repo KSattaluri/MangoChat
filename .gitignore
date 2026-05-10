@@ -33,8 +33,6 @@ secrets.json
 RELEASE_RUNBOOK.local.md
 release-process.local.md
 *.local.md
-.models/
-.native-build/
 
 # Tauri / Rust
 target/

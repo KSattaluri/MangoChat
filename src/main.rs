@@ -5,7 +5,6 @@ mod diagnostics;
 mod audio;
 mod hotkey;
 mod headset;
-mod local_stt;
 mod provider;
 mod settings;
 mod secrets;

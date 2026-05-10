@@ -478,32 +478,23 @@ impl MangoChatApp {
         if self.is_recording {
             return;
         }
-        let offline_mode = self.settings.transcription_mode == "offline";
-        if offline_mode {
-            if let Err(e) = crate::local_stt::check_offline_ready(&self.settings.offline_engine) {
-                self.set_status(&e, "error");
-                return;
+        let provider_selected = !self.settings.provider.trim().is_empty();
+        let selected_provider_has_key = provider_selected
+            && !self
+                .settings
+                .api_key_for(&self.settings.provider)
+                .trim()
+                .is_empty();
+        if !selected_provider_has_key {
+            if self.settings.has_any_api_key() {
+                self.set_status(
+                    "Select a default provider with an API key in Settings",
+                    "idle",
+                );
+            } else {
+                self.set_status("Set up provider keys in Settings", "idle");
             }
-        }
-        if !offline_mode {
-            let provider_selected = !self.settings.provider.trim().is_empty();
-            let selected_provider_has_key = provider_selected
-                && !self
-                    .settings
-                    .api_key_for(&self.settings.provider)
-                    .trim()
-                    .is_empty();
-            if !selected_provider_has_key {
-                if self.settings.has_any_api_key() {
-                    self.set_status(
-                        "Select a default provider with an API key in Settings",
-                        "idle",
-                    );
-                } else {
-                    self.set_status("Set up provider keys in Settings", "idle");
-                }
-                return;
-            }
+            return;
         }
         let unavailable_now = self.selected_mic_unavailable_now();
         self.selected_mic_unavailable = unavailable_now;
@@ -531,32 +522,18 @@ impl MangoChatApp {
             *active = true;
         }
 
-        let current_key = if offline_mode {
-            String::new()
-        } else {
-            self.settings
-                .api_key_for(&self.settings.provider)
-                .to_string()
-        };
-        let provider = if offline_mode {
-            None
-        } else {
-            Some(crate::provider::create_provider(&self.settings.provider))
-        };
-        let provider_settings = provider.as_ref().map(|_| crate::provider::ProviderSettings {
+        let provider = crate::provider::create_provider(&self.settings.provider);
+        let current_key = self
+            .settings
+            .api_key_for(&self.settings.provider)
+            .to_string();
+        let provider_settings = crate::provider::ProviderSettings {
             api_key: current_key.clone(),
             model: self.settings.model.clone(),
             transcription_model: self.settings.transcription_model.clone(),
             language: self.settings.language.clone(),
-        });
-        let sample_rate = if offline_mode {
-            crate::local_stt::OFFLINE_SAMPLE_RATE
-        } else {
-            provider
-                .as_ref()
-                .map(|p| p.sample_rate_hint())
-                .unwrap_or(24_000)
         };
+        let sample_rate = provider.sample_rate_hint();
 
         let mic = if self.settings.mic_device.is_empty() {
             None
@@ -595,36 +572,23 @@ impl MangoChatApp {
             });
         });
 
-        if !offline_mode && current_key.is_empty() {
+        if current_key.is_empty() {
             self.set_status("Listening (no API key)", "live");
             return;
         }
 
         let gen = self.state.session_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let now = now_ms();
-        let session_provider = if offline_mode {
-            self.settings.offline_engine.clone()
-        } else {
-            self.settings.provider.clone()
-        };
-        let session_model = if offline_mode {
-            match self.settings.offline_engine.as_str() {
-                "whisper" => "local-whisper".to_string(),
-                _ => "tiny-en".to_string(),
-            }
-        } else {
-            self.settings.model.clone()
-        };
         if let Ok(mut totals) = self.state.usage.lock() {
-            totals.provider = session_provider.clone();
-            totals.model = session_model.clone();
+            totals.provider = self.settings.provider.clone();
+            totals.model = self.settings.model.clone();
             totals.last_update_ms = now;
         }
         if let Ok(mut session) = self.state.session_usage.lock() {
             *session = crate::state::SessionUsage {
                 session_id: now,
-                provider: session_provider,
-                model: session_model,
+                provider: self.settings.provider.clone(),
+                model: self.settings.model.clone(),
                 bytes_sent: 0,
                 ms_sent: 0,
                 ms_suppressed: 0,
@@ -638,29 +602,17 @@ impl MangoChatApp {
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
         let inactivity_timeout_secs = self.settings.provider_inactivity_timeout_secs;
-        let offline_engine = self.settings.offline_engine.clone();
 
         self.runtime.spawn(async move {
-            if let Some(provider) = provider {
-                crate::provider::session::run_session(
-                    provider,
-                    event_tx,
-                    state_clone.clone(),
-                    provider_settings.expect("provider settings"),
-                    audio_rx,
-                    inactivity_timeout_secs,
-                )
-                .await;
-            } else {
-                crate::local_stt::run_session(
-                    &offline_engine,
-                    event_tx,
-                    state_clone.clone(),
-                    audio_rx,
-                    inactivity_timeout_secs,
-                )
-                .await;
-            }
+            crate::provider::session::run_session(
+                provider,
+                event_tx,
+                state_clone.clone(),
+                provider_settings,
+                audio_rx,
+                inactivity_timeout_secs,
+            )
+            .await;
 
             if state_clone.session_gen.load(Ordering::SeqCst) == gen {
                 if let Ok(mut active) = state_clone.session_active.lock() {
@@ -673,14 +625,7 @@ impl MangoChatApp {
             }
         });
 
-        self.set_status(
-            if offline_mode {
-                "Starting offline..."
-            } else {
-                "Connecting..."
-            },
-            "live",
-        );
+        self.set_status("Connecting...", "live");
     }
 
     fn stop_recording(&mut self) {
@@ -918,8 +863,7 @@ impl MangoChatApp {
                     let text_color;
                     let display_text;
                     let use_sparkle_icon;
-                    let missing_provider_keys = self.settings.transcription_mode != "offline"
-                        && !self.settings.has_any_api_key();
+                    let missing_provider_keys = !self.settings.has_any_api_key();
                     let update_available =
                         matches!(self.update_state, UpdateUiState::Available { .. });
                     let trim_for_row = |text: String| -> String {
@@ -943,19 +887,11 @@ impl MangoChatApp {
                             &self.settings.mic_device
                         };
                         let msg_device = trim_for_row(format!("Listening: {}", dev));
-                        let msg_backend = if self.settings.transcription_mode == "offline" {
-                            let engine = match self.settings.offline_engine.as_str() {
-                                "whisper" => "Whisper.cpp",
-                                _ => "Moonshine",
-                            };
-                            format!("Offline engine: {engine}")
-                        } else {
-                            format!(
-                                "Provider: {}",
-                                MangoChatApp::provider_display_name(&self.settings.provider)
-                            )
-                        };
-                        let mut messages = vec![msg_device, msg_backend];
+                        let msg_provider = format!(
+                            "Provider: {}",
+                            MangoChatApp::provider_display_name(&self.settings.provider)
+                        );
+                        let mut messages = vec![msg_device, msg_provider];
                         if update_available {
                             messages.push("Newer version available (see Settings)".to_string());
                         }
@@ -1123,9 +1059,8 @@ impl MangoChatApp {
                                 .api_key_for(&self.settings.provider)
                                 .trim()
                                 .is_empty();
-                        let can_start_recording = self.is_recording
-                            || self.settings.transcription_mode == "offline"
-                            || selected_provider_has_key;
+                        let can_start_recording =
+                            self.is_recording || selected_provider_has_key;
                         let record_resp = ui
                             .add_enabled_ui(can_start_recording, |ui| {
                                 record_toggle(ui, self.is_recording, accent)
