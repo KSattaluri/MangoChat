@@ -125,53 +125,6 @@ fn whisper_model_path() -> PathBuf {
         .join(format!("ggml-{}.bin", WHISPER_MODEL_LABEL))
 }
 
-async fn load_whisper_runtime() -> Result<Arc<WhisperRuntime>, String> {
-    let model_path = whisper_model_path();
-    let threads = whisper_thread_count() as i32;
-    app_log!(
-        "[whisper] runtime starting: threads={} model={} path={}",
-        threads,
-        WHISPER_MODEL_LABEL,
-        model_path.display()
-    );
-    let runtime = tokio::task::spawn_blocking(move || WhisperRuntime::new(&model_path, threads))
-        .await
-        .map_err(|e| format!("Whisper runtime init join error: {}", e))??;
-    let runtime = Arc::new(runtime);
-    app_log!(
-        "[whisper] runtime ready: threads={} model={}",
-        threads,
-        WHISPER_MODEL_LABEL
-    );
-    Ok(runtime)
-}
-
-async fn get_or_init_whisper_runtime(state: &Arc<AppState>) -> Result<Arc<WhisperRuntime>, String> {
-    if let Ok(guard) = state.whisper_runtime.lock() {
-        if let Some(runtime) = guard.as_ref() {
-            return Ok(runtime.clone());
-        }
-    }
-
-    let runtime = load_whisper_runtime().await?;
-
-    let mut guard = state
-        .whisper_runtime
-        .lock()
-        .map_err(|_| "Whisper runtime cache lock poisoned".to_string())?;
-    if let Some(existing) = guard.as_ref() {
-        Ok(existing.clone())
-    } else {
-        *guard = Some(runtime.clone());
-        Ok(runtime)
-    }
-}
-
-pub async fn preload_whisper_runtime(state: Arc<AppState>) -> Result<(), String> {
-    let _ = get_or_init_whisper_runtime(&state).await?;
-    Ok(())
-}
-
 pub fn check_offline_ready(engine: &str) -> Result<(), String> {
     match engine {
         "moonshine" => {
@@ -699,7 +652,25 @@ async fn run_whisper_session(
     audio_rx: &mut mpsc::Receiver<Vec<u8>>,
     inactivity_timeout_secs: u64,
 ) -> Result<(), String> {
-    let runtime = get_or_init_whisper_runtime(&state).await?;
+    let model_path = whisper_model_path();
+    let threads = whisper_thread_count() as i32;
+    app_log!(
+        "[whisper] runtime starting: threads={} model={} path={}",
+        threads,
+        WHISPER_MODEL_LABEL,
+        model_path.display()
+    );
+    let runtime = tokio::task::spawn_blocking(move || {
+        WhisperRuntime::new(&model_path, threads)
+    })
+    .await
+    .map_err(|e| format!("Whisper runtime init join error: {}", e))??;
+    let runtime = Arc::new(runtime);
+    app_log!(
+        "[whisper] runtime ready: threads={} model={}",
+        threads,
+        WHISPER_MODEL_LABEL
+    );
     emit_status(&event_tx, "live", "Listening (offline)");
 
     let provider = WHISPER_PROVIDER_ID;
@@ -807,6 +778,7 @@ async fn run_whisper_session(
         }
     }
 
+    drop(runtime);
     state.hotkey_recording.store(false, Ordering::SeqCst);
     Ok(())
 }

@@ -1,12 +1,11 @@
 use std::path::Path;
-use std::sync::Mutex;
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
 
 pub struct WhisperRuntime {
+    ctx: WhisperContext,
     threads: i32,
-    state: Mutex<WhisperState>,
 }
 
 impl WhisperRuntime {
@@ -16,20 +15,14 @@ impl WhisperRuntime {
             .ok_or_else(|| "Whisper model path is not valid UTF-8".to_string())?;
         let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
             .map_err(|e| format!("Failed to load Whisper model: {}", e))?;
-        let state = ctx
-            .create_state()
-            .map_err(|e| format!("Failed to create Whisper state: {}", e))?;
-        Ok(Self {
-            threads,
-            state: Mutex::new(state),
-        })
+        Ok(Self { ctx, threads })
     }
 
     pub fn transcribe(&self, samples: &[f32]) -> Result<String, String> {
         let mut state = self
-            .state
-            .lock()
-            .map_err(|_| "Whisper state lock poisoned".to_string())?;
+            .ctx
+            .create_state()
+            .map_err(|e| format!("Failed to create Whisper state: {}", e))?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(Some("en"));
