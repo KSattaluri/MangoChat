@@ -311,11 +311,8 @@ async fn run_whisper_session(
 
     let provider = WHISPER_PROVIDER_ID;
     let model = WHISPER_MODEL_LABEL;
-    let inactivity_timeout_ms = if inactivity_timeout_secs == 0 {
-        None
-    } else {
-        Some(inactivity_timeout_secs.clamp(5, 300).saturating_mul(1000))
-    };
+    let inactivity_timeout_secs = inactivity_timeout_secs.clamp(5, 300);
+    let inactivity_timeout_ms = inactivity_timeout_secs.saturating_mul(1000);
     let mut last_activity_ms = now_ms();
     let mut inactivity_check = tokio::time::interval(Duration::from_secs(1));
     inactivity_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -375,14 +372,12 @@ async fn run_whisper_session(
                 utterance_pcm.extend_from_slice(&chunk);
             }
             _ = inactivity_check.tick() => {
-                if let Some(inactivity_timeout_ms) = inactivity_timeout_ms {
-                    let idle_for_ms = now_ms().saturating_sub(last_activity_ms);
-                    if idle_for_ms >= inactivity_timeout_ms {
-                        let _ = event_tx.send(AppEvent::SessionInactivityTimeout {
-                            seconds: inactivity_timeout_secs,
-                        });
-                        break;
-                    }
+                let idle_for_ms = now_ms().saturating_sub(last_activity_ms);
+                if idle_for_ms >= inactivity_timeout_ms {
+                    let _ = event_tx.send(AppEvent::SessionInactivityTimeout {
+                        seconds: inactivity_timeout_secs,
+                    });
+                    break;
                 }
             }
         }

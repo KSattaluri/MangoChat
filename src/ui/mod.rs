@@ -604,19 +604,17 @@ impl MangoChatApp {
         }
 
         self.recording_limit_token = self.recording_limit_token.saturating_add(1);
-        if !offline_mode {
-            let limit_token = self.recording_limit_token;
-            let max_minutes = self.settings.max_session_length_minutes.clamp(1, 120);
-            let max_duration = Duration::from_secs(max_minutes.saturating_mul(60));
-            let max_event_tx = self.event_tx.clone();
-            self.runtime.spawn(async move {
-                tokio::time::sleep(max_duration).await;
-                let _ = max_event_tx.send(AppEvent::SessionMaxDurationReached {
-                    token: limit_token,
-                    minutes: max_minutes,
-                });
+        let limit_token = self.recording_limit_token;
+        let max_minutes = self.settings.max_session_length_minutes.clamp(1, 120);
+        let max_duration = Duration::from_secs(max_minutes.saturating_mul(60));
+        let max_event_tx = self.event_tx.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(max_duration).await;
+            let _ = max_event_tx.send(AppEvent::SessionMaxDurationReached {
+                token: limit_token,
+                minutes: max_minutes,
             });
-        }
+        });
 
         if !offline_mode && current_key.is_empty() {
             self.set_status("Listening (no API key)", "live");
@@ -663,11 +661,7 @@ impl MangoChatApp {
 
         let event_tx = self.event_tx.clone();
         let state_clone = self.state.clone();
-        let inactivity_timeout_secs = if offline_mode {
-            0
-        } else {
-            self.settings.provider_inactivity_timeout_secs
-        };
+        let inactivity_timeout_secs = self.settings.provider_inactivity_timeout_secs;
 
         self.runtime.spawn(async move {
             if let Some(provider) = provider {
@@ -728,13 +722,6 @@ impl MangoChatApp {
             *active = false;
         }
         self.state.hotkey_recording.store(false, Ordering::SeqCst);
-
-        if self.settings.transcription_mode == "offline" {
-            let _ = crate::local_stt::unload_whisper_runtime(
-                &self.state,
-                "recording_stopped",
-            );
-        }
 
         if let Ok(mut data) = self.state.fft_data.lock() {
             *data = [0.0; 50];
