@@ -32,7 +32,20 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\mangochat.exe
-SetupIconFile=..\\icons\\icon.ico
+SetupIconFile=..\icons\mango.ico
+MinVersion=10.0
+; The in-app updater waits for the old process to exit before running this installer
+; silently, then relaunches the app itself. Do not let Inno relaunch it a second time.
+CloseApplications=force
+RestartApplications=no
+AppCopyright=Copyright (C) Kalyan Sattaluri
+VersionInfoCompany=Mango Chat
+VersionInfoProductName={#MyAppName}
+VersionInfoProductTextVersion={#MyAppVersion}
+#if Pos("-", MyAppVersion) == 0
+VersionInfoVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppVersion}
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
