@@ -5,12 +5,38 @@ use crate::ui::theme::*;
 use crate::ui::widgets::*;
 use crate::ui::MangoChatApp;
 
+/// OpenAI transcription models offered in the picker, with a short cost/latency hint.
+const OPENAI_TRANSCRIBE_CHOICES: &[(&str, &str)] = &[
+    ("gpt-transcribe", "gpt-transcribe - standard, lower cost"),
+    (
+        "gpt-live-transcribe",
+        "gpt-live-transcribe - lowest latency, ~4x cost",
+    ),
+];
+
+/// AssemblyAI streaming speech models offered in the picker.
+const ASSEMBLYAI_MODEL_CHOICES: &[(&str, &str)] = &[
+    ("universal-streaming-english", "English - $0.15/hr"),
+    ("universal-streaming-multilingual", "Multilingual - $0.15/hr"),
+    ("universal-3-5-pro", "Universal-3.5 Pro - $0.45/hr"),
+];
+
+fn choice_label(choices: &[(&'static str, &'static str)], value: &str) -> &'static str {
+    choices
+        .iter()
+        .find(|(id, _)| *id == value)
+        .map(|(_, label)| *label)
+        .unwrap_or_else(|| choices[0].1)
+}
+
 fn provider_model_label(app: &MangoChatApp, provider_id: &str) -> String {
     match provider_id {
-        "openai" => app.form.model.clone(),
+        // The realtime transcription session takes no speech-to-speech model,
+        // so the transcription model is what matters here.
+        "openai" => app.form.transcription_model.clone(),
         "deepgram" => "nova-3".to_string(),
         "elevenlabs" => "scribe_v2_realtime".to_string(),
-        "assemblyai" => "Universal Streaming v3".to_string(),
+        "assemblyai" => app.form.assemblyai_speech_model.clone(),
         _ => "-".to_string(),
     }
 }
@@ -287,12 +313,16 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                             crate::provider::create_provider(&provider_id);
                         let provider_settings = crate::provider::ProviderSettings {
                             api_key: key_value.clone(),
-                            model: app.form.model.clone(),
-                            transcription_model: app
-                                .settings
-                                .transcription_model
-                                .clone(),
+                            transcription_model: app.form.transcription_model.clone(),
                             language: app.form.language.clone(),
+                            openai_transcribe_delay: app
+                                .settings
+                                .openai_transcribe_delay
+                                .clone(),
+                            assemblyai_speech_model: app
+                                .form
+                                .assemblyai_speech_model
+                                .clone(),
                         };
                         let event_tx = app.event_tx.clone();
                         let validated_provider_id = provider_id.clone();
@@ -353,6 +383,58 @@ pub fn render(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Context) {
                 });
             });
         ui.add_space(3.0);
+    }
+
+    // Model picker for the selected default provider (only the providers that
+    // expose a choice).
+    if app.form.provider == "openai" || app.form.provider == "assemblyai" {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.add_space(row_pad_x);
+            ui.label(
+                egui::RichText::new(if app.form.provider == "openai" {
+                    "Transcription model"
+                } else {
+                    "Speech model"
+                })
+                .size(13.0)
+                .color(p.text_muted),
+            );
+            ui.add_space(col_gap);
+            if app.form.provider == "openai" {
+                egui::ComboBox::from_id_salt("openai_transcription_model_select")
+                    .selected_text(choice_label(
+                        OPENAI_TRANSCRIBE_CHOICES,
+                        &app.form.transcription_model,
+                    ))
+                    .width(280.0)
+                    .show_ui(ui, |ui| {
+                        for (id, label) in OPENAI_TRANSCRIBE_CHOICES {
+                            ui.selectable_value(
+                                &mut app.form.transcription_model,
+                                (*id).to_string(),
+                                *label,
+                            );
+                        }
+                    });
+            } else {
+                egui::ComboBox::from_id_salt("assemblyai_speech_model_select")
+                    .selected_text(choice_label(
+                        ASSEMBLYAI_MODEL_CHOICES,
+                        &app.form.assemblyai_speech_model,
+                    ))
+                    .width(280.0)
+                    .show_ui(ui, |ui| {
+                        for (id, label) in ASSEMBLYAI_MODEL_CHOICES {
+                            ui.selectable_value(
+                                &mut app.form.assemblyai_speech_model,
+                                (*id).to_string(),
+                                *label,
+                            );
+                        }
+                    });
+            }
+        });
     }
 
     if let Some(provider_id) = app.last_validated_provider.as_ref() {

@@ -8,10 +8,10 @@ Mango Chat is a native Rust desktop app that streams microphone audio to your se
 
 - Native Windows app (Rust + egui), low memory footprint
 - Multi-provider speech-to-text support:
-  - OpenAI Realtime
-  - Deepgram
-  - ElevenLabs Realtime
-  - AssemblyAI
+  - OpenAI Realtime (`gpt-transcribe`, `gpt-live-transcribe`)
+  - Deepgram (`nova-3`)
+  - ElevenLabs Realtime (`scribe_v2_realtime`)
+  - AssemblyAI (Universal Streaming v3: English, multilingual, or Universal-3.5 Pro)
 - Local VAD (voice activity detection) to suppress silence before upload
 - Built-in + custom voice commands
 - Screenshot/snip workflow with clipboard modes

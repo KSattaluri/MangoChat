@@ -115,13 +115,20 @@ fn reconnect_delay_ms(attempt: u32) -> u64 {
     (RECONNECT_BASE_MS.saturating_mul(factor)).min(RECONNECT_MAX_MS)
 }
 
+/// HTTP statuses that will never succeed on retry: bad credentials (401/403)
+/// and bad request/endpoint (400/404, e.g. a removed model or parameter).
+/// Retrying those just burns the backoff budget before failing anyway.
+const PERMANENT_CONNECT_STATUSES: &[u16] = &[400, 401, 403, 404];
+
 fn is_permanent_connect_error(err: &tungstenite::Error) -> bool {
     match err {
         tungstenite::Error::Http(resp) => {
-            let code = resp.status().as_u16();
-            code == 401 || code == 403
+            PERMANENT_CONNECT_STATUSES.contains(&resp.status().as_u16())
         }
         _ => {
+            // Text fallback is kept to the pre-existing auth codes only. "400"/"404"
+            // are common substrings (byte counts, ports) and a false positive here
+            // would abort a healthy session with no retry.
             let text = err.to_string();
             text.contains("401") || text.contains("403")
         }
@@ -252,7 +259,7 @@ pub async fn run_session(
                 emit_status(
                     &event_tx,
                     "error",
-                    &format!("Authentication failed: {}", e),
+                    &format!("Provider rejected the connection: {}", e),
                 );
                 return;
             }
@@ -807,5 +814,57 @@ pub async fn run_session(
         return;
     }
     tokio::time::sleep(Duration::from_millis(RECONNECT_BASE_MS)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn http_error(status: u16) -> tungstenite::Error {
+        let response = tungstenite::http::Response::builder()
+            .status(status)
+            .body(None)
+            .expect("response");
+        tungstenite::Error::Http(response)
+    }
+
+    #[test]
+    fn auth_and_bad_request_statuses_are_permanent() {
+        for status in [400, 401, 403, 404] {
+            assert!(
+                is_permanent_connect_error(&http_error(status)),
+                "{} should be permanent",
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn text_fallback_only_matches_auth_codes() {
+        let io = |msg: &str| tungstenite::Error::Io(std::io::Error::other(msg.to_string()));
+        assert!(is_permanent_connect_error(&io("server replied 401 Unauthorized")));
+        assert!(is_permanent_connect_error(&io("403 Forbidden")));
+        // "400"/"404" as loose substrings must NOT abort a session.
+        assert!(!is_permanent_connect_error(&io("read 40400 bytes before reset")));
+        assert!(!is_permanent_connect_error(&io("connection reset on port 8400")));
+    }
+
+    #[test]
+    fn transient_statuses_are_retried() {
+        for status in [429, 500, 502, 503] {
+            assert!(
+                !is_permanent_connect_error(&http_error(status)),
+                "{} should be retried",
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn reconnect_delay_grows_and_is_capped() {
+        assert_eq!(reconnect_delay_ms(1), RECONNECT_BASE_MS);
+        assert_eq!(reconnect_delay_ms(2), RECONNECT_BASE_MS * 2);
+        assert_eq!(reconnect_delay_ms(20), RECONNECT_MAX_MS);
     }
 }

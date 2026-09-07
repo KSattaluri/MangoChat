@@ -111,7 +111,7 @@ fn main() {
             usage.provider = settings.provider.clone();
         }
         if usage.model.is_empty() {
-            usage.model = settings.model.clone();
+            usage.model = settings.effective_model();
         }
     }
 

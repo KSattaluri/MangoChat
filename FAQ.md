@@ -34,7 +34,7 @@ Use `Open images folder` in Settings to open the active screenshot directory.
 It depends on the chosen provider and model. Pricing is typically per second or per hour. Deepgram and AssemblyAI often provide free trial credits; check their sites for current details.
 
 ## Which providers are supported?
-Deepgram, OpenAI Realtime, ElevenLabs Realtime, and AssemblyAI.
+Deepgram (`nova-3`), OpenAI Realtime (`gpt-transcribe` or `gpt-live-transcribe`), ElevenLabs Realtime (`scribe_v2_realtime`), and AssemblyAI (Universal Streaming v3: English, multilingual, or Universal-3.5 Pro).
 
 ## Can I customize commands and aliases?
 Yes. You can edit browser commands, text aliases, and app locations from the Commands tab.

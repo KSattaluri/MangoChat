@@ -15,6 +15,8 @@ pub enum ProviderEvent {
     /// Final transcript text (triggers typing).
     TranscriptFinal(String),
     /// Send a control message back through the WebSocket.
+    /// Part of the provider extension API; no provider currently emits it.
+    #[allow(dead_code)]
     SendControl(Value),
     /// Provider-level error.
     Error(String),
@@ -48,6 +50,8 @@ pub enum CommitMessage {
     /// Send a JSON message to commit the buffer.
     Json(Value),
     /// No commit control message; rely on provider/server-side endpointing.
+    /// Part of the provider extension API; no provider currently selects it.
+    #[allow(dead_code)]
     None,
 }
 
@@ -82,9 +86,12 @@ pub struct ConnectionConfig {
 #[derive(Debug, Clone)]
 pub struct ProviderSettings {
     pub api_key: String,
-    pub model: String,
     pub transcription_model: String,
     pub language: String,
+    /// OpenAI `gpt-live-transcribe` latency knob: "" | minimal | low | medium | high | xhigh.
+    pub openai_transcribe_delay: String,
+    /// AssemblyAI streaming speech model (see settings::ASSEMBLYAI_SPEECH_MODELS).
+    pub assemblyai_speech_model: String,
 }
 
 /// Trait that each STT provider implements.
@@ -108,6 +115,90 @@ pub fn create_provider(id: &str) -> Arc<dyn SttProvider> {
         "deepgram" => Arc::new(deepgram::DeepgramProvider::new()),
         "elevenlabs" => Arc::new(elevenlabs::ElevenLabsProvider),
         "assemblyai" => Arc::new(assemblyai::AssemblyAiProvider::new()),
-        _ => Arc::new(openai::OpenAiProvider),
+        _ => Arc::new(openai::OpenAiProvider::new()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Deepgram's parse_event is exercised from here so deepgram.rs itself
+    /// stays untouched. These assert current behavior only.
+    mod deepgram_parse {
+        use super::*;
+
+        fn results(transcript: &str, is_final: bool, speech_final: bool) -> String {
+            format!(
+                r#"{{"type":"Results","is_final":{},"speech_final":{},"channel":{{"alternatives":[{{"transcript":"{}"}}]}}}}"#,
+                is_final, speech_final, transcript
+            )
+        }
+
+        #[test]
+        fn interim_results_are_deltas() {
+            let provider = deepgram::DeepgramProvider::new();
+            let events = provider.parse_event(&results("hello", false, false));
+            assert!(matches!(
+                events.as_slice(),
+                [ProviderEvent::TranscriptDelta(t)] if t == "hello"
+            ));
+        }
+
+        #[test]
+        fn interim_preview_includes_locked_in_segments() {
+            let provider = deepgram::DeepgramProvider::new();
+            assert!(matches!(
+                provider
+                    .parse_event(&results("hello", true, false))
+                    .as_slice(),
+                [ProviderEvent::Ignore]
+            ));
+            let events = provider.parse_event(&results("world", false, false));
+            assert!(matches!(
+                events.as_slice(),
+                [ProviderEvent::TranscriptDelta(t)] if t == "hello world"
+            ));
+        }
+
+        #[test]
+        fn segments_accumulate_until_speech_final() {
+            let provider = deepgram::DeepgramProvider::new();
+            assert!(matches!(
+                provider
+                    .parse_event(&results("hello", true, false))
+                    .as_slice(),
+                [ProviderEvent::Ignore]
+            ));
+            let events = provider.parse_event(&results("world", true, true));
+            assert!(matches!(
+                events.as_slice(),
+                [ProviderEvent::TranscriptFinal(t)] if t == "hello world"
+            ));
+        }
+
+        #[test]
+        fn utterance_end_flushes_pending_segments() {
+            let provider = deepgram::DeepgramProvider::new();
+            assert!(matches!(
+                provider
+                    .parse_event(&results("hello", true, false))
+                    .as_slice(),
+                [ProviderEvent::Ignore]
+            ));
+            let events = provider.parse_event(r#"{"type":"UtteranceEnd"}"#);
+            assert!(matches!(
+                events.as_slice(),
+                [ProviderEvent::Status(_), ProviderEvent::TranscriptFinal(t)] if t == "hello"
+            ));
+            // Buffer is drained: a second UtteranceEnd emits status only.
+            assert_eq!(provider.parse_event(r#"{"type":"UtteranceEnd"}"#).len(), 1);
+        }
+
+        #[test]
+        fn flush_returns_nothing_when_no_segments() {
+            let provider = deepgram::DeepgramProvider::new();
+            assert!(provider.flush().is_empty());
+        }
     }
 }

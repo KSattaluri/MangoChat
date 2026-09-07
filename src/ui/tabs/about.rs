@@ -439,7 +439,7 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                 ),
                 (
                     "Which providers are supported?",
-                    "Deepgram, OpenAI Realtime, ElevenLabs Realtime, and AssemblyAI.",
+                    "Deepgram (nova-3), OpenAI Realtime (gpt-transcribe or gpt-live-transcribe), ElevenLabs Realtime (scribe_v2_realtime), and AssemblyAI (Universal Streaming v3).",
                 ),
                 (
                     "Can I customize commands and aliases?",

@@ -8,7 +8,8 @@ use super::window::WINDOW_MONITOR_MODE_FIXED;
 pub struct FormState {
     pub provider: String,
     pub api_keys: HashMap<String, String>,
-    pub model: String,
+    pub transcription_model: String,
+    pub assemblyai_speech_model: String,
     pub language: String,
     pub mic: String,
     pub vad_mode: String,
@@ -46,7 +47,8 @@ impl FormState {
         Self {
             provider: settings.provider.clone(),
             api_keys,
-            model: settings.model.clone(),
+            transcription_model: settings.transcription_model.clone(),
+            assemblyai_speech_model: settings.assemblyai_speech_model.clone(),
             language: settings.language.clone(),
             mic: settings.mic_device.clone(),
             vad_mode: settings.vad_mode.clone(),
@@ -86,6 +88,8 @@ impl FormState {
                 .unwrap_or_default();
             settings.set_api_key(provider_id, value);
         }
+        settings.transcription_model = self.transcription_model.clone();
+        settings.assemblyai_speech_model = self.assemblyai_speech_model.clone();
         settings.mic_device = self.mic.clone();
         settings.vad_mode = self.vad_mode.clone();
         settings.session_hotkey_enabled = self.session_hotkey_enabled;

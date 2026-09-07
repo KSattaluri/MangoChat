@@ -432,6 +432,14 @@ fn wait_for_pid_exit(pid: u32) {
 #[cfg(not(windows))]
 fn wait_for_pid_exit(_pid: u32) {}
 
+/// Temp-dir leftovers the updater is responsible for: the downloaded installer
+/// and the copy of the app exe used as the update helper (see
+/// `schedule_silent_install_and_relaunch`), which nothing else deletes.
+fn is_stale_temp_artifact_name(name: &str) -> bool {
+    name.ends_with(".exe")
+        && (name.starts_with("MangoChat-Setup-") || name.starts_with("mangochat-updater-helper-"))
+}
+
 pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String> {
     let dir = std::env::temp_dir();
     let now = SystemTime::now();
@@ -445,7 +453,7 @@ pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String>
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if !(name.starts_with("MangoChat-Setup-") && name.ends_with(".exe")) {
+        if !is_stale_temp_artifact_name(name) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
@@ -466,4 +474,71 @@ pub fn cleanup_stale_temp_installers(max_age_days: u64) -> Result<usize, String>
         }
     }
     Ok(removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_tag_version_accepts_v_prefix_and_plain() {
+        assert_eq!(parse_tag_version("v0.2.0"), Some(Version::new(0, 2, 0)));
+        assert_eq!(parse_tag_version(" 0.2.0 "), Some(Version::new(0, 2, 0)));
+        assert!(parse_tag_version("v0.2.0-rc.1").is_some());
+    }
+
+    #[test]
+    fn parse_tag_version_rejects_garbage() {
+        assert!(parse_tag_version("latest").is_none());
+        assert!(parse_tag_version("v1.2").is_none());
+        assert!(parse_tag_version("").is_none());
+    }
+
+    #[test]
+    fn to_github_releases_api_url_maps_release_pages() {
+        assert_eq!(
+            to_github_releases_api_url("https://github.com/KSattaluri/MangoChat/releases/latest"),
+            Some("https://api.github.com/repos/KSattaluri/MangoChat/releases?per_page=20".into())
+        );
+        assert_eq!(
+            to_github_releases_api_url("https://github.com/KSattaluri/MangoChat/releases/"),
+            Some("https://api.github.com/repos/KSattaluri/MangoChat/releases?per_page=20".into())
+        );
+    }
+
+    #[test]
+    fn to_github_releases_api_url_rejects_non_release_urls() {
+        assert!(to_github_releases_api_url("https://github.com/KSattaluri/MangoChat").is_none());
+        assert!(to_github_releases_api_url("https://example.com/releases").is_none());
+        assert!(to_github_releases_api_url("https://github.com//releases").is_none());
+    }
+
+    #[test]
+    fn stale_temp_artifacts_cover_installer_and_update_helper() {
+        assert!(is_stale_temp_artifact_name("MangoChat-Setup-0.2.0.exe"));
+        assert!(is_stale_temp_artifact_name(
+            "mangochat-updater-helper-1234-1757000000000.exe"
+        ));
+        // Not ours / not an exe.
+        assert!(!is_stale_temp_artifact_name("mangochat-updater-helper.log"));
+        assert!(!is_stale_temp_artifact_name("MangoChat-Setup-0.2.0.exe.tmp"));
+        assert!(!is_stale_temp_artifact_name("mangochat.exe"));
+        assert!(!is_stale_temp_artifact_name("SomeOtherInstaller.exe"));
+    }
+
+    #[test]
+    fn parse_sha256sums_handles_binary_marker_and_comments() {
+        let text = "# checksums\n\
+                    aa11  MangoChat-Setup-0.2.0.exe\n\
+                    BB22 *./MangoChat-Setup-0.1.20.exe\n\
+                    \n\
+                    malformed\n";
+        let map = parse_sha256sums(text);
+        assert_eq!(map.get("MangoChat-Setup-0.2.0.exe"), Some(&"aa11".to_string()));
+        assert_eq!(
+            map.get("MangoChat-Setup-0.1.20.exe"),
+            Some(&"bb22".to_string())
+        );
+        assert_eq!(map.len(), 2);
+    }
 }

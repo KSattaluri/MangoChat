@@ -127,7 +127,10 @@ impl MangoChatApp {
         }
     }
 
-    pub fn provider_form_dirty(&self) -> bool {
+    /// True when the default provider or any API key differs from what is
+    /// saved. These edits must be re-confirmed with an explicit default-provider
+    /// selection before Save is enabled.
+    pub fn provider_credentials_dirty(&self) -> bool {
         if self.form.provider != self.settings.provider {
             return true;
         }
@@ -144,6 +147,15 @@ impl MangoChatApp {
             }
         }
         false
+    }
+
+    pub fn provider_form_dirty(&self) -> bool {
+        // The provider tab also owns the per-provider model pickers. Without
+        // them the Save button stays an "Exit" button and a model change is
+        // silently discarded when the panel closes.
+        self.provider_credentials_dirty()
+            || self.form.transcription_model != self.settings.transcription_model
+            || self.form.assemblyai_speech_model != self.settings.assemblyai_speech_model
     }
 
     fn compact_window_width(&self) -> f32 {
@@ -529,9 +541,10 @@ impl MangoChatApp {
             .to_string();
         let provider_settings = crate::provider::ProviderSettings {
             api_key: current_key.clone(),
-            model: self.settings.model.clone(),
             transcription_model: self.settings.transcription_model.clone(),
             language: self.settings.language.clone(),
+            openai_transcribe_delay: self.settings.openai_transcribe_delay.clone(),
+            assemblyai_speech_model: self.settings.assemblyai_speech_model.clone(),
         };
         let sample_rate = provider.sample_rate_hint();
 
@@ -581,14 +594,14 @@ impl MangoChatApp {
         let now = now_ms();
         if let Ok(mut totals) = self.state.usage.lock() {
             totals.provider = self.settings.provider.clone();
-            totals.model = self.settings.model.clone();
+            totals.model = self.settings.effective_model();
             totals.last_update_ms = now;
         }
         if let Ok(mut session) = self.state.session_usage.lock() {
             *session = crate::state::SessionUsage {
                 session_id: now,
                 provider: self.settings.provider.clone(),
-                model: self.settings.model.clone(),
+                model: self.settings.effective_model(),
                 bytes_sent: 0,
                 ms_sent: 0,
                 ms_suppressed: 0,
@@ -1330,10 +1343,14 @@ impl MangoChatApp {
                                             .get(&self.form.provider)
                                             .map(|k| !k.trim().is_empty())
                                             .unwrap_or(false);
+                                        // Re-confirming the default provider is
+                                        // only required after a key/provider
+                                        // edit; a model-picker change is not.
+                                        let default_confirmed = self
+                                            .provider_default_explicitly_selected
+                                            || !self.provider_credentials_dirty();
                                         let save_enabled = if self.settings_tab == "provider" {
-                                            show_exit
-                                                || (default_key_present
-                                                    && self.provider_default_explicitly_selected)
+                                            show_exit || (default_key_present && default_confirmed)
                                         } else {
                                             true
                                         };
@@ -1371,8 +1388,7 @@ impl MangoChatApp {
                                             .inner;
                                         if self.settings_tab == "provider"
                                             && !show_exit
-                                            && !(default_key_present
-                                                && self.provider_default_explicitly_selected)
+                                            && !(default_key_present && default_confirmed)
                                         {
                                             save = save.on_hover_text(
                                                 "Select a default provider after entering an API key",

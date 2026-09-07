@@ -17,6 +17,12 @@ pub struct Settings {
     pub model: String,
     #[serde(default = "default_transcription_model")]
     pub transcription_model: String,
+    /// Latency knob for OpenAI `gpt-live-transcribe`.
+    /// "" (server default) | minimal | low | medium | high | xhigh.
+    #[serde(default)]
+    pub openai_transcribe_delay: String,
+    #[serde(default = "default_assemblyai_speech_model")]
+    pub assemblyai_speech_model: String,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -104,6 +110,19 @@ impl Settings {
             .unwrap_or("")
     }
 
+    /// Model name to display and record for the active provider. OpenAI runs a
+    /// realtime *transcription* session, so its transcription model is the one
+    /// that matters; `model` is no longer used by any provider.
+    pub fn effective_model(&self) -> String {
+        match self.provider.as_str() {
+            "openai" => self.transcription_model.clone(),
+            "deepgram" => "nova-3".to_string(),
+            "elevenlabs" => "scribe_v2_realtime".to_string(),
+            "assemblyai" => self.assemblyai_speech_model.clone(),
+            _ => String::new(),
+        }
+    }
+
     /// True when at least one provider key is configured.
     pub fn has_any_api_key(&self) -> bool {
         self.api_keys.values().any(|k| !k.trim().is_empty())
@@ -166,6 +185,8 @@ impl Default for Settings {
             api_key: String::new(),
             model: default_model(),
             transcription_model: default_transcription_model(),
+            openai_transcribe_delay: String::new(),
+            assemblyai_speech_model: default_assemblyai_speech_model(),
             language: default_language(),
             mic_device: String::new(),
             vad_mode: default_vad_mode(),
@@ -201,11 +222,53 @@ fn default_provider() -> String {
     String::new()
 }
 
+/// OpenAI transcription models supported on a Realtime transcription session.
+pub const OPENAI_TRANSCRIBE_MODELS: &[&str] = &["gpt-transcribe", "gpt-live-transcribe"];
+
+/// Valid `delay` values for `gpt-live-transcribe` ("" = server default).
+pub const OPENAI_TRANSCRIBE_DELAYS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+
+/// AssemblyAI v3 streaming speech models.
+pub const ASSEMBLYAI_SPEECH_MODELS: &[&str] = &[
+    "universal-streaming-english",
+    "universal-streaming-multilingual",
+    "universal-3-5-pro",
+];
+
+/// OpenAI speech-to-speech realtime models that are shut down or scheduled for
+/// shutdown. MangoChat no longer uses an S2S model at all, so these are cleared.
+const DEAD_OPENAI_REALTIME_MODELS: &[&str] = &[
+    "gpt-4o-realtime-preview",
+    "gpt-4o-realtime-preview-2025-06-03",
+    "gpt-4o-realtime-preview-2024-12-17",
+    "gpt-4o-mini-realtime-preview",
+    "gpt-realtime",
+    "gpt-realtime-1.5",
+    "gpt-realtime-mini",
+    "gpt-4o-realtime",
+    "gpt-4o-mini-realtime",
+];
+
+/// Deprecated OpenAI transcription models that are not supported on a
+/// transcription session.
+const LEGACY_OPENAI_TRANSCRIBE_MODELS: &[&str] = &[
+    "whisper-1",
+    "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-mini-transcribe-2025-03-20",
+    "gpt-4o-mini-transcribe-2025-12-15",
+    "gpt-4o-transcribe-diarize",
+];
+
 fn default_model() -> String {
-    "gpt-4o-realtime-preview".into()
+    // Transcription sessions take no speech-to-speech model.
+    String::new()
 }
 fn default_transcription_model() -> String {
-    "gpt-4o-mini-transcribe".into()
+    "gpt-transcribe".into()
+}
+fn default_assemblyai_speech_model() -> String {
+    "universal-streaming-english".into()
 }
 fn default_language() -> String {
     "en".into()
@@ -380,6 +443,18 @@ pub fn load() -> Settings {
     }
     settings.api_keys = resolved_api_keys;
 
+    // Rewriting a dead provider model must survive a crash before the next
+    // manual Save, so persist immediately when migrate() changed one.
+    if migrate(&mut settings) {
+        let _ = save_settings_without_api_keys(&settings);
+    }
+    settings
+}
+
+/// Normalize and migrate loaded settings in place. Does no file I/O so it can
+/// be unit tested. Returns true when a deprecated provider model was rewritten
+/// and the settings file should be re-saved.
+pub fn migrate(settings: &mut Settings) -> bool {
     // Migrate deprecated provider id.
     if settings.provider == "deepgram-flux" {
         settings.provider = "deepgram".into();
@@ -392,6 +467,43 @@ pub fn load() -> Settings {
     {
         settings.provider.clear();
     }
+
+    // --- Provider model migrations (2026-09 provider refresh) ---
+    let mut models_migrated = false;
+    // A Realtime transcription session takes no speech-to-speech model, so any
+    // leftover value is dropped.
+    if !settings.model.is_empty() {
+        if DEAD_OPENAI_REALTIME_MODELS.contains(&settings.model.as_str()) {
+            app_log!(
+                "[settings] dropping retired realtime model '{}'",
+                settings.model
+            );
+        } else {
+            app_log!(
+                "[settings] dropping unused realtime model '{}'",
+                settings.model
+            );
+        }
+        settings.model.clear();
+        models_migrated = true;
+    }
+    if LEGACY_OPENAI_TRANSCRIBE_MODELS.contains(&settings.transcription_model.as_str())
+        || !OPENAI_TRANSCRIBE_MODELS.contains(&settings.transcription_model.as_str())
+    {
+        settings.transcription_model = default_transcription_model();
+        models_migrated = true;
+    }
+    if !settings.openai_transcribe_delay.is_empty()
+        && !OPENAI_TRANSCRIBE_DELAYS.contains(&settings.openai_transcribe_delay.as_str())
+    {
+        settings.openai_transcribe_delay.clear();
+        models_migrated = true;
+    }
+    if !ASSEMBLYAI_SPEECH_MODELS.contains(&settings.assemblyai_speech_model.as_str()) {
+        settings.assemblyai_speech_model = default_assemblyai_speech_model();
+        models_migrated = true;
+    }
+
     // App is dark-theme only.
     settings.theme = default_theme();
     // App supports strict/lenient VAD only.
@@ -497,7 +609,7 @@ pub fn load() -> Settings {
         settings.provider_inactivity_timeout_secs.clamp(5, 300);
     settings.max_session_length_minutes = settings.max_session_length_minutes.clamp(1, 120);
     settings.update_feed_url_override = settings.update_feed_url_override.trim().to_string();
-    settings
+    models_migrated
 }
 
 pub fn save(settings: &Settings) -> Result<(), String> {
@@ -517,4 +629,127 @@ fn save_settings_without_api_keys(settings: &Settings) -> Result<(), String> {
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write settings: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A settings.json as written by v0.1.x.
+    fn legacy_settings_json() -> &'static str {
+        r#"{
+            "provider": "deepgram-flux",
+            "model": "gpt-4o-realtime-preview",
+            "transcription_model": "gpt-4o-mini-transcribe",
+            "language": "en",
+            "vad_mode": "off",
+            "theme": "light",
+            "start_cue": "audio9.wav"
+        }"#
+    }
+
+    fn parse(json: &str) -> Settings {
+        serde_json::from_str(json).expect("settings should deserialize")
+    }
+
+    #[test]
+    fn defaults_use_transcription_session_models() {
+        let settings = Settings::default();
+        assert_eq!(settings.model, "");
+        assert_eq!(settings.transcription_model, "gpt-transcribe");
+        assert_eq!(settings.assemblyai_speech_model, "universal-streaming-english");
+        assert_eq!(settings.openai_transcribe_delay, "");
+    }
+
+    #[test]
+    fn migrate_rewrites_legacy_openai_models_and_provider_id() {
+        let mut settings = parse(legacy_settings_json());
+        assert!(migrate(&mut settings), "migration should request a re-save");
+        assert_eq!(settings.provider, "deepgram");
+        assert_eq!(settings.model, "");
+        assert_eq!(settings.transcription_model, "gpt-transcribe");
+        // Unrelated normalizations still run.
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.vad_mode, "strict");
+        assert_eq!(settings.start_cue, "audio1.wav");
+    }
+
+    #[test]
+    fn migrate_clears_every_dead_realtime_model() {
+        for model in DEAD_OPENAI_REALTIME_MODELS {
+            let mut settings = Settings::default();
+            settings.model = (*model).to_string();
+            assert!(migrate(&mut settings), "{} should migrate", model);
+            assert_eq!(settings.model, "", "{} should be cleared", model);
+        }
+    }
+
+    #[test]
+    fn migrate_replaces_every_legacy_transcription_model() {
+        for model in LEGACY_OPENAI_TRANSCRIBE_MODELS {
+            let mut settings = Settings::default();
+            settings.transcription_model = (*model).to_string();
+            assert!(migrate(&mut settings), "{} should migrate", model);
+            assert_eq!(settings.transcription_model, "gpt-transcribe");
+        }
+    }
+
+    #[test]
+    fn migrate_whitelists_transcription_model() {
+        let mut settings = Settings::default();
+        settings.transcription_model = "some-future-model".into();
+        assert!(migrate(&mut settings));
+        assert_eq!(settings.transcription_model, "gpt-transcribe");
+
+        let mut settings = Settings::default();
+        settings.transcription_model = "gpt-live-transcribe".into();
+        assert!(!migrate(&mut settings), "supported model must be kept as-is");
+        assert_eq!(settings.transcription_model, "gpt-live-transcribe");
+    }
+
+    #[test]
+    fn migrate_whitelists_transcribe_delay() {
+        let mut settings = Settings::default();
+        settings.openai_transcribe_delay = "instant".into();
+        assert!(migrate(&mut settings));
+        assert_eq!(settings.openai_transcribe_delay, "");
+
+        for delay in OPENAI_TRANSCRIBE_DELAYS {
+            let mut settings = Settings::default();
+            settings.openai_transcribe_delay = (*delay).to_string();
+            assert!(!migrate(&mut settings), "{} should be kept", delay);
+            assert_eq!(settings.openai_transcribe_delay, *delay);
+        }
+    }
+
+    #[test]
+    fn migrate_whitelists_assemblyai_speech_model() {
+        let mut settings = Settings::default();
+        settings.assemblyai_speech_model = "universal-2".into();
+        assert!(migrate(&mut settings));
+        assert_eq!(settings.assemblyai_speech_model, "universal-streaming-english");
+
+        for model in ASSEMBLYAI_SPEECH_MODELS {
+            let mut settings = Settings::default();
+            settings.assemblyai_speech_model = (*model).to_string();
+            assert!(!migrate(&mut settings), "{} should be kept", model);
+            assert_eq!(settings.assemblyai_speech_model, *model);
+        }
+    }
+
+    #[test]
+    fn migrate_is_idempotent_and_quiet_on_current_settings() {
+        let mut settings = Settings::default();
+        settings.provider = "openai".into();
+        assert!(!migrate(&mut settings));
+        assert!(!migrate(&mut settings));
+    }
+
+    #[test]
+    fn migrate_clears_unknown_provider_id() {
+        let mut settings = Settings::default();
+        settings.provider = "nuance".into();
+        migrate(&mut settings);
+        assert_eq!(settings.provider, "");
+    }
 }

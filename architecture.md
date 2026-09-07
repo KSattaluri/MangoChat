@@ -60,6 +60,12 @@ Key point: execution is primarily local; only audio stream and provider protocol
 
 Mango Chat uses a provider abstraction so one UI/app flow can target multiple STT backends.
 
+Models in use per provider:
+- OpenAI Realtime: `gpt-transcribe` (default) or `gpt-live-transcribe`, on a Realtime transcription session (no speech-to-speech model)
+- Deepgram: `nova-3` on `/v1/listen`
+- ElevenLabs Realtime: `scribe_v2_realtime`
+- AssemblyAI: `universal-streaming-english` (default), `universal-streaming-multilingual`, or `universal-3-5-pro` on streaming v3
+
 Provider integrations vary by:
 - URL and auth headers
 - Audio wire format (binary vs JSON base64)
