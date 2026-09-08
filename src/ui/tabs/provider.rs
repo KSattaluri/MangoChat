@@ -16,6 +16,7 @@ const OPENAI_TRANSCRIBE_CHOICES: &[(&str, &str)] = &[
 
 /// AssemblyAI streaming speech models offered in the picker.
 const ASSEMBLYAI_MODEL_CHOICES: &[(&str, &str)] = &[
+    ("universal-3-6-pro", "Universal-3.6 Pro (latest, 32 languages)"),
     ("universal-streaming-english", "English - $0.15/hr"),
     ("universal-streaming-multilingual", "Multilingual - $0.15/hr"),
     ("universal-3-5-pro", "Universal-3.5 Pro - $0.45/hr"),

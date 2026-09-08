@@ -4,12 +4,14 @@ use super::{
 use serde_json::Value;
 use std::sync::Mutex;
 
-/// Model whose output is always formatted and which rejects the
-/// Universal-Streaming tuning parameters.
-const PRO_MODEL: &str = "universal-3-5-pro";
+/// Universal-3.x Pro models always format their output and reject
+/// `format_turns`; they also accept the `mode` turn-detection preset.
+fn is_pro_model(model: &str) -> bool {
+    model.starts_with("universal-3-") && model.ends_with("-pro")
+}
 
 fn default_speech_model() -> &'static str {
-    "universal-streaming-english"
+    "universal-3-6-pro"
 }
 
 pub struct AssemblyAiProvider {
@@ -50,8 +52,11 @@ impl SttProvider for AssemblyAiProvider {
              &min_turn_silence=160&max_turn_silence=1000",
             model
         );
-        // universal-3-5-pro always formats and rejects format_turns.
-        if model != PRO_MODEL {
+        if is_pro_model(model) {
+            // Pro models always format (format_turns is rejected) and take a
+            // turn-detection preset; local VAD still forces endpoints.
+            url.push_str("&mode=balanced");
+        } else {
             url.push_str("&format_turns=true");
         }
 
@@ -201,20 +206,23 @@ mod tests {
     }
 
     #[test]
-    fn pro_model_omits_format_turns() {
+    fn pro_models_omit_format_turns_and_send_mode() {
         let provider = AssemblyAiProvider::new();
-        let config = provider.connection_config(&settings(PRO_MODEL));
-        assert!(config.url.contains("speech_model=universal-3-5-pro"));
-        assert!(!config.url.contains("format_turns"));
+        for model in ["universal-3-5-pro", "universal-3-6-pro"] {
+            let config = provider.connection_config(&settings(model));
+            assert!(config.url.contains(&format!("speech_model={}", model)));
+            assert!(!config.url.contains("format_turns"), "{}", model);
+            assert!(config.url.contains("&mode=balanced"), "{}", model);
+        }
+        let config = provider.connection_config(&settings("universal-streaming-english"));
+        assert!(!config.url.contains("mode="));
     }
 
     #[test]
     fn empty_speech_model_falls_back_to_default() {
         let provider = AssemblyAiProvider::new();
         let config = provider.connection_config(&settings("  "));
-        assert!(config
-            .url
-            .contains("speech_model=universal-streaming-english"));
+        assert!(config.url.contains("speech_model=universal-3-6-pro"));
     }
 
     #[test]

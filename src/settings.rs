@@ -230,6 +230,7 @@ pub const OPENAI_TRANSCRIBE_DELAYS: &[&str] = &["minimal", "low", "medium", "hig
 
 /// AssemblyAI v3 streaming speech models.
 pub const ASSEMBLYAI_SPEECH_MODELS: &[&str] = &[
+    "universal-3-6-pro",
     "universal-streaming-english",
     "universal-streaming-multilingual",
     "universal-3-5-pro",
@@ -268,7 +269,7 @@ fn default_transcription_model() -> String {
     "gpt-transcribe".into()
 }
 fn default_assemblyai_speech_model() -> String {
-    "universal-streaming-english".into()
+    "universal-3-6-pro".into()
 }
 fn default_language() -> String {
     "en".into()
@@ -657,7 +658,7 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.model, "");
         assert_eq!(settings.transcription_model, "gpt-transcribe");
-        assert_eq!(settings.assemblyai_speech_model, "universal-streaming-english");
+        assert_eq!(settings.assemblyai_speech_model, "universal-3-6-pro");
         assert_eq!(settings.openai_transcribe_delay, "");
     }
 
@@ -727,7 +728,7 @@ mod tests {
         let mut settings = Settings::default();
         settings.assemblyai_speech_model = "universal-2".into();
         assert!(migrate(&mut settings));
-        assert_eq!(settings.assemblyai_speech_model, "universal-streaming-english");
+        assert_eq!(settings.assemblyai_speech_model, "universal-3-6-pro");
 
         for model in ASSEMBLYAI_SPEECH_MODELS {
             let mut settings = Settings::default();

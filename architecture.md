@@ -64,7 +64,7 @@ Models in use per provider:
 - OpenAI Realtime: `gpt-transcribe` (default) or `gpt-live-transcribe`, on a Realtime transcription session (no speech-to-speech model)
 - Deepgram: `nova-3` on `/v1/listen`
 - ElevenLabs Realtime: `scribe_v2_realtime`
-- AssemblyAI: `universal-streaming-english` (default), `universal-streaming-multilingual`, or `universal-3-5-pro` on streaming v3
+- AssemblyAI: `universal-3-6-pro` (default), `universal-3-5-pro`, `universal-streaming-english`, or `universal-streaming-multilingual` on streaming v3
 
 Provider integrations vary by:
 - URL and auth headers
