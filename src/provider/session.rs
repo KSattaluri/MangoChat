@@ -43,9 +43,31 @@ fn build_ws_request(config: &ConnectionConfig) -> Result<tungstenite::http::Requ
         request = request.header(name.as_str(), value.as_str());
     }
 
+    // tungstenite requires an explicit Host header on a hand-built request and
+    // fails the handshake locally (before any network I/O) if it is missing.
+    // Derive it from the URL unless the provider supplied one.
+    let has_host = config
+        .headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("host"));
+    if !has_host {
+        let host = host_from_url(&config.url)
+            .ok_or_else(|| format!("Could not derive Host from url: {}", config.url))?;
+        request = request.header("Host", host);
+    }
+
     request
         .body(())
         .map_err(|e| format!("Failed to build request: {}", e))
+}
+
+fn host_from_url(url: &str) -> Option<String> {
+    let uri: tungstenite::http::Uri = url.parse().ok()?;
+    let host = uri.host()?;
+    Some(match uri.port_u16() {
+        Some(port) => format!("{}:{}", host, port),
+        None => host.to_string(),
+    })
 }
 
 pub async fn validate_key(
@@ -255,6 +277,10 @@ pub async fn run_session(
     let ws_stream = match connect_async(request).await {
         Ok((stream, _)) => stream,
         Err(e) => {
+            app_log!(
+                "[{}] connect failed (attempt {}): {}",
+                provider_name, attempts, e
+            );
             if is_permanent_connect_error(&e) {
                 emit_status(
                     &event_tx,
@@ -838,6 +864,53 @@ mod tests {
                 status
             );
         }
+    }
+
+    fn config_with_headers(url: &str, headers: Vec<(String, String)>) -> ConnectionConfig {
+        ConnectionConfig {
+            url: url.to_string(),
+            headers,
+            init_message: None,
+            audio_encoding: AudioEncoding::RawBinary,
+            commit_message: CommitMessage::None,
+            close_message: None,
+            keepalive_message: None,
+            keepalive_interval_secs: 0,
+            min_audio_chunk_ms: 0,
+            pre_commit_silence_ms: 0,
+            commit_flush_timeout_ms: 0,
+            sample_rate: 16_000,
+        }
+    }
+
+    #[test]
+    fn ws_request_derives_host_from_url_when_not_supplied() {
+        let config = config_with_headers(
+            "wss://api.openai.com/v1/realtime?intent=transcription",
+            vec![("Authorization".into(), "Bearer x".into())],
+        );
+        let request = build_ws_request(&config).expect("request");
+        assert_eq!(request.headers().get("host").unwrap(), "api.openai.com");
+        assert_eq!(request.headers().get("authorization").unwrap(), "Bearer x");
+    }
+
+    #[test]
+    fn ws_request_keeps_provider_supplied_host() {
+        let config = config_with_headers(
+            "wss://api.deepgram.com/v1/listen",
+            vec![("Host".into(), "api.deepgram.com".into())],
+        );
+        let request = build_ws_request(&config).expect("request");
+        let hosts: Vec<_> = request.headers().get_all("host").iter().collect();
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0], "api.deepgram.com");
+    }
+
+    #[test]
+    fn host_from_url_includes_explicit_port() {
+        assert_eq!(host_from_url("wss://localhost:8765/ws").as_deref(), Some("localhost:8765"));
+        assert_eq!(host_from_url("wss://streaming.assemblyai.com/v3/ws?x=1").as_deref(), Some("streaming.assemblyai.com"));
+        assert_eq!(host_from_url("not a url"), None);
     }
 
     #[test]
