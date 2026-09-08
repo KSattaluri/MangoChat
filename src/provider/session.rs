@@ -70,6 +70,38 @@ fn host_from_url(url: &str) -> Option<String> {
     })
 }
 
+/// How long `validate_key` waits for the provider to say something after the
+/// init message. Providers that reject a key after the HTTP upgrade (OpenAI
+/// answers with an `error` event) reply well within this; providers that stay
+/// silent until audio arrives are treated as valid once the window expires.
+const VALIDATE_REPLY_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Outcome of inspecting one server message during key validation.
+#[derive(Debug, PartialEq)]
+enum ValidationVerdict {
+    /// The message proves the credentials were rejected.
+    Rejected(String),
+    /// The message is a normal post-connect event; the key is accepted.
+    Accepted,
+    /// Nothing conclusive; keep reading.
+    Undecided,
+}
+
+fn classify_validation_reply(provider: &dyn SttProvider, text: &str) -> ValidationVerdict {
+    let mut verdict = ValidationVerdict::Undecided;
+    for event in provider.parse_event(text) {
+        match event {
+            ProviderEvent::Error(message) => return ValidationVerdict::Rejected(message),
+            ProviderEvent::Ignore
+            | ProviderEvent::Status(_)
+            | ProviderEvent::TranscriptDelta(_)
+            | ProviderEvent::TranscriptFinal(_)
+            | ProviderEvent::SendControl(_) => verdict = ValidationVerdict::Accepted,
+        }
+    }
+    verdict
+}
+
 pub async fn validate_key(
     provider: Arc<dyn SttProvider>,
     settings: ProviderSettings,
@@ -85,7 +117,7 @@ pub async fn validate_key(
         }
     };
 
-    let (mut ws_tx, _) = ws_stream.split();
+    let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
     if let Some(ref init) = config.init_message {
         if let Err(e) = ws_tx
@@ -96,8 +128,40 @@ pub async fn validate_key(
         }
     }
 
+    // Some providers (OpenAI) accept the WebSocket upgrade for any key and
+    // only report a bad credential as an event afterwards, so a successful
+    // handshake alone proves nothing. Read until the server either rejects
+    // the key, sends a normal event, or stays quiet for the whole window.
+    let deadline = tokio::time::sleep(VALIDATE_REPLY_TIMEOUT);
+    tokio::pin!(deadline);
+    let result = loop {
+        tokio::select! {
+            _ = &mut deadline => break Ok(()),
+            msg = ws_rx.next() => match msg {
+                Some(Ok(tungstenite::Message::Text(text))) => {
+                    match classify_validation_reply(provider.as_ref(), &text) {
+                        ValidationVerdict::Rejected(message) => {
+                            break Err(format!("{} rejected key: {}", provider_name, message));
+                        }
+                        ValidationVerdict::Accepted => break Ok(()),
+                        ValidationVerdict::Undecided => {}
+                    }
+                }
+                Some(Ok(tungstenite::Message::Close(frame))) => {
+                    let detail = frame
+                        .map(|f| format!("{} {}", f.code, f.reason))
+                        .unwrap_or_else(|| "no close frame".into());
+                    break Err(format!("{} closed the connection: {}", provider_name, detail));
+                }
+                Some(Ok(_)) => {}
+                Some(Err(e)) => break Err(format!("{} websocket error: {}", provider_name, e)),
+                None => break Err(format!("{} closed the connection", provider_name)),
+            },
+        }
+    };
+
     let _ = ws_tx.close().await;
-    Ok(())
+    result
 }
 
 fn emit_status(tx: &EventSender<AppEvent>, status: &str, message: &str) {
@@ -881,6 +945,71 @@ mod tests {
             commit_flush_timeout_ms: 0,
             sample_rate: 16_000,
         }
+    }
+
+    /// Live check against the real providers. Run with:
+    ///   MANGOCHAT_LIVE_KEY_<PROVIDER>=<key> cargo test live_validate -- --ignored --nocapture
+    /// Any provider without an env var is skipped. A key of "bad" is expected
+    /// to be rejected; anything else is expected to be accepted.
+    #[test]
+    #[ignore]
+    fn live_validate_key_reads_server_verdict() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let mut failures = Vec::new();
+        for id in ["openai", "deepgram", "assemblyai", "elevenlabs"] {
+            let var = format!("MANGOCHAT_LIVE_KEY_{}", id.to_uppercase());
+            let Ok(key) = std::env::var(&var) else { continue };
+            let expect_ok = key != "bad";
+            let settings = ProviderSettings {
+                api_key: key,
+                transcription_model: "gpt-transcribe".into(),
+                language: "en".into(),
+                openai_transcribe_delay: String::new(),
+                assemblyai_speech_model: String::new(),
+            };
+            let started = Instant::now();
+            let result = rt.block_on(validate_key(super::super::create_provider(id), settings));
+            eprintln!(
+                "{}: expect_ok={} took={:?} result={:?}",
+                id,
+                expect_ok,
+                started.elapsed(),
+                result
+            );
+            if result.is_ok() != expect_ok {
+                failures.push(id);
+            }
+        }
+        assert!(failures.is_empty(), "wrong verdict for {:?}", failures);
+    }
+
+    #[test]
+    fn validation_reply_error_event_is_rejected() {
+        let provider = super::super::openai::OpenAiProvider::new();
+        let verdict = classify_validation_reply(
+            &provider,
+            r#"{"type":"error","error":{"code":"invalid_api_key","message":"Incorrect API key provided"}}"#,
+        );
+        assert_eq!(
+            verdict,
+            ValidationVerdict::Rejected("Incorrect API key provided".into())
+        );
+    }
+
+    #[test]
+    fn validation_reply_lifecycle_event_is_accepted() {
+        let provider = super::super::openai::OpenAiProvider::new();
+        let verdict = classify_validation_reply(&provider, r#"{"type":"session.created"}"#);
+        assert_eq!(verdict, ValidationVerdict::Accepted);
+    }
+
+    #[test]
+    fn validation_reply_unparseable_text_is_rejected() {
+        // parse_event reports unparseable input as a provider error; a server
+        // that sends garbage after the init message is not a working session.
+        let provider = super::super::openai::OpenAiProvider::new();
+        let verdict = classify_validation_reply(&provider, "not json");
+        assert!(matches!(verdict, ValidationVerdict::Rejected(_)));
     }
 
     #[test]
