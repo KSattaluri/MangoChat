@@ -6,68 +6,12 @@ on:
       - "v*"
 
 permissions:
-  id-token: write
+  contents: write
 
 jobs:
-  preflight-signing:
-    if: ${{ !contains(github.ref_name, '-') }}
-    runs-on: windows-latest
-    environment: release
-
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # Trusted Signing only needs a tenant-scoped token; the signing
-          # principal has no subscription-level role, and az login otherwise
-          # aborts with "No subscriptions found".
-          allow-no-subscriptions: true
-
-      - name: Build probe executable
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path preflight | Out-Null
-          @'
-          public static class Program
-          {
-              public static void Main() { }
-          }
-          '@ | Out-File -FilePath preflight\probe.cs -Encoding ascii
-
-          $candidates = @(
-            "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
-            "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
-          )
-          $csc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $csc) { throw "csc.exe not found on runner" }
-
-          & $csc /nologo /target:exe /out:preflight\probe.exe preflight\probe.cs
-          if ($LASTEXITCODE -ne 0) { throw "csc compilation failed with exit code $LASTEXITCODE" }
-          if (-not (Test-Path preflight\probe.exe)) { throw "Failed to build probe executable" }
-
-      - name: Preflight signing authorization check
-        uses: azure/artifact-signing-action@v1.2.0
-        with:
-          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
-          files-folder: ${{ github.workspace }}\preflight
-          files-folder-filter: probe.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
   build-and-release:
     if: ${{ !contains(github.ref_name, '-') }}
-    needs: preflight-signing
     runs-on: windows-latest
-    environment: release
-    permissions:
-      contents: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -96,29 +40,6 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # Trusted Signing only needs a tenant-scoped token; the signing
-          # principal has no subscription-level role, and az login otherwise
-          # aborts with "No subscriptions found".
-          allow-no-subscriptions: true
-
-      - name: Sign app binary (Artifact Signing)
-        uses: azure/artifact-signing-action@v1.2.0
-        with:
-          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
-          files-folder: ${{ github.workspace }}\target\release
-          files-folder-filter: mangochat.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
@@ -129,18 +50,6 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "ISCC not found: $iscc" }
           $exe = (Resolve-Path "target\release\mangochat.exe").Path
           & $iscc "installer\MangoChat.iss" "/DMyAppVersion=${{ steps.vars.outputs.version }}" "/DMyAppExe=$exe"
-
-      - name: Sign installer (Artifact Signing)
-        uses: azure/artifact-signing-action@v1.2.0
-        with:
-          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_CERT_PROFILE }}
-          files-folder: ${{ github.workspace }}\dist
-          files-folder-filter: MangoChat-Setup-*.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
 
       - name: Create stable latest installer filename
         shell: pwsh

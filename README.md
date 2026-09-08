@@ -28,6 +28,10 @@ Download the latest Windows installer from Releases:
 
 1. Download `MangoChat-Setup-<version>.exe` from the latest release.
 2. Run the installer (no admin rights required).
+   The installer is not code-signed, so Windows SmartScreen may show
+   "Windows protected your PC". Click **More info**, then **Run anyway**.
+   Verify the download against `SHA256SUMS.txt` on the release page if you
+   want to be sure it is untampered.
 3. Complete setup and launch Mango Chat.
 
 Install location is per-user under `%LOCALAPPDATA%\Programs\MangoChat`.
