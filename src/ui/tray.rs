@@ -1,5 +1,10 @@
 use super::theme::AccentPalette;
 
+/// Tray menu item ids, matched in the tray event thread in `ui/mod.rs`.
+pub const TRAY_MENU_SHOW: &str = "show";
+pub const TRAY_MENU_HIDE: &str = "hide";
+pub const TRAY_MENU_QUIT: &str = "quit";
+
 /// Mango icon PNG embedded at compile time.
 const MANGO_PNG: &[u8] = include_bytes!("../../icons/mango.png");
 
@@ -8,8 +13,12 @@ pub fn setup_tray(_accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
     use tray_icon::TrayIconBuilder;
 
     let menu = Menu::new();
-    let quit = MenuItem::with_id("quit", "Quit", true, None);
+    let show = MenuItem::with_id(TRAY_MENU_SHOW, "Show Mango Chat", true, None);
+    let hide = MenuItem::with_id(TRAY_MENU_HIDE, "Hide to tray", true, None);
+    let quit = MenuItem::with_id(TRAY_MENU_QUIT, "Quit", true, None);
 
+    let _ = menu.append(&show);
+    let _ = menu.append(&hide);
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&quit);
 
@@ -20,6 +29,9 @@ pub fn setup_tray(_accent: AccentPalette) -> Option<tray_icon::TrayIcon> {
 
     let tray = match TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        // Left-click toggles the window (see the TrayIconEvent thread in
+        // ui/mod.rs); the menu stays on right-click.
+        .with_menu_on_left_click(false)
         .with_tooltip("Mango Chat")
         .with_icon(icon)
         .build()

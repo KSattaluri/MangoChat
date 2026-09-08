@@ -17,6 +17,12 @@ pub enum AppEvent {
     SessionMaxDurationReached { token: u64, minutes: u64 },
     ApiKeyValidated { provider: String, ok: bool, message: String },
     AudioInputLost { message: String },
+    /// Tray icon / tray menu asked to bring the window back on screen.
+    TrayShowWindow,
+    /// Tray menu asked to park the window off screen ("hide to tray").
+    TrayHideWindow,
+    /// Left-click on the tray icon: show if parked, otherwise hide.
+    TrayToggleWindow,
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize, Clone)]

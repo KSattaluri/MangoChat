@@ -157,6 +157,14 @@ pub fn resolve_target_monitor(monitor_id: &str) -> Option<MonitorWorkArea> {
         .or_else(|| monitors.first().cloned())
 }
 
+/// Where a "hidden to tray" window is parked. Windows itself parks minimized
+/// windows at this coordinate, so it is guaranteed to be off every monitor.
+/// The window stays *shown* (not SW_HIDE and not minimized) on purpose: a
+/// hidden HWND receives no WM_PAINT, which would stall eframe's update loop
+/// and with it hotkey dictation. Parking keeps the loop running.
+pub const TRAY_PARK_X: i32 = -32000;
+pub const TRAY_PARK_Y: i32 = -32000;
+
 #[cfg(windows)]
 pub fn move_window_physical(x: i32, y: i32) {
     use windows::core::PCWSTR;

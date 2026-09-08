@@ -30,6 +30,13 @@ use tray::*;
 use widgets::*;
 use window::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrayRequest {
+    Show,
+    Hide,
+    Toggle,
+}
+
 #[derive(Debug, Clone)]
 pub enum UpdateUiState {
     NotChecked,
@@ -76,6 +83,13 @@ pub struct MangoChatApp {
     pub positioned: bool,
     pub initial_position_corrected: bool,
     pub compact_anchor_pos: Option<Pos2>,
+
+    // Hide-to-tray: the window is parked off screen (never SW_HIDE, see
+    // window::TRAY_PARK_X). `tray_request` is set by process_events and
+    // acted on in update(), which has the egui context.
+    pub tray_parked: bool,
+    pub tray_request: Option<TrayRequest>,
+    pub tray_park_pending: bool,
 
     // Error auto-recovery
     pub error_time: Option<std::time::Instant>,
@@ -243,7 +257,7 @@ impl MangoChatApp {
         event_rx: EventReceiver<AppEvent>,
         runtime: Arc<tokio::runtime::Runtime>,
         settings: Settings,
-        _egui_ctx: egui::Context,
+        egui_ctx: egui::Context,
     ) -> Self {
         if let Ok(removed) = updater::cleanup_stale_temp_installers(7) {
             if removed > 0 {
@@ -263,18 +277,55 @@ impl MangoChatApp {
         let tray_icon = setup_tray(accent_palette(&settings.accent_color));
         app_log!("[tray] icon created: {}", tray_icon.is_some());
 
-        // Background thread for tray events so quit is handled even if the UI thread stalls.
+        // Background thread for tray menu events so quit is handled even if the UI thread stalls.
         {
+            let tx = event_tx.clone();
+            let ctx = egui_ctx.clone();
             std::thread::spawn(move || {
                 while let Ok(event) = tray_icon::menu::MenuEvent::receiver().recv() {
                     let id = event.id.0.as_str();
                     app_log!("[tray-thread] menu event: {}", id);
                     match id {
-                        "quit" => {
+                        TRAY_MENU_QUIT => {
                             app_log!("[tray-thread] quit — calling process::exit");
                             std::process::exit(0);
                         }
+                        TRAY_MENU_SHOW => {
+                            let _ = tx.send(AppEvent::TrayShowWindow);
+                            ctx.request_repaint();
+                        }
+                        TRAY_MENU_HIDE => {
+                            let _ = tx.send(AppEvent::TrayHideWindow);
+                            ctx.request_repaint();
+                        }
                         _ => {}
+                    }
+                }
+            });
+        }
+
+        // Left-click (or double-click) on the tray icon toggles the window.
+        {
+            use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
+            let tx = event_tx.clone();
+            let ctx = egui_ctx.clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = TrayIconEvent::receiver().recv() {
+                    let request = match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } => Some(AppEvent::TrayToggleWindow),
+                        TrayIconEvent::DoubleClick {
+                            button: MouseButton::Left,
+                            ..
+                        } => Some(AppEvent::TrayShowWindow),
+                        _ => None,
+                    };
+                    if let Some(request) = request {
+                        let _ = tx.send(request);
+                        ctx.request_repaint();
                     }
                 }
             });
@@ -297,6 +348,9 @@ impl MangoChatApp {
             mic_devices,
             _tray_icon: tray_icon,
             positioned: false,
+            tray_parked: false,
+            tray_request: None,
+            tray_park_pending: false,
             initial_position_corrected: false,
             compact_anchor_pos: None,
             mango_texture: None,
@@ -474,6 +528,58 @@ impl MangoChatApp {
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
         }
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(target));
+    }
+
+    /// Acts on a pending tray request. Called once per frame from update().
+    fn handle_tray_request(&mut self, ctx: &egui::Context) {
+        // Parking is deferred by one frame so that any viewport commands
+        // issued while closing Settings (position + size) are applied by
+        // eframe first; otherwise they would move the window back on screen.
+        if self.tray_park_pending {
+            self.tray_park_pending = false;
+            self.tray_parked = true;
+            move_window_physical(TRAY_PARK_X, TRAY_PARK_Y);
+            app_log!("[tray] window parked off screen");
+        }
+
+        let Some(request) = self.tray_request.take() else {
+            return;
+        };
+        let show = match request {
+            TrayRequest::Show => true,
+            TrayRequest::Hide => false,
+            TrayRequest::Toggle => self.tray_parked,
+        };
+        if show {
+            self.show_from_tray(ctx);
+        } else {
+            self.hide_to_tray(ctx);
+        }
+    }
+
+    fn hide_to_tray(&mut self, ctx: &egui::Context) {
+        if self.tray_parked || self.tray_park_pending {
+            return;
+        }
+        if self.settings_open {
+            self.persist_accent_if_changed();
+            self.settings_open = false;
+            self.apply_window_mode(ctx, false);
+        }
+        self.tray_park_pending = true;
+    }
+
+    fn show_from_tray(&mut self, ctx: &egui::Context) {
+        if !self.tray_parked && !self.tray_park_pending {
+            return;
+        }
+        self.tray_park_pending = false;
+        self.tray_parked = false;
+        // Re-run compact placement: for the fixed monitor mode this is a native
+        // move to the configured anchor, otherwise it restores compact_anchor_pos.
+        self.apply_window_mode(ctx, false);
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+        app_log!("[tray] window restored");
     }
 
     pub fn set_status(&mut self, text: &str, state: &str) {
@@ -713,6 +819,9 @@ impl MangoChatApp {
                     self.last_validated_provider = Some(provider.clone());
                     self.key_check_result.insert(provider, (ok, message));
                 }
+                AppEvent::TrayShowWindow => self.tray_request = Some(TrayRequest::Show),
+                AppEvent::TrayHideWindow => self.tray_request = Some(TrayRequest::Hide),
+                AppEvent::TrayToggleWindow => self.tray_request = Some(TrayRequest::Toggle),
                 AppEvent::AudioInputLost { message } => {
                     app_err!("[ui] audio input lost: {}", message);
                     if self.is_recording {
@@ -1017,37 +1126,52 @@ impl MangoChatApp {
                     let icon_alloc = icon_s + 3.0;
                     ui.allocate_ui(vec2(row_w, 16.0), |ui| {
                         ui.spacing_mut().interact_size.y = 16.0;
-                        ui.horizontal(|ui| {
+                        // Right-to-left so the hide triangle takes the right
+                        // end first and the truncating label gets the rest.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
-                            let (icon_rect, _) =
-                                ui.allocate_exact_size(vec2(icon_alloc, 16.0), Sense::hover());
-                            let icon_center =
-                                pos2(icon_rect.min.x + icon_s * 0.5, icon_rect.center().y);
-                            if use_sparkle_icon {
-                                draw_sparkle_status_icon(
-                                    ui.painter(),
-                                    icon_center,
-                                    icon_s,
-                                    mic_color,
-                                    t,
-                                );
-                            } else {
-                                draw_mic_status_icon(
-                                    ui.painter(),
-                                    icon_center,
-                                    icon_s,
-                                    mic_color,
-                                    self.is_recording,
-                                    t,
-                                );
+                            if !self.settings_open {
+                                let hide_resp = hide_toggle(ui, mic_color);
+                                if hide_resp.clicked() {
+                                    self.hide_to_tray(ctx);
+                                }
+                                ui.add_space(2.0);
                             }
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(display_text)
-                                        .size(10.5)
-                                        .color(text_color),
-                                )
-                                .truncate(),
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+                                    let (icon_rect, _) = ui
+                                        .allocate_exact_size(vec2(icon_alloc, 16.0), Sense::hover());
+                                    let icon_center =
+                                        pos2(icon_rect.min.x + icon_s * 0.5, icon_rect.center().y);
+                                    if use_sparkle_icon {
+                                        draw_sparkle_status_icon(
+                                            ui.painter(),
+                                            icon_center,
+                                            icon_s,
+                                            mic_color,
+                                            t,
+                                        );
+                                    } else {
+                                        draw_mic_status_icon(
+                                            ui.painter(),
+                                            icon_center,
+                                            icon_s,
+                                            mic_color,
+                                            self.is_recording,
+                                            t,
+                                        );
+                                    }
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(display_text)
+                                                .size(10.5)
+                                                .color(text_color),
+                                        )
+                                        .truncate(),
+                                    );
+                                },
                             );
                         });
                     });
@@ -1557,6 +1681,7 @@ impl eframe::App for MangoChatApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_appearance(ctx);
         self.process_events();
+        self.handle_tray_request(ctx);
 
         if !self.update_startup_check_done
             && !self.update_check_inflight

@@ -47,6 +47,10 @@ Install location is per-user under `%LOCALAPPDATA%\Programs\MangoChat`.
 
 API keys are encrypted with Windows DPAPI and stored locally.
 
+## System Tray
+
+Mango Chat lives in the system tray. Click the mango icon to hide the window or bring it back; the hotkey keeps working while it is hidden. Right-click the icon for **Show Mango Chat**, **Hide to tray**, and **Quit**.
+
 ## Provider Cost Notes
 
 Mango Chat is free. You only pay your speech provider.

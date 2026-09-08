@@ -104,6 +104,32 @@ pub fn mic_unavailable_badge(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
     response
 }
 
+/// "Hide to tray" control at the right end of the status row: a bare
+/// inverted triangle in the same colour as the mic icon (accent while
+/// armed, muted grey otherwise). Hover brightens it slightly.
+pub fn hide_toggle(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let size = vec2(16.0, 16.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let c = rect.center();
+        let color = if response.hovered() {
+            color.gamma_multiply(1.25)
+        } else {
+            color
+        };
+        let w = 9.0;
+        let h = 6.0;
+        let points = vec![
+            pos2(c.x - w * 0.5, c.y - h * 0.45),
+            pos2(c.x + w * 0.5, c.y - h * 0.45),
+            pos2(c.x, c.y + h * 0.55),
+        ];
+        ui.painter()
+            .add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
+    }
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
 pub fn collapse_toggle(ui: &mut egui::Ui, accent: AccentPalette) -> egui::Response {
     let size = vec2(30.0, 30.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());

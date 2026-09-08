@@ -398,8 +398,8 @@ pub fn render_faq(app: &mut MangoChatApp, ui: &mut egui::Ui, _ctx: &egui::Contex
                     "When you start recording, Mango Chat listens for audio from your device and streams it to your selected provider for transcription. Place your cursor in a text field to begin dictating.",
                 ),
                 (
-                    "How do I quit Mango Chat?",
-                    "Open the system tray and click Quit.",
+                    "How do I hide or quit Mango Chat?",
+                    "Click the mango icon in the system tray to hide the window or bring it back. Dictation keeps working while it is hidden. Right-click the icon for Show, Hide to tray, and Quit.",
                 ),
                 (
                     "Why do I need API keys?",
